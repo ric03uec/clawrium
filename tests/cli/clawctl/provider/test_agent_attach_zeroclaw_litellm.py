@@ -133,7 +133,13 @@ def test_zeroclaw_single_provider_invariant_still_holds_for_litellm(
         app,
         ["agent", "provider", "attach", "anth", "--agent", "clawrium-d01"],
     )
-    assert second.exit_code != 0
+    # Pin the specific single-provider-rejection exit code (1) rather
+    # than any non-zero — Typer emits exit 2 for usage errors and exit
+    # 127 for command-not-found, and `!= 0` would false-pass either.
+    assert second.exit_code == 1, (
+        f"expected exit code 1 (single-provider rejection), got "
+        f"{second.exit_code}. output:\n{second.output}"
+    )
     assert "already has provider" in second.output
     assert "detach" in second.output
     assert "clawrium-gtm-litellm" in second.output

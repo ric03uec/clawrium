@@ -1,0 +1,787 @@
+# Managed by clawrium (clawctl). Re-render with `clawctl agent configure alpha`.
+# This template is a FULL copy of the canonical zeroclaw config.toml — every section
+# zeroclaw expects is preserved verbatim. Only clawctl-managed values are templated.
+schema_version = 2
+
+[gateway]
+host = "0.0.0.0"
+port = 40000
+allow_public_bind = true
+require_pairing = true
+idempotency_max_keys = 10000
+idempotency_ttl_secs = 300
+pair_rate_limit_per_minute = 10
+# W5 (ATX #555 polish round 2): always empty — every clawctl render
+# wipes paired tokens so the daemon requires a fresh /pair handshake
+# after configure/sync/restart. See AGENTS.md "Gateway Token Lifecycle
+# (zeroclaw)". Do not persist tokens here; the canonical pipeline
+# re-mints the bearer via `_zeroclaw_repair_after_start`.
+paired_tokens = []
+rate_limit_max_keys = 10000
+session_persistence = true
+session_ttl_hours = 0
+trust_forwarded_headers = false
+webhook_rate_limit_per_minute = 60
+
+[gateway.pairing_dashboard]
+code_length = 8
+code_ttl_secs = 3600
+lockout_secs = 300
+max_failed_attempts = 5
+max_pending_codes = 3
+
+[providers]
+fallback = "opencode-go"
+
+# #817: zeroclaw ≥0.8.2 requires the THREE-level provider table
+# `[providers.models.<type>.<alias>]`. The two-level shape used up
+# through 0.7.5 (`[providers.models.<type>]`) is no longer recognized
+# by the boot-time model_provider resolver — the gateway boots in
+# `needs_quickstart` mode and refuses chat with "Chat endpoints will
+# return 503 needs_quickstart until at least one
+# [providers.models.<type>.<alias>] model = \"...\" is set"
+# (crates/zeroclaw-gateway/src/lib.rs line 708).
+# Alias key = agent_name so the `[agents.<alias>].model_provider`
+# reference below stays in lockstep.
+[providers.models.opencode-go.alpha]
+model = "kimi-k2.5"
+base_url = "https://opencode.ai/zen/go/v1"
+api_key = "sk-opencode-go-1"
+
+
+[agent]
+max_tool_iterations = 200
+max_context_tokens = 180000
+max_tool_result_chars = 200000
+max_history_messages = 200
+keep_tool_context_turns = 8
+compact_context = false
+context_aware_tools = false
+max_system_prompt_chars = 0
+parallel_tools = false
+tool_call_dedup_exempt = []
+tool_dispatcher = "auto"
+tool_filter_groups = []
+
+[agent.context_compression]
+enabled = true
+identifier_policy = "strict"
+max_passes = 3
+protect_first_n = 3
+protect_last_n = 4
+source_max_chars = 50000
+summary_max_chars = 4000
+threshold_ratio = 0.5
+timeout_secs = 60
+tool_result_retrim_chars = 2000
+tool_result_trim_exempt = []
+
+[agent.eval]
+enabled = false
+max_retries = 1
+min_quality_score = 0.5
+
+[agent.history_pruning]
+collapse_tool_results = true
+enabled = false
+keep_recent = 4
+max_tokens = 8192
+
+[agent.thinking]
+default_level = "medium"
+
+[agent.tool_receipts]
+enabled = false
+inject_system_prompt = true
+show_in_response = false
+
+[channels]
+ack_reactions = true
+cli = true
+debounce_ms = 0
+message_timeout_secs = 300
+session_backend = "sqlite"
+session_persistence = true
+session_ttl_hours = 0
+show_tool_calls = false
+
+
+[channels.discord]
+enabled = true
+bot_token = "discord-bot"
+allowed_users = ["u1", "u2"]
+allowed_guilds = ["g1"]
+
+mention_only = true
+stream_mode = "off"
+approval_timeout_secs = 300
+draft_update_interval_ms = 1000
+interrupt_on_new_message = false
+listen_to_bots = false
+multi_message_delay_ms = 800
+stall_timeout_secs = 0
+
+
+[autonomy]
+level = "supervised"
+workspace_only = true
+max_actions_per_hour = 1000
+max_cost_per_day_cents = 50000
+shell_timeout_secs = 600
+allowed_commands = [
+  # Shell / coreutils
+  "bash", "sh", "env", "which", "whoami", "pwd",
+  "ls", "cat", "head", "tail", "wc", "stat", "file",
+  "echo", "date", "uname", "hostname",
+  # Text search / processing
+  "grep", "egrep", "fgrep", "rg", "find", "tree",
+  "sed", "awk", "cut", "sort", "uniq", "tr", "diff", "tee", "xargs",
+  # File ops — gated by forbidden_paths to keep them out of /etc, ~/.ssh, etc.
+  "mkdir", "rm", "rmdir", "mv", "cp", "touch", "ln", "chmod",
+  # Archives
+  "tar", "gzip", "gunzip", "zip", "unzip",
+  # Network
+  "curl", "wget",
+  # VCS
+  "git", "gh",
+  # Build / language toolchains
+  "make", "cmake",
+  "python3", "python", "pip", "pip3", "pipx",
+  "uv", "uvx", "pytest", "tox", "ruff",
+  "node", "npm", "npx", "yarn", "pnpm",
+  "cargo", "rustc", "rustup",
+  "go",
+  # JSON / YAML
+  "jq", "yq",
+]
+block_high_risk_commands = false
+forbidden_paths = [
+  "/etc", "/sys", "/boot", "/proc",
+  "~/.ssh", "~/.aws", "~/.gnupg", "~/.config/clawrium",
+]
+shell_env_passthrough = ["PATH", "HOME", "USER", "LANG", "GITHUB_TOKEN_GH_A", "GITHUB_TOKEN"]
+auto_approve = ["file_read", "file_list", "content_search", "glob_search", "pdf_read", "image_info", "file_write", "file_edit", "http_request", "web_fetch", "web_search", "web_search_tool", "time", "weather", "memory_search", "memory_pin", "memory_recall", "memory_store", "memory_forget", "git_operations", "schedule", "cron_add", "cron_list", "cron_remove", "cron_run", "cron_runs", "cron_update", "ask_user", "escalate_to_human", "sessions_current", "sessions_list", "tool_search", "calculator", "browser", "browser_open"]
+allowed_roots = []
+always_ask = []
+non_cli_excluded_tools = []
+require_approval_for_medium_risk = true
+
+[pacing]
+loop_detection_enabled = true
+loop_detection_window_size = 40
+loop_detection_max_repeats = 12
+loop_ignore_tools = [
+  "shell",
+  "file_read",
+  "file_list",
+  "content_search",
+  "glob_search",
+]
+
+[agents]
+
+# Per-agent alias sub-table required by zeroclaw ≥0.8.2. The gateway's
+# `/ws/chat` endpoint refuses connections without `?agent=<alias>` AND
+# a matching `[agents.<alias>]` entry (crates/zeroclaw-gateway/src/ws.rs
+# line 204). Every clawctl-managed agent gets exactly one alias whose
+# name equals `agent_name`.
+#
+# `model_provider` MUST resolve to `<type>.<alias>` — a reference into
+# the three-level `[providers.models.<type>.<alias>]` table rendered
+# above. Alias key equals `agent_name` on both sides so a
+# single-provider agent always has exactly one alias to point at.
+# `risk_profile` and `runtime_profile` must both name a configured
+# entry: `AliasedAgentConfig::is_dispatchable` demands all three
+# refs are non-empty
+# (crates/zeroclaw-config/src/schema.rs line 3541). Both point at
+# `default` since we don't split policy per-agent; the daemon's
+# schema/v2.rs migration folds legacy settings into a
+# `[risk_profiles.default]` + `[runtime_profiles.default]` entry
+# that gets materialized when the config is first loaded on 0.8.2.
+[agents.alpha]
+model_provider = "opencode-go.alpha"
+risk_profile = "default"
+runtime_profile = "default"
+
+# `[risk_profiles.<alias>]` and `[runtime_profiles.<alias>]` must exist
+# for the refs above to resolve — the daemon errors with "does not
+# name a configured risk_profiles entry" otherwise. Both structs
+# carry `#[serde(default)]` on every field and a full `Default`
+# impl (crates/zeroclaw-config/src/schema.rs lines 10589, 10684), so
+# empty stanzas are valid — the daemon materializes safety-first
+# defaults matching what a legacy config would have migrated into.
+[risk_profiles.default]
+
+[runtime_profiles.default]
+
+[backup]
+compress = true
+destination_dir = "state/backups"
+enabled = true
+encrypt = false
+include_dirs = ["config", "memory", "audit", "knowledge"]
+max_keep = 10
+
+[browser]
+allowed_domains = ["*"]
+backend = "agent_browser"
+enabled = true
+native_headless = true
+native_webdriver_url = "http://127.0.0.1:9515"
+
+[browser.computer_use]
+allow_remote_endpoint = false
+endpoint = "http://127.0.0.1:8787/v1/actions"
+timeout_ms = 15000
+window_allowlist = []
+
+[browser_delegate]
+allowed_domains = []
+blocked_domains = []
+chrome_profile_dir = ""
+cli_binary = "claude"
+enabled = false
+task_timeout_secs = 120
+
+[claude_code]
+allowed_tools = ["Read", "Edit", "Bash", "Write"]
+enabled = false
+env_passthrough = []
+max_output_bytes = 2097152
+timeout_secs = 600
+
+[claude_code_runner]
+enabled = false
+session_ttl = 3600
+tmux_prefix = "zc-claude-"
+
+[cloud_ops]
+cost_threshold_monthly_usd = 100.0
+default_cloud = "aws"
+enabled = false
+iac_tools = ["terraform"]
+supported_clouds = ["aws", "azure", "gcp"]
+well_architected_frameworks = ["aws-waf"]
+
+[codex_cli]
+enabled = false
+env_passthrough = []
+max_output_bytes = 2097152
+timeout_secs = 600
+
+[composio]
+enabled = false
+entity_id = "default"
+
+[cost]
+allow_override = false
+daily_limit_usd = 10.0
+enabled = true
+monthly_limit_usd = 100.0
+warn_at_percent = 80
+
+[cost.enforcement]
+mode = "warn"
+reserve_percent = 10
+
+[cost.prices]
+
+[cost.prices."anthropic/claude-3-haiku"]
+input = 0.25
+output = 1.25
+
+[cost.prices."anthropic/claude-3.5-sonnet"]
+input = 3.0
+output = 15.0
+
+[cost.prices."anthropic/claude-opus-4-20250514"]
+input = 15.0
+output = 75.0
+
+[cost.prices."anthropic/claude-sonnet-4-20250514"]
+input = 3.0
+output = 15.0
+
+[cost.prices."google/gemini-1.5-pro"]
+input = 1.25
+output = 5.0
+
+[cost.prices."google/gemini-2.0-flash"]
+input = 0.1
+output = 0.4
+
+[cost.prices."openai/gpt-4o"]
+input = 5.0
+output = 15.0
+
+[cost.prices."openai/gpt-4o-mini"]
+input = 0.15
+output = 0.6
+
+[cost.prices."openai/o1-preview"]
+input = 15.0
+output = 60.0
+
+[cron]
+catch_up_on_startup = true
+enabled = true
+jobs = []
+max_run_history = 50
+
+[data_retention]
+categories = []
+dry_run = false
+enabled = false
+retention_days = 90
+
+[delegate]
+agentic_timeout_secs = 300
+timeout_secs = 120
+
+[escalation]
+alert_channels = []
+
+[gemini_cli]
+enabled = false
+env_passthrough = []
+max_output_bytes = 2097152
+timeout_secs = 600
+
+[google_workspace]
+allowed_operations = []
+allowed_services = []
+audit_log = false
+enabled = false
+rate_limit_per_minute = 60
+timeout_secs = 30
+
+[hardware]
+baud_rate = 115200
+enabled = false
+transport = "None"
+workspace_datasheets = false
+
+[heartbeat]
+adaptive = false
+deadman_timeout_minutes = 0
+enabled = true
+interval_minutes = 30
+load_session_context = false
+max_interval_minutes = 120
+max_run_history = 100
+min_interval_minutes = 5
+task_timeout_secs = 600
+two_phase = true
+
+[hooks]
+enabled = true
+
+[hooks.builtin]
+command_logger = false
+
+[hooks.builtin.webhook_audit]
+enabled = false
+include_args = false
+max_args_bytes = 4096
+tool_patterns = []
+url = ""
+
+[http_request]
+allow_private_hosts = false
+allowed_domains = ["*"]
+enabled = true
+max_response_size = 1000000
+timeout_secs = 30
+
+[identity]
+format = "openclaw"
+
+[image_gen]
+api_key_env = "FAL_API_KEY"
+default_model = "fal-ai/flux/schnell"
+enabled = false
+
+[jira]
+allowed_actions = ["get_ticket"]
+api_token = ""
+base_url = ""
+enabled = false
+timeout_secs = 30
+
+[knowledge]
+auto_capture = false
+cross_workspace_search = false
+db_path = "/home/alpha/.zeroclaw/knowledge.db"
+enabled = false
+max_nodes = 100000
+suggest_on_query = true
+
+[link_enricher]
+enabled = false
+max_links = 3
+timeout_secs = 10
+
+[linkedin]
+api_version = "202602"
+enabled = false
+
+[linkedin.content]
+github_repos = []
+github_users = []
+instructions = ""
+persona = ""
+rss_feeds = []
+topics = []
+
+[linkedin.image]
+card_accent_color = "#0A66C2"
+enabled = false
+fallback_card = true
+providers = ["stability", "imagen", "dalle", "flux"]
+temp_dir = "linkedin/images"
+
+[linkedin.image.dalle]
+api_key_env = "OPENAI_API_KEY"
+model = "dall-e-3"
+size = "1024x1024"
+
+[linkedin.image.flux]
+api_key_env = "FAL_API_KEY"
+model = "fal-ai/flux/schnell"
+
+[linkedin.image.imagen]
+api_key_env = "GOOGLE_VERTEX_API_KEY"
+project_id_env = "GOOGLE_CLOUD_PROJECT"
+region = "us-central1"
+
+[linkedin.image.stability]
+api_key_env = "STABILITY_API_KEY"
+model = "stable-diffusion-xl-1024-v1-0"
+
+[mcp]
+deferred_loading = true
+enabled = false
+
+
+[media_pipeline]
+describe_images = true
+enabled = false
+summarize_video = true
+transcribe_audio = true
+
+[memory]
+archive_after_days = 7
+audit_enabled = false
+audit_retention_days = 30
+auto_hydrate = true
+auto_save = true
+backend = "sqlite"
+chunk_max_tokens = 512
+conflict_threshold = 0.85
+conversation_retention_days = 30
+default_namespace = "default"
+embedding_cache_size = 10000
+embedding_dimensions = 1536
+embedding_model = "text-embedding-3-small"
+embedding_provider = "none"
+fts_early_return_score = 0.85
+hygiene_enabled = true
+keyword_weight = 0.3
+min_relevance_score = 0.4
+purge_after_days = 30
+rerank_enabled = false
+rerank_threshold = 5
+response_cache_enabled = false
+response_cache_hot_entries = 256
+response_cache_max_entries = 5000
+response_cache_ttl_minutes = 60
+retrieval_stages = ["cache", "fts", "vector"]
+search_mode = "hybrid"
+snapshot_enabled = false
+snapshot_on_hygiene = false
+vector_weight = 0.7
+
+[memory.policy]
+max_entries_per_category = 0
+max_entries_per_namespace = 0
+read_only_namespaces = []
+
+[memory.policy.retention_days_by_category]
+
+[memory.postgres]
+vector_dimensions = 1536
+vector_enabled = false
+
+[memory.qdrant]
+collection = "zeroclaw_memories"
+
+[microsoft365]
+auth_flow = "client_credentials"
+enabled = false
+scopes = ["https://graph.microsoft.com/.default"]
+token_cache_encrypted = true
+
+[multimodal]
+allow_remote_fetch = false
+max_image_size_mb = 5
+max_images = 4
+
+[node_transport]
+allowed_peers = []
+connection_pool_size = 4
+enabled = true
+max_request_age_secs = 300
+mutual_tls = false
+require_https = true
+shared_secret = ""
+
+[nodes]
+enabled = false
+max_nodes = 16
+
+[notion]
+api_key = ""
+database_id = ""
+enabled = false
+input_property = "Input"
+max_concurrent = 4
+poll_interval_secs = 5
+recover_stale = true
+result_property = "Result"
+status_property = "Status"
+
+[observability]
+backend = "none"
+runtime_trace_max_entries = 200
+runtime_trace_mode = "none"
+runtime_trace_path = "state/runtime-trace.jsonl"
+
+[onboard_state]
+completed_sections = []
+
+[opencode_cli]
+enabled = false
+env_passthrough = []
+max_output_bytes = 2097152
+timeout_secs = 600
+
+[peripherals]
+boards = []
+enabled = false
+
+[pipeline]
+allowed_tools = []
+enabled = false
+max_steps = 20
+
+[plugins]
+auto_discover = false
+enabled = false
+max_plugins = 50
+plugins_dir = "/home/alpha/.zeroclaw/plugins"
+
+[plugins.security]
+signature_mode = "disabled"
+trusted_publisher_keys = []
+
+[project_intel]
+default_language = "en"
+enabled = false
+include_git_data = true
+include_jira_data = false
+report_output_dir = "/home/alpha/.zeroclaw/project-reports"
+risk_sensitivity = "medium"
+
+[proxy]
+enabled = false
+no_proxy = []
+scope = "zeroclaw"
+services = []
+
+[query_classification]
+enabled = false
+rules = []
+
+[reliability]
+api_keys = []
+channel_initial_backoff_secs = 2
+channel_max_backoff_secs = 60
+fallback_providers = []
+provider_backoff_ms = 500
+provider_retries = 2
+scheduler_poll_secs = 15
+scheduler_retries = 2
+
+[reliability.model_fallbacks]
+
+[runtime]
+kind = "native"
+
+[runtime.docker]
+allowed_workspace_roots = []
+cpu_limit = 1.0
+image = "alpine:3.20"
+memory_limit_mb = 512
+mount_workspace = true
+network = "none"
+read_only_rootfs = true
+
+[scheduler]
+enabled = true
+max_concurrent = 4
+max_tasks = 64
+
+[secrets]
+encrypt = true
+
+[security]
+
+[security.audit]
+enabled = true
+log_path = "audit.log"
+max_size_mb = 100
+sign_events = false
+
+[security.estop]
+enabled = false
+require_otp_to_resume = true
+state_file = "/home/alpha/.zeroclaw/estop-state.json"
+
+[security.nevis]
+client_id = ""
+enabled = false
+instance_url = ""
+realm = "master"
+require_mfa = false
+role_mapping = []
+session_timeout_secs = 3600
+token_validation = "local"
+
+[security.otp]
+cache_valid_secs = 300
+challenge_max_attempts = 3
+enabled = false
+gated_actions = ["shell", "file_write", "browser_open", "browser", "memory_forget"]
+gated_domain_categories = []
+gated_domains = []
+method = "totp"
+token_ttl_secs = 30
+
+[security.resources]
+max_cpu_time_seconds = 60
+max_memory_mb = 512
+max_subprocesses = 10
+memory_monitoring = true
+
+[security.sandbox]
+backend = "auto"
+firejail_args = []
+
+[security.webauthn]
+enabled = false
+rp_id = "localhost"
+rp_name = "ZeroClaw"
+rp_origin = "http://localhost:42617"
+
+[security_ops]
+auto_triage = false
+enabled = false
+max_auto_severity = "low"
+playbooks_dir = "/home/alpha/.zeroclaw/playbooks"
+report_output_dir = "/home/alpha/.zeroclaw/security-reports"
+require_approval_for_actions = true
+
+[shell_tool]
+timeout_secs = 60
+
+[skills]
+allow_scripts = false
+open_skills_enabled = false
+prompt_injection_mode = "full"
+
+[skills.skill_creation]
+enabled = false
+max_skills = 500
+similarity_threshold = 0.85
+
+[skills.skill_improvement]
+cooldown_secs = 3600
+enabled = true
+
+[sop]
+approval_timeout_secs = 300
+default_execution_mode = "supervised"
+max_concurrent_total = 4
+max_finished_runs = 100
+
+[storage]
+
+[storage.provider]
+
+[storage.provider.config]
+provider = ""
+schema = "public"
+table = "memories"
+
+[swarms]
+
+[text_browser]
+enabled = false
+timeout_secs = 30
+
+[transcription]
+api_url = "https://api.groq.com/openai/v1/audio/transcriptions"
+default_provider = "groq"
+enabled = false
+max_duration_secs = 120
+model = "whisper-large-v3-turbo"
+transcribe_non_ptt_audio = false
+
+[trust]
+correction_penalty = 0.05
+decay_half_life_days = 30.0
+initial_score = 0.8
+regression_threshold = 0.5
+success_boost = 0.01
+
+[tts]
+default_format = "mp3"
+default_provider = "openai"
+default_voice = "alloy"
+enabled = false
+max_text_length = 4096
+
+[tunnel]
+provider = "none"
+
+[verifiable_intent]
+enabled = false
+strictness = "strict"
+
+[web_fetch]
+allowed_domains = ["*"]
+allowed_private_hosts = []
+blocked_domains = []
+enabled = true
+max_response_size = 500000
+timeout_secs = 30
+
+[web_fetch.firecrawl]
+api_key_env = "FIRECRAWL_API_KEY"
+api_url = "https://api.firecrawl.dev/v1"
+enabled = false
+mode = "scrape"
+
+[web_search]
+enabled = true
+max_results = 5
+provider = "duckduckgo"
+timeout_secs = 15
+
+[workspace]
+cross_workspace_search = false
+enabled = false
+isolate_audit = true
+isolate_memory = true
+isolate_secrets = true
+workspaces_dir = "/home/alpha/.zeroclaw/workspaces"

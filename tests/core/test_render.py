@@ -1459,23 +1459,42 @@ def test_zeroclaw_litellm_endpoint_trailing_slash_after_v1_stripped():
     assert "http://192.168.1.17:4000/v1/v1" not in toml
 
 
-def test_zeroclaw_litellm_render_is_byte_locked():
-    """Byte-lock: the rendered TOML for a canonical litellm agent must
-    match the frozen fixture exactly. Any future change to neighboring
-    template branches (ollama / opencode / default) that shifts a byte
-    of the litellm output will fail this test.
+@pytest.mark.parametrize(
+    "ptype,fixture_name",
+    [
+        ("openrouter", "zeroclaw_config_openrouter.toml"),
+        ("anthropic", "zeroclaw_config_anthropic.toml"),
+        ("openai", "zeroclaw_config_openai.toml"),
+        ("ollama", "zeroclaw_config_ollama.toml"),
+        ("opencode", "zeroclaw_config_opencode.toml"),
+        ("opencode-go", "zeroclaw_config_opencode_go.toml"),
+        ("litellm", "zeroclaw_config_litellm.toml"),
+    ],
+)
+def test_zeroclaw_render_is_byte_locked(ptype: str, fixture_name: str):
+    """Byte-lock: rendered TOML for every zeroclaw provider type must
+    match its frozen fixture exactly.
+
+    Locks both the new litellm branch AND every neighboring branch
+    (ollama / opencode / opencode-go / openrouter / anthropic /
+    openai). Any future template edit that shifts a byte of any
+    branch's output fails this test — the "existing branches
+    byte-identical" claim from #976's plan text becomes mechanically
+    enforceable rather than observational.
+
+    If a drift is intentional (e.g., a legitimate template change
+    that affects all providers), regenerate the affected fixtures
+    from the current render output.
     """
     from pathlib import Path
 
-    inputs = _zeroclaw_inputs(ptype="litellm")
+    inputs = _zeroclaw_inputs(ptype=ptype)
     toml = render_zeroclaw(inputs).files[".zeroclaw/config.toml"]
 
-    fixture_path = (
-        Path(__file__).parent / "fixtures" / "zeroclaw_config_litellm.toml"
-    )
+    fixture_path = Path(__file__).parent / "fixtures" / fixture_name
     expected = fixture_path.read_text()
     assert toml == expected, (
-        "zeroclaw litellm render drifted from frozen fixture at "
+        f"zeroclaw {ptype} render drifted from frozen fixture at "
         f"{fixture_path}. If this drift is intentional, regenerate the "
         "fixture from the current render output."
     )
