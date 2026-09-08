@@ -1562,14 +1562,18 @@ def render_zeroclaw(
     slack_mcp_binary = (
         f"{home_root}/{inputs.agent_name}/.local/bin/slack-mcp-server"
     )
-    # #974: zeroclaw 0.8.2's schema v3 keys discord channels by alias
-    # (`channels.discord.<alias>`) and requires `[a-z0-9_]+`. Derive the
-    # alias deterministically from `agent_name` — exactly one discord
-    # channel per zeroclaw agent is enforced upstream in this function,
-    # so a per-agent alias is sufficient and stable across renders.
-    discord_alias = _sanitize_zeroclaw_alias(inputs.agent_name)
+    # #974/#980: zeroclaw 0.8.2's schema v3 requires every alias key —
+    # `[agents.<alias>]`, `[providers.models.<type>.<alias>]`, and
+    # `[channels.discord.<alias>]` — to match `[a-z0-9_]+`. Derive one
+    # sanitized alias from `agent_name` and reuse it at every in-TOML
+    # alias site. `discord_alias` is kept as a distinct named argument
+    # so the intent is explicit at the template call site; both derive
+    # from the same sanitizer for lockstep semantics.
+    agent_alias = _sanitize_zeroclaw_alias(inputs.agent_name)
+    discord_alias = agent_alias
     toml_body = _render_zeroclaw_config_template(
         agent_name=inputs.agent_name,
+        agent_alias=agent_alias,
         home_root=home_root,
         gateway=inputs.gateway,
         provider=provider,
@@ -1713,6 +1717,7 @@ def _sanitize_zeroclaw_alias(name: str) -> str:
 def _render_zeroclaw_config_template(
     *,
     agent_name: str,
+    agent_alias: str,
     home_root: str = "/home",
     gateway: "GatewayInputs",
     provider: "ProviderInputs",
@@ -1754,9 +1759,22 @@ def _render_zeroclaw_config_template(
             "`[channels.discord.]`. This is a caller bug in "
             "`render_zeroclaw`."
         )
+    # #980: agent_alias drives the `[agents.<alias>]` and
+    # `[providers.models.<type>.<alias>]` sub-table keys. Empty alias
+    # would emit `[agents.]` — invalid TOML that only surfaces at
+    # daemon load time. Fail here so a corrupt render never reaches
+    # disk. Same fail-loudly contract as the discord_alias guard above.
+    if not agent_alias:
+        raise AgentConfigError(
+            "_render_zeroclaw_config_template: empty agent_alias — "
+            "would render invalid TOML headers `[agents.]` and "
+            "`[providers.models.<type>.]`. This is a caller bug in "
+            "`render_zeroclaw`."
+        )
     template = _zeroclaw_template()
     return template.render(
         agent_name=agent_name,
+        agent_alias=agent_alias,
         home_root=home_root,
         gateway=gateway,
         provider=provider,
