@@ -770,12 +770,15 @@ def _build_zeroclaw_backend(
     the gateway origin. ZeroClaw's chat endpoint is `GET /ws/chat`; older
     persisted records (or hand-edited ones) may omit the path.
 
-    The agent instance name is passed through as `agent_alias`. Since
-    zeroclaw ≥0.8.2 the daemon requires `?agent=<alias>` on the
-    handshake and a matching `[agents.<alias>]` sub-table in
-    config.toml (both landed in #817). The canonical renderer emits
-    the sub-table using the same instance name, so the two ends stay
-    in lockstep.
+    The agent instance name is sanitized via `_sanitize_zeroclaw_alias`
+    and passed through as `agent_alias`. Since zeroclaw ≥0.8.2 the
+    daemon requires `?agent=<alias>` on the handshake and a matching
+    `[agents.<alias>]` sub-table in config.toml (both landed in #817),
+    and the canonical renderer sanitizes the sub-table key to
+    `[a-z0-9_]+` (#980 extends the #974 discord fix to `agents` and
+    `providers.models.<type>` sub-tables). Sanitize on this side too
+    so the two ends stay in lockstep for hyphenated / uppercase agent
+    names.
     """
     gateway = _extract_gateway_config(agent_record, host_record)
     url = gateway["url"]
@@ -783,12 +786,22 @@ def _build_zeroclaw_backend(
     # gateway rejects connections at the bare root path.
     if "/ws/chat" not in url:
         url = url.rstrip("/") + "/ws/chat"
-    agent_alias = agent_record.get("agent_name") or agent_record.get("name")
+    raw_alias = agent_record.get("agent_name") or agent_record.get("name")
+    agent_alias: str | None
+    if raw_alias:
+        # #980: match the config.toml `[agents.<alias>]` key the renderer
+        # emits. Local import keeps `cli/chat.py`'s core-render coupling
+        # narrow to this one call site.
+        from clawrium.core.render import _sanitize_zeroclaw_alias
+
+        agent_alias = _sanitize_zeroclaw_alias(str(raw_alias))
+    else:
+        agent_alias = None
     return ZeroClawChatBackend(
         gateway_url=url,
         auth_token=SecretStr(gateway["auth"]),
         timeout_seconds=response_timeout_seconds,
-        agent_alias=str(agent_alias) if agent_alias else None,
+        agent_alias=agent_alias,
     )
 
 
