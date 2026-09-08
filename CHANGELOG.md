@@ -35,6 +35,12 @@ cut. The `itx-release` skill archives this section into a new
 
 - `clawctl host edit --description <text>` sets or updates a free-form description on a host record; passing an empty string clears it (#122).
 - **zeroclaw**: accept the `litellm` provider type so a zeroclaw agent can front a LiteLLM proxy (or any OpenAI-compatible gateway) directly. The renderer emits `uri` + `api_key` under `[providers.models.litellm.<alias>]` in `~/.zeroclaw/config.toml` (zeroclaw's litellm schema uses `uri`, not `base_url`) and normalizes the endpoint the same way as opencode (strip trailing `/`, append `/v1` if missing). Matches the existing openclaw (#723) and hermes (#705) litellm paths. Use with `clawctl provider registry create <name> --type litellm --litellm-url <proxy> --model <id> --api-key <bearer>` + `clawctl agent provider attach <name> --agent <zeroclaw-agent>` (#976).
+- **gui**: The per-agent Chat tab input is now a multi-line textarea that grows
+  from 1 to 8 rows as you type. Enter sends, Shift+Enter inserts a newline, and
+  Cmd/Ctrl+Enter is an alias for Enter (#788).
+- **gui**: A Stop button cancels an in-flight chat response, and the typing
+  indicator now counts elapsed seconds instead of showing a static
+  "Thinking..." (#788).
 
 ### Changed
 
@@ -55,6 +61,17 @@ cut. The `itx-release` skill archives this section into a new
 - **zeroclaw**: rendered `config.toml` now emits `[channels.discord.<alias>]` sub-tables with a per-agent `channels = ["channels.discord.<alias>"]` binding under `[agents.<name>]`, matching zeroclaw ≥0.8.2's schema v3. The previous pre-0.8.2 flat `[channels.discord]` block was silently ignored by the daemon — every clawctl-managed zeroclaw agent with an attached discord channel reported `no channels configured` and refused inbound messages with `The operator needs to run Quickstart before I can reply`. `schema_version` also bumped `2 → 3` to eliminate any risk of a future daemon picking the v2 parser code path (#974).
 - **zeroclaw renderer**: `[agents.<alias>]` and `[providers.models.<type>.<alias>]` sub-table keys are now sanitized via `_sanitize_zeroclaw_alias(agent_name)`, matching the `[channels.discord.<alias>]` fix from #974. Zeroclaw 0.8.2's dashboard alias resolver enforces `[a-z0-9_]+` strictly and returned `[path_not_found]` on any agent-scoped operation for agents whose clawctl name contained a hyphen or uppercase letter (e.g. `clawrium-d01`). On-host filesystem paths and systemd unit names continue to use the raw `agent_name` (#980).
 - **zeroclaw renderer**: emit `[heartbeat] agent = "<alias>"` so the heartbeat worker can bind to the agent alias and start. Without this, every clawctl-managed zeroclaw agent's heartbeat worker was error-looping on startup with `heartbeat worker requires [heartbeat] agent = "<alias>"` and `restart_count` climbing indefinitely in `~/.zeroclaw/state/daemon_state.json`; no operator-visible symptoms until the daemon-state file was inspected. Runs off the sanitized `agent_alias` already threaded into the render context by #980 (#982).
+- **gui**: The Chat tab input is no longer disabled while a response is in
+  flight — you can keep typing, and focus returns to the input after each send
+  and after each response arrives (#788).
+- **gui**: The Chat tab now fills the available pane height instead of a fixed
+  500px, so long conversations scroll inside the message list rather than
+  growing the page (#788).
+- **gui**: Chat SSE error messages redact common absolute server paths,
+  credential-shaped values, and terminal-control characters before rendering
+  in the browser. The SSE reader also buffers partial lines and split UTF-8
+  code points across chunk boundaries so payloads are not dropped or mangled
+  (#788).
 
 ### Documentation
 
