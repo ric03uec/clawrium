@@ -32,7 +32,7 @@ def zeroclaw_fleet(fleet_dir: Path) -> Path:
     data[0]["agents"]["clawrium-d01"] = {
         "type": "zeroclaw",
         "agent_name": "clawrium-d01",
-        "version": "0.8.2",
+        "version": "0.8.5",
         "installed_at": "2026-08-01T00:00:00+00:00",
         "status": "installed",
     }

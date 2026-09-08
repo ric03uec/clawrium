@@ -224,3 +224,60 @@ platforms:
       gpu_required: false
       dependencies:
         python: ">=3.9"
+  # --- v0.8.5 (#985) — sha256 sourced from
+  # https://github.com/zeroclaw-labs/zeroclaw/releases/download/v0.8.5/SHA256SUMS
+  # Breaking change vs 0.8.2: `[node_transport]` retired — rendered TOML
+  # no longer emits the block (templates/zeroclaw-config.toml.j2).
+  # Raspberry Pi 2/3 (armv7l) - Debian 13 (trixie)
+  - version: "0.8.5"
+    os: debian
+    os_version: "13"
+    arch: armv7l
+    sha256: "a2eacdc54531594e7ea20807e48dfc0608da391344f6ec6dd6c568fabffb52b2"
+    requirements:
+      min_memory_mb: 512  # Pi 2 has ~920MB usable (1GB - video mem)
+      gpu_required: false
+      dependencies:
+        python: ">=3.9"
+  # Raspberry Pi 4/5 (aarch64) - Ubuntu
+  - version: "0.8.5"
+    os: ubuntu
+    os_version: "22.04"
+    arch: aarch64
+    sha256: "aaa7e2c656dedf651217a70ea487e1e65f51b4ca771d114e60bf409165700986"
+    requirements:
+      min_memory_mb: 1024
+      gpu_required: false
+      dependencies:
+        python: ">=3.9"
+  - version: "0.8.5"
+    os: ubuntu
+    os_version: "24.04"
+    arch: aarch64
+    sha256: "aaa7e2c656dedf651217a70ea487e1e65f51b4ca771d114e60bf409165700986"
+    requirements:
+      min_memory_mb: 1024
+      gpu_required: false
+      dependencies:
+        python: ">=3.9"
+  # Desktop/Server x86_64 - Ubuntu
+  - version: "0.8.5"
+    os: ubuntu
+    os_version: "22.04"
+    arch: x86_64
+    sha256: "9dbb53af95132e3a934ab61b229fb7aec3565f1c9bf31851f1698be9160655f9"
+    requirements:
+      min_memory_mb: 1024
+      gpu_required: false
+      dependencies:
+        python: ">=3.9"
+  - version: "0.8.5"
+    os: ubuntu
+    os_version: "24.04"
+    arch: x86_64
+    sha256: "9dbb53af95132e3a934ab61b229fb7aec3565f1c9bf31851f1698be9160655f9"
+    requirements:
+      min_memory_mb: 1024
+      gpu_required: false
+      dependencies:
+        python: ">=3.9"

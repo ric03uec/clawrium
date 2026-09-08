@@ -1448,7 +1448,7 @@ def render_zeroclaw(
     # mistake would only show up on first @mention.
     # W1 (ATX round 3): a second `discord` channel is ALSO a silent-drop
     # surface — the renderer emits exactly one [channels.discord.<alias>]
-    # sub-table per agent (#974: aliased since 0.8.2 schema v3), so a
+    # sub-table per agent (#974: aliased since ≥0.8.2 schema v3), so a
     # second attached discord channel would be invisible. Raise so the
     # operator detaches one rather than getting nondeterministic
     # "which one won?" behavior.
@@ -1562,7 +1562,7 @@ def render_zeroclaw(
     slack_mcp_binary = (
         f"{home_root}/{inputs.agent_name}/.local/bin/slack-mcp-server"
     )
-    # #974/#980: zeroclaw 0.8.2's schema v3 requires every alias key —
+    # #974/#980: zeroclaw ≥0.8.2's schema v3 requires every alias key —
     # `[agents.<alias>]`, `[providers.models.<type>.<alias>]`, and
     # `[channels.discord.<alias>]` — to match `[a-z0-9_]+`. Derive one
     # sanitized alias from `agent_name` and reuse it at every in-TOML
