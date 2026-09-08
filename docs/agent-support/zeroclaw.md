@@ -76,7 +76,7 @@ ZeroClaw's only chat surface is the daemon's own WebSocket endpoint at `GET /ws/
 | Feature | Status | Notes |
 |---------|:------:|-------|
 | **WebSocket chat endpoint** | ✅ | `GET /ws/chat` on the daemon's gateway port (default `42617`). Auth: `Authorization: Bearer <token>` minted by the pairing handshake. |
-| **Multi-provider** | ✅ | One active provider per agent, rendered as `[providers.models.<name>]` in `config.toml`. Switch providers by re-running `clawctl agent configure <name> --stage providers`. |
+| **Multi-provider** | ✅ | One active provider per agent, rendered as a three-level `[providers.models.<type>.<alias>]` sub-table in `config.toml` (schema v3; `<alias>` is the sanitized agent name). Switch providers by re-running `clawctl agent configure <name> --stage providers`. |
 | **Workspace personality files** | ✅ | 7 files in `~/.zeroclaw/workspace/` (`SOUL.md`, `IDENTITY.md`, `USER.md`, `AGENTS.md`, `TOOLS.md`, `MEMORY.md`, `HEARTBEAT.md`). Rendered with `force: no` so re-configure never clobbers user edits. |
 | **Memory CLI (`clawctl agent memory get --agent / edit / delete`)** | ✅ | Dispatched via `workspace.memory_path` + `features.memory: true` in the manifest. Surface is identical to hermes / openclaw. |
 | **Pairing handshake** | ✅ | Automated by `clawctl agent configure`. Reads `/pair/code`, exchanges for a bearer token at `/pair`, persists the token to `hosts.json` under `agents.<name>.config.gateway.auth`. |
@@ -84,7 +84,7 @@ ZeroClaw's only chat surface is the daemon's own WebSocket endpoint at `GET /ws/
 | **Auto-restart** | ✅ | Systemd unit `zeroclaw-<agent_name>.service` with `Restart=on-failure`, `RestartSec=5`. |
 | **Log streaming** | ✅ | `journalctl -u zeroclaw-<agent_name>.service` on the agent host. |
 | **Onboarding wizard** | ✅ | 4 stages: `providers` (required) → `identity` (auto-skipped) → `channels` (required, CLI confirm) → `validate` (3 local checks: agent install record, provider config + API key, provider connectivity). |
-| **Personality block in `config.toml`** | ✅ | `[personality]` with `name`, `timezone`, `communication_style` defaults; rendered with `force: no` semantics through Ansible's template default — re-running configure preserves the file because `notify` only fires when content actually changes. |
+| **Identity / personality** | ✅ | Not stored in `config.toml` — the rendered config carries **no `[personality]` block**. ZeroClaw's identity lives in the 7 workspace MD files (row above), which clawctl seeds with `force: no`. |
 | **Bootstrap file (`BOOTSTRAP.md`)** | ✅ | **Not rendered by clawctl.** The ZeroClaw daemon generates `BOOTSTRAP.md` on first boot and self-deletes it after use. Never appears in `clawctl agent memory get --agent`. |
 | **[GitHub integration](integrations/github.md)** | ✅ | Two-layer wiring (#422): tokens land in a systemd drop-in (`/etc/systemd/system/zeroclaw-<name>.service.d/10-zeroclaw-env.conf`) so the daemon's environment has `GITHUB_TOKEN`, AND in `[autonomy] shell_env_passthrough` in `config.toml` so the agent's shell tool can actually see them (required: zeroclaw auto-strips `_TOKEN`-pattern vars unless explicitly allow-listed). `gh auth login --with-token` runs as a soft-dep convenience when `gh` is on the host. |
 | **[Slack integration](integrations/slack.md)** | ✅ | Outbound Slack tool surface via `korotovsky/slack-mcp-server` stdio subprocess. `slack-user` (xoxp) recommended; `slack-cookie` (xoxc + xoxd) discouraged fallback. Rendered as `[[mcp.servers]]` array-of-tables in `~/.zeroclaw/config.toml`. **armv7l coverage gap**: upstream ships no armv7 asset at v1.3.0 — Raspberry Pi 2/3 hosts cannot install this integration. See [Slack integration → Binary distribution](integrations/slack.md#binary-distribution). |
@@ -154,30 +154,36 @@ Configure renders TWO things on the agent host, then runs the pairing handshake 
 #### `~/.zeroclaw/config.toml` (mode 0600, owner `<agent-name>`)
 
 ```toml
+# schema_version = 3        # rendered by clawctl (zeroclaw ≥0.8.2 config schema v3)
+
 [gateway]
 host = "0.0.0.0"
 port = 42617
 allow_public_bind = true
 require_pairing = true
 
-default_provider = "<provider-name>"
-default_model = "<model-id>"
+[providers]
+fallback = "anthropic"
 
-[providers.models.<provider-name>]
-kind = "anthropic"          # or "openai" / "ollama" / "openrouter"
-api_key = "..."             # omitted for ollama
+# Three-level sub-table (schema v3): the <alias> key is the agent name
+# sanitized to [a-z0-9_]+ and MUST equal the [agents.<alias>] key below.
+[providers.models.anthropic.<alias>]
 model = "<model-id>"
-# base_url = "..."          # ollama only
+api_key = "***"             # omitted for ollama
+# base_url = "..."          # ollama / opencode / opencode-go only
 
-[personality]
-name = "<agent-name>"
-timezone = "UTC"
-communication_style = "direct, concise"
+[agents.<alias>]
+model_provider = "anthropic.<alias>"   # "<type>.<alias>" reference into the table above
+risk_profile = "default"
+runtime_profile = "default"
+channels = []                    # [ "channels.discord.<alias>" ] when a discord channel is attached
 ```
 
-Per-provider rendering:
+The example above shows the provider-relevant lines; the renderer emits a **full** canonical `config.toml` (every section the daemon expects is preserved verbatim, only the clawctl-managed values templated). The alias `<alias>` is derived from the agent name by replacing every non-`[a-z0-9_]` character with `_` and lowercasing (e.g. `clawrium-d01` → `clawrium_d01`) — the same sanitized value appears in `[providers.models.<type>.<alias>]`, `[agents.<alias>]`, `[channels.discord.<alias>]`, and `[heartbeat] agent = "..."` (#974/#980/#982).
 
-| clawctl `provider.type` | Rendered `kind` | `api_key` | `base_url` | Notes |
+Per-provider rendering. The `provider.type` is emitted as the `[providers] fallback` value and as the first key of the `[providers.models.<type>.<alias>]` sub-table (there is no separate `kind` key in the rendered file):
+
+| clawctl `provider.type` | Sub-table / `fallback` | `api_key` | `base_url` | Notes |
 |---------------------|------------------|-----------|------------|-------|
 | `anthropic` | `anthropic` | yes (from `provider_api_key` extra-var) | — | — |
 | `openai` | `openai` | yes | — | — |
@@ -309,7 +315,7 @@ ZeroClaw's threat model is **trusted LAN**, parity with the upstream daemon's de
 - **Re-configure always re-mints the bearer (issue #437).** `clawctl agent configure`/`sync`/`restart` overwrite `config.gateway.auth` on every run. Local `clawctl agent chat` reloads the token transparently on 401; remote sessions must reconnect. See [Gateway token lifecycle](#gateway-token-lifecycle).
 - **Server-supplied text is BIDI / control-char sanitized before rendering.** `core/chat_zeroclaw.py` routes every visible field from server frames through `sanitize_server_text` (which strips C0/C1 controls, zero-width codepoints, BIDI overrides U+202A–U+202E and U+2066–U+2069, line/paragraph separators, and the word-joiner). Rich-markup escaping is handled separately by the CLI render layer, not by this sanitizer.
 - **`approval_request` frames tear down the session.** Inline tool approval is not implemented; the client closes the WebSocket and raises a remediation error pointing operators at `~/.zeroclaw/config.toml`. Pre-approve or disable tools at the agent host before invoking them. See [Use the WebSocket chat surface](#3-use-the-websocket-chat-surface) for the full frame envelope.
-- **Treat `config.toml` as an audited surface.** clawctl only emits `[gateway]`, `[providers.models.<name>]`, and `[personality]`. Any block manually added (e.g. `[integrations]`, `[hardware]`) is honored by the daemon but **invisible to `clawctl`** — `clawctl agent configure` will not validate it and `clawctl` cannot detect drift between renders and manual edits.
+- **Treat `config.toml` as an audited surface.** `clawctl agent configure` and `clawctl agent sync` re-render the **full** canonical `config.toml` (the playbook uses `copy`, so the file is rewritten wholesale — `start`/`restart` do not, they only re-mint the bearer). The per-agent values clawctl templates are: `gateway`, `[providers] fallback`, the three-level `[providers.models.<type>.<alias>]` table, the `[agents.<alias>]` binding, `[channels.discord.<alias>]`, and `[heartbeat] agent`. Any block manually added that clawctl does not template is honored by the daemon only until the next `configure`/`sync` re-renders it away — clawctl never validates it and cannot detect drift between its rendered output and an on-disk hand edit.
 
 ---
 
@@ -358,7 +364,7 @@ The configure playbook probes `GET http://127.0.0.1:42617/health/providers` and 
 
 > _/health/providers returned 401 — gateway is reachable but provider credentials may be invalid._
 
-The gateway is up; the daemon is rejecting requests at the provider layer. Verify the API key for the active provider (`config.toml` → `[providers.models.<name>] api_key`) and re-run `clawctl agent configure <agent-name>`. For `ollama`, ensure the `base_url` is reachable from the **agent host**, not just your control machine:
+The gateway is up; the daemon is rejecting requests at the provider layer. Verify the API key for the active provider (`config.toml` → `[providers.models.<type>.<alias>] api_key`, where `<alias>` is the sanitized agent name) and re-run `clawctl agent configure <agent-name>`. For `ollama`, ensure the `base_url` is reachable from the **agent host**, not just your control machine:
 
 ```bash
 ssh <agent-host> "curl -fsS <endpoint>/api/tags"
