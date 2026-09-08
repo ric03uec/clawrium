@@ -101,7 +101,23 @@ describe("ChatTab", () => {
     expect(sendChatMessage).toHaveBeenCalledWith(
       defaultProps.agentKey,
       "hello",
-      expect.any(Object),
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+  });
+
+  it("submits with the Send button", async () => {
+    render(<ChatTab {...defaultProps} />);
+    const textarea = document.querySelector("textarea")!;
+
+    fireEvent.change(textarea, { target: { value: "button message" } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /Send/i }));
+    });
+
+    expect(sendChatMessage).toHaveBeenCalledWith(
+      defaultProps.agentKey,
+      "button message",
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
   });
 
@@ -180,6 +196,21 @@ describe("ChatTab", () => {
     // Verify the signal was actually aborted by clicking Stop
     expect(signal.aborted).toBe(true);
     expect(screen.getByText(/Stopped by user/)).toBeInTheDocument();
+  });
+
+  it("aborts an in-flight request when the tab unmounts", async () => {
+    sendChatMessage.mockReturnValue(new Promise(() => {}));
+    const { unmount } = render(<ChatTab {...defaultProps} />);
+    const textarea = document.querySelector("textarea")!;
+
+    await act(async () => {
+      fireEvent.change(textarea, { target: { value: "do work" } });
+      fireEvent.keyDown(textarea, { key: "Enter" });
+    });
+    const signal = sendChatMessage.mock.calls[0][2].signal as AbortSignal;
+
+    unmount();
+    expect(signal.aborted).toBe(true);
   });
 
   it("the Stop button replaces Send only while sending", async () => {
@@ -283,7 +314,7 @@ describe("ChatTab", () => {
     expect(sendChatMessage).toHaveBeenCalledWith(
       defaultProps.agentKey,
       "cmd enter",
-      expect.any(Object),
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
   });
 
@@ -299,7 +330,7 @@ describe("ChatTab", () => {
     expect(sendChatMessage).toHaveBeenCalledWith(
       defaultProps.agentKey,
       "ctrl enter",
-      expect.any(Object),
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
   });
 });

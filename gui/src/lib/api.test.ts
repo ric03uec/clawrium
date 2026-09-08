@@ -112,6 +112,37 @@ describe("api.sendChatMessage", () => {
     );
   });
 
+  it("handles CRLF, empty streams, and last-content-wins semantics", async () => {
+    mockFetch.mockResolvedValue(
+      makeChunkedSseResponse(
+        'data: {"type":"content","text":"first"}\r\n' +
+          'data: {"type":"content","text":"second"}\r\n' +
+          "data: [DONE]\r\n",
+        [5, 31],
+      ),
+    );
+    await expect(api.sendChatMessage("test-agent", "hi")).resolves.toBe(
+      "second",
+    );
+
+    mockFetch.mockResolvedValue(makeSseResponse(["data: [DONE]"]));
+    await expect(api.sendChatMessage("test-agent", "hi")).resolves.toBe("");
+  });
+
+  it("ignores non-string content and strips unsafe formatting controls", async () => {
+    mockFetch.mockResolvedValue(
+      makeSseResponse([
+        'data: {"type":"content","text":42}',
+        `data: ${JSON.stringify({ type: "content", text: "safe\u202etext" })}`,
+        "data: [DONE]",
+      ]),
+    );
+
+    await expect(api.sendChatMessage("test-agent", "hi")).resolves.toBe(
+      "safe text",
+    );
+  });
+
   it("passes the AbortSignal through to fetch", async () => {
     const controller = new AbortController();
     mockFetch.mockResolvedValue(
@@ -125,7 +156,7 @@ describe("api.sendChatMessage", () => {
       signal: controller.signal,
     });
 
-    expect(mockFetch).toHaveBeenCalled();
+    expect(mockFetch).toHaveBeenCalledOnce();
     const fetchOpts = mockFetch.mock.calls[0][1];
     expect(fetchOpts.signal).toBe(controller.signal);
   });
@@ -179,16 +210,32 @@ describe("api.sendChatMessage", () => {
     expect(error.message).not.toContain(path);
   });
 
-  it("redacts credential-shaped values and terminal control characters", async () => {
+  it.each([
+    ["token=abc123\u202esecret", "token=*** secret"],
+    ["Bearer eyJhbGc.secret", "Bearer ***"],
+  ])("redacts credentials and terminal controls in %s", async (message, expected) => {
     mockFetch.mockResolvedValue(
       makeSseResponse([
-        `data: ${JSON.stringify({ type: "error", message: "token=abc123\u202esecret" })}`,
+        `data: ${JSON.stringify({ type: "error", message })}`,
         "data: [DONE]",
       ]),
     );
 
     await expect(api.sendChatMessage("test-agent", "hi")).rejects.toThrow(
-      "token=*** secret",
+      expected,
+    );
+  });
+
+  it("uses a safe fallback for non-string SSE errors", async () => {
+    mockFetch.mockResolvedValue(
+      makeSseResponse([
+        'data: {"type":"error","message":42}',
+        "data: [DONE]",
+      ]),
+    );
+
+    await expect(api.sendChatMessage("test-agent", "hi")).rejects.toThrow(
+      "Chat failed",
     );
   });
 });

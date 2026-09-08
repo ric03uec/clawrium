@@ -21,6 +21,10 @@ export function ChatTab({ agentKey, agentName }: ChatTabProps) {
   const abortRef = useRef<AbortController | null>(null);
   const sendingRef = useRef(false);
 
+  useEffect(() => () => {
+    abortRef.current?.abort();
+  }, []);
+
   const { data: chatInfo } = useQuery({
     queryKey: ["chat-info", agentKey],
     queryFn: () => api.getChatInfo(agentKey),

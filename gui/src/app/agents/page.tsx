@@ -120,7 +120,11 @@ function AgentDetailView({
             />
           )}
           {activeTab === "chat" && (
-            <ChatTab agentKey={agentKey} agentName={agent.agent_name} />
+            <ChatTab
+              key={agent.agent_key}
+              agentKey={agentKey}
+              agentName={agent.agent_name}
+            />
           )}
           {activeTab === "exec" && <ExecTab agentKey={agentKey} />}
           {activeTab === "configuration" && <ConfigTab agent={agent} />}
