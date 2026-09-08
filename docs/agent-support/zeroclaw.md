@@ -6,7 +6,7 @@ ZeroClaw is the [ZeroClaw Labs Rust agent runtime](https://github.com/zeroclaw-l
 
 **Best for:** Low-resource hosts (Raspberry Pi 2/3 armv7l, aarch64 SBCs, small x86_64 servers) that need a minimal, single-binary AI agent with file-based personality and a LAN-reachable chat endpoint. ZeroClaw is intentionally narrower than [Hermes](hermes.md) (no OpenAI-compatible HTTP) and [OpenClaw](openclaw.md) (fewer native channels). Discord is supported; MCP integrations are Linux-only, with macOS support deferred (#836).
 
-**Pinned version:** `v0.7.5`. The release tarball SHA256 is pinned per architecture in `src/clawrium/platform/registry/zeroclaw/manifest.yaml` for five `(os, os_version, arch)` combinations; every version bump requires re-pinning all five.
+**Current pinned version:** `v0.8.2`; `v0.7.5` remains as a legacy manifest entry. The manifest pins each release for five `(os, os_version, arch)` combinations (ten entries total); every version bump requires re-pinning all five current-release combinations.
 
 ---
 
@@ -41,8 +41,8 @@ No GPU required. Python ≥ 3.9 is listed as a manifest dependency for parity wi
 
 ZeroClaw upstream supports a long catalog of providers (anthropic, openai, ollama, bedrock, gemini, openrouter, openai-compatible, azure-openai, copilot, claude-code, telnyx, kilocli). clawctl exposes the ones that are wired end-to-end through `config.toml` rendering and validated by the configure playbook.
 
-| Provider | Status | clawctl `provider.type` | `kind` discriminator | Rendered keys |
-|----------|:------:|---------------------|----------------------|---------------|
+| Provider | Status | clawctl `provider.type` | Rendered sub-table / fallback | Rendered keys |
+|----------|:------:|---------------------|-------------------------------|---------------|
 | **[Anthropic](providers/anthropic.md)** | ✅ | `anthropic` | `anthropic` | `api_key`, `model` |
 | **[OpenAI](providers/openai.md)** | ✅ | `openai` | `openai` | `api_key`, `model` |
 | **[Ollama / OpenAI-compatible](providers/ollama.md)** | ✅ | `ollama` | `ollama` | `base_url`, `model` (no api_key) |
@@ -53,7 +53,7 @@ ZeroClaw upstream supports a long catalog of providers (anthropic, openai, ollam
 | **Azure OpenAI** | 📋 | — | — | Deferred |
 | **Copilot / Claude Code / Telnyx / Kilocli** | 📋 | — | — | Deferred |
 
-`config.toml` is rendered from a Jinja template that hard-allows only the `kind` values above; any other `provider.type` causes the configure playbook to fail with a remediation message.
+The renderer supports only the `provider.type` values marked ✅ above. It writes that type as `[providers] fallback` and as the first key in `[providers.models.<type>.<alias>]`; there is no separate `kind` key.
 
 ---
 
@@ -65,7 +65,7 @@ ZeroClaw's only chat surface is the daemon's own WebSocket endpoint at `GET /ws/
 |---------|:------:|-------|
 | **`clawctl agent chat <zeroclaw-name>`** | ✅ | Connects to `ws://<host>:42617/ws/chat` with `Authorization: Bearer <paired-token>`. See [Use the WebSocket chat surface](#3-use-the-websocket-chat-surface). |
 | **OpenAI-compatible HTTP API** | ❌ | Not exposed by upstream ZeroClaw. Use [Hermes](hermes.md) when an OpenAI-style HTTP endpoint is required. |
-| **[Discord](channels/discord.md)** | ✅ | Native — rendered as a `[channels.discord.<alias>]` sub-table in `config.toml` and bound to the agent via `[agents.<alias>].channels` (zeroclaw ≥0.8.2 config schema v3; `<alias>` is the agent name sanitized to `[a-z0-9_]+`, #974). Bot token is **inline TOML**, not env-based (differs from hermes). Keys: `bot_token`, `allowed_guilds`, `allowed_users`, `mention_only`, `stream_mode`, `draft_update_interval_ms`, `multi_message_delay_ms`. Configure via `clawctl channel registry create <channel-name> --type discord ...` + `clawctl agent channel attach <channel-name> --agent <name>`. |
+| **[Discord](channels/discord.md)** | ✅ | Native — rendered as `[channels.discord.<alias>]` and bound through `[agents.<alias>].channels` (schema v3; `<alias>` is the agent name sanitized to `[a-z0-9_]+`). Bot token is inline TOML. Keys include `bot_token`, `allowed_guilds`, `allowed_users`, `mention_only`, `stream_mode`, `draft_update_interval_ms`, and `multi_message_delay_ms`. Configure with `clawctl channel registry create` + `clawctl agent channel attach`, then sync the agent. |
 | **Slack** | ❌ | Not supported (use [OpenClaw](openclaw.md) or [Hermes](hermes.md)). Tracked as a follow-up. |
 | **Web / WhatsApp / Telegram / Email / Matrix** | ❌ | Not supported. |
 
@@ -83,12 +83,12 @@ ZeroClaw's only chat surface is the daemon's own WebSocket endpoint at `GET /ws/
 | **LAN-reachable gateway** | ✅ | Bound to `0.0.0.0` with `allow_public_bind = true` + `require_pairing = true`. The pairing token is the only auth boundary. See [Security considerations](#security-considerations). |
 | **Auto-restart** | ✅ | Systemd unit `zeroclaw-<agent_name>.service` with `Restart=on-failure`, `RestartSec=5`. |
 | **Log streaming** | ✅ | `journalctl -u zeroclaw-<agent_name>.service` on the agent host. |
-| **Onboarding wizard** | ✅ | 4 stages: `providers` (required) → `identity` (auto-skipped) → `channels` (required, CLI confirm) → `validate` (3 local checks: agent install record, provider config + API key, provider connectivity). |
+| **Onboarding wizard** | ✅ | `providers`, `identity`, and `validate` stages. The legacy `channels` stage is retired; manage channels through `clawctl channel registry create` + `clawctl agent channel attach`, then sync the agent. |
 | **Identity / personality** | ✅ | Not stored in `config.toml` — the rendered config carries **no `[personality]` block**. ZeroClaw's identity lives in the 7 workspace MD files (row above), which clawctl seeds with `force: no`. |
 | **Bootstrap file (`BOOTSTRAP.md`)** | ✅ | **Not rendered by clawctl.** The ZeroClaw daemon generates `BOOTSTRAP.md` on first boot and self-deletes it after use. Never appears in `clawctl agent memory get --agent`. |
 | **[GitHub integration](integrations/github.md)** | ✅ | Two-layer wiring (#422): tokens land in a systemd drop-in (`/etc/systemd/system/zeroclaw-<name>.service.d/10-zeroclaw-env.conf`) so the daemon's environment has `GITHUB_TOKEN`, AND in `[autonomy] shell_env_passthrough` in `config.toml` so the agent's shell tool can actually see them (required: zeroclaw auto-strips `_TOKEN`-pattern vars unless explicitly allow-listed). `gh auth login --with-token` runs as a soft-dep convenience when `gh` is on the host. |
 | **[Slack integration](integrations/slack.md)** | ✅ | Outbound Slack tool surface via `korotovsky/slack-mcp-server` stdio subprocess. `slack-user` (xoxp) recommended; `slack-cookie` (xoxc + xoxd) discouraged fallback. Rendered as `[[mcp.servers]]` array-of-tables in `~/.zeroclaw/config.toml`. **armv7l coverage gap**: upstream ships no armv7 asset at v1.3.0 — Raspberry Pi 2/3 hosts cannot install this integration. See [Slack integration → Binary distribution](integrations/slack.md#binary-distribution). |
-| **Jira / GitLab / Linear / Notion integrations** | 📋 | Deferred. No native consumer in zeroclaw v0.7.5; would require either a `[mcp.servers]` block (potential future path) or per-integration env passthrough. Tracked as a follow-up. |
+| **Jira / GitLab / Linear / Notion integrations** | 📋 | Deferred. No clawctl integration is currently wired; support would require an upstream-compatible tool surface plus credential rendering. Tracked as a follow-up. |
 | **Hardware support (GPIO / serial / debug probes)** | 📋 | Deferred. |
 | **Tunnel providers (Cloudflare / Tailscale / Ngrok / custom)** | 📋 | Deferred. Reach the gateway over your own SSH tunnel or LAN. |
 | **Encrypted secrets (ChaCha20-Poly1305)** | 📋 | Deferred. |
@@ -107,8 +107,8 @@ clawctl agent create <agent-name> --type zeroclaw --host <host-alias>
 
 What happens:
 
-1. The host's `(os, os_version, arch)` is matched against the manifest's 5 platform entries. Unknown architecture fails with a clear remediation message.
-2. The release tarball is fetched from `https://github.com/zeroclaw-labs/zeroclaw/releases/download/v0.7.5/zeroclaw-<arch-triple>.tar.gz` and verified against the SHA256 pinned in `manifest.yaml`.
+1. The host's `(os, os_version, arch)` is matched against the five platform entries for the current release (the manifest has ten entries including legacy v0.7.5). Unknown architecture fails with a clear remediation message.
+2. The release tarball is fetched from `https://github.com/zeroclaw-labs/zeroclaw/releases/download/v0.8.2/zeroclaw-<arch-triple>.tar.gz` and verified against the SHA256 pinned in `manifest.yaml`.
 3. A dedicated Linux user (`<agent-name>`) is created with `/usr/sbin/nologin` (service account, no interactive shell).
 4. The binary is dropped at `/home/<agent-name>/bin/zeroclaw` (mode 0755, owned by the agent user). `~/.zeroclaw/` is created mode 0700.
 5. A systemd unit `/etc/systemd/system/zeroclaw-<agent-name>.service` is dropped, **disabled and not started**:
@@ -146,7 +146,7 @@ The wizard walks through:
 |-------|----------|
 | **providers** | Required. Pick from your registered clawctl providers; clawctl validates connectivity via `provider_test`. |
 | **identity** | Auto-skipped. ZeroClaw manages its own identity through the workspace MD files (`SOUL.md`, `IDENTITY.md`, …) which clawctl renders below — there is no separate identity wizard. |
-| **channels** | The legacy interactive stage is retired. Create Discord desired state with `clawctl channel registry create <channel-name> --type discord ...`, attach it with `clawctl agent channel attach <channel-name> --agent <name>`, then run `clawctl agent sync <name>`. clawctl renders `[channels.discord.<alias>]` and binds it through `[agents.<alias>].channels` (zeroclaw ≥0.8.2 schema v3; see [Discord](channels/discord.md#zeroclaw-configuration)). |
+| **channels** | The legacy interactive stage is retired. Create Discord desired state with `clawctl channel registry create <channel-name> --type discord ...`, attach it with `clawctl agent channel attach <channel-name> --agent <name>`, then run `clawctl agent sync <name>`. clawctl renders `[channels.discord.<alias>]` and binds it through `[agents.<alias>].channels` (schema v3; see [Discord](channels/discord.md#zeroclaw-configuration)). |
 | **validate** | Local validation only, three steps for zeroclaw: (1) agent install record, (2) provider config + API key, (3) provider connectivity. The control-machine SOUL.md check is skipped — zeroclaw owns its identity through `~/.zeroclaw/workspace/` on the agent host, not under `~/.config/clawrium/agents/zeroclaw/`. The playbook's own post-render readiness probe (`GET /health/providers`) is separate from this stage. The manifest's `binary_check` task (`zeroclaw --version`) is not dispatched yet — remote version verification is planned. |
 
 Configure renders TWO things on the agent host, then runs the pairing handshake against the freshly started daemon.
@@ -154,7 +154,7 @@ Configure renders TWO things on the agent host, then runs the pairing handshake 
 #### `~/.zeroclaw/config.toml` (mode 0600, owner `<agent-name>`)
 
 ```toml
-# schema_version = 3        # rendered by clawctl (zeroclaw ≥0.8.2 config schema v3)
+schema_version = 3          # rendered by clawctl (zeroclaw ≥0.8.2 config schema v3)
 
 [gateway]
 host = "0.0.0.0"
@@ -315,7 +315,7 @@ ZeroClaw's threat model is **trusted LAN**, parity with the upstream daemon's de
 - **Re-configure always re-mints the bearer (issue #437).** `clawctl agent configure`/`sync`/`restart` overwrite `config.gateway.auth` on every run. Local `clawctl agent chat` reloads the token transparently on 401; remote sessions must reconnect. See [Gateway token lifecycle](#gateway-token-lifecycle).
 - **Server-supplied text is BIDI / control-char sanitized before rendering.** `core/chat_zeroclaw.py` routes every visible field from server frames through `sanitize_server_text` (which strips C0/C1 controls, zero-width codepoints, BIDI overrides U+202A–U+202E and U+2066–U+2069, line/paragraph separators, and the word-joiner). Rich-markup escaping is handled separately by the CLI render layer, not by this sanitizer.
 - **`approval_request` frames tear down the session.** Inline tool approval is not implemented; the client closes the WebSocket and raises a remediation error pointing operators at `~/.zeroclaw/config.toml`. Pre-approve or disable tools at the agent host before invoking them. See [Use the WebSocket chat surface](#3-use-the-websocket-chat-surface) for the full frame envelope.
-- **Treat `config.toml` as an audited surface.** `clawctl agent configure` and `clawctl agent sync` re-render the **full** canonical `config.toml` (the playbook uses `copy`, so the file is rewritten wholesale — `start`/`restart` do not, they only re-mint the bearer). The per-agent values clawctl templates are: `gateway`, `[providers] fallback`, the three-level `[providers.models.<type>.<alias>]` table, the `[agents.<alias>]` binding, `[channels.discord.<alias>]`, and `[heartbeat] agent`. Any block manually added that clawctl does not template is honored by the daemon only until the next `configure`/`sync` re-renders it away — clawctl never validates it and cannot detect drift between its rendered output and an on-disk hand edit.
+- **Treat `config.toml` as an audited surface.** `clawctl agent configure` and `clawctl agent sync` re-render the **full** canonical `config.toml` (the playbook uses `copy`, so the file is rewritten wholesale — `start`/`restart` do not, they only re-mint the bearer). Key per-agent values clawctl templates include: `gateway`, `[providers] fallback`, the three-level `[providers.models.<type>.<alias>]` table, the `[agents.<alias>]` binding, `[channels.discord.<alias>]`, and `[heartbeat] agent`. Any block manually added that clawctl does not template is honored by the daemon only until the next `configure`/`sync` re-renders it away — clawctl never validates it and cannot detect drift between its rendered output and an on-disk hand edit.
 
 ---
 
@@ -353,7 +353,7 @@ ZeroClaw's threat model is **trusted LAN**, parity with the upstream daemon's de
    sudo -u <agent-name> /home/<agent-name>/bin/zeroclaw --version
    ```
 
-   Anything other than `0.7.5` here means a stale binary; `clawctl agent delete` + reinstall.
+   The current managed version is `0.8.2`. If an older supported version is installed, run `clawctl agent upgrade <agent-name>`; delete and reinstall only when upgrade reports an unrecoverable install mismatch.
 
 </details>
 
