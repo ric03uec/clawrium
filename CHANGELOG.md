@@ -33,6 +33,7 @@ cut. The `itx-release` skill archives this section into a new
 
 ### Added
 
+- Add the mirrored `clawctl-lmwork` orchestration skill for safely dispatching human-approved small issues to a local model, gating rebased commits through an independent judge and ATX review, and recording runtime telemetry outside the repository (#955).
 - `clawctl host edit --description <text>` sets or updates a free-form description on a host record; passing an empty string clears it (#122).
 - **zeroclaw**: accept the `litellm` provider type so a zeroclaw agent can front a LiteLLM proxy (or any OpenAI-compatible gateway) directly. The renderer emits `uri` + `api_key` under `[providers.models.litellm.<alias>]` in `~/.zeroclaw/config.toml` (zeroclaw's litellm schema uses `uri`, not `base_url`) and normalizes the endpoint the same way as opencode (strip trailing `/`, append `/v1` if missing). Matches the existing openclaw (#723) and hermes (#705) litellm paths. Use with `clawctl provider registry create <name> --type litellm --litellm-url <proxy> --model <id> --api-key <bearer>` + `clawctl agent provider attach <name> --agent <zeroclaw-agent>` (#976).
 - **gui**: The per-agent Chat tab input is now a multi-line textarea that grows
@@ -44,6 +45,7 @@ cut. The `itx-release` skill archives this section into a new
 
 ### Changed
 
+- Agent-authored pull requests now include execution metrics in the PR template, and the `itx-execute` guidance documents stateless ATX review requests for changes authored outside Claude Code sessions (#955).
 - `clawctl channel registry create/edit --home-channel <id>` now accepts Discord channels in addition to Slack; the Jinja `hermes-env.canonical.j2` template already emitted `DISCORD_HOME_CHANNEL` when the field was set, only the CLI guards blocked it (#642).
 
 ### Fixed
