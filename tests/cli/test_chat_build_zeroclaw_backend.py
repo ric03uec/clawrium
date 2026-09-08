@@ -85,3 +85,28 @@ def test_build_zeroclaw_backend_sanitizes_uppercase_alias(
         response_timeout_seconds=30.0,
     )
     assert backend.gateway_url.endswith("?agent=clawrium_d01")
+
+
+def test_build_zeroclaw_backend_no_agent_name_leaves_url_untouched():
+    """#980 W4 (ATX iter-1): agent record missing both `agent_name`
+    and `name` is a defensive path — legacy or malformed hosts.json
+    records could plausibly lack the key. The backend passes
+    `agent_alias=None` so the URL never gains a `?agent=` param, and
+    `ZeroClawChatBackend._with_agent_alias_query` short-circuits when
+    alias is falsy (pre-existing tests cover that branch, this test
+    verifies `_build_zeroclaw_backend` chooses `None` in this path)."""
+    agent_record = {
+        "config": {
+            "gateway": {
+                "url": "ws://wolf:40317/ws/chat",
+                "auth": "bearer-token-abc",
+                "port": 40317,
+            },
+        },
+    }
+    backend = _build_zeroclaw_backend(
+        agent_record=agent_record,
+        host_record={"hostname": "wolf"},
+        response_timeout_seconds=30.0,
+    )
+    assert "?agent=" not in backend.gateway_url

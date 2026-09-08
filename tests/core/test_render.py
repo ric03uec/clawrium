@@ -7229,6 +7229,28 @@ def test_render_zeroclaw_template_rejects_channel_without_alias():
         )
 
 
+def test_render_zeroclaw_template_rejects_empty_agent_alias():
+    """#980 B1 (ATX iter-1): `_render_zeroclaw_config_template` must
+    reject an empty `agent_alias` — the template would otherwise emit
+    invalid TOML `[agents.]` and `[providers.models.<type>.]` headers
+    that only surface at daemon boot. Guard here fails at render time
+    so a corrupt config never touches disk. Parallel to the
+    `discord_alias` guard above."""
+    from clawrium.core.render import (
+        _render_zeroclaw_config_template,
+    )
+    with pytest.raises(AgentConfigError, match="agent_alias"):
+        _render_zeroclaw_config_template(
+            agent_name="alpha",
+            agent_alias="",
+            gateway=GatewayInputs(host="0.0.0.0", port=40000, allow_public_bind=True),
+            provider=ProviderInputs(name="p", type="openrouter", default_model="m", api_key="sk-1"),
+            discord_channel=None,
+            discord_alias="",
+            shell_env_passthrough=[],
+        )
+
+
 def test_zeroclaw_agents_channels_empty_when_no_discord_attached():
     """When no discord channel is attached, `[agents.<alias>].channels` MUST
     render as an empty list (not be omitted). Absence of the key defaults to

@@ -242,7 +242,7 @@ loop_ignore_tools = [
 # `[risk_profiles.default]` + `[runtime_profiles.default]` entry
 # that gets materialized when the config is first loaded on 0.8.2.
 [agents.{{ agent_alias }}]
-model_provider = "{{ provider.type }}.{{ agent_alias }}"
+model_provider = "{{ provider.type | toq }}.{{ agent_alias }}"
 risk_profile = "default"
 runtime_profile = "default"
 # #974: bind the aliased discord sub-table above to this agent. Empty

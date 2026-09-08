@@ -1701,10 +1701,13 @@ def _sanitize_zeroclaw_alias(name: str) -> str:
 
     Deterministic per input string; safe to call repeatedly.
 
-    Raises AgentConfigError on empty input, or input whose every
-    character is non-alphanumeric (would sanitize to an all-underscore
-    string, which is legal but conveys no operator intent and hints at
-    an upstream bug that let a garbage name through validation).
+    Raises AgentConfigError on empty input. Non-empty inputs whose
+    characters are all non-alphanumeric (e.g. `"---"`) sanitize to an
+    all-underscore string — legal TOML but a sign of upstream
+    validation gap. This function does not reject them today; the
+    daemon would surface the mismatch at connect time with a 400. If
+    upstream validators are ever tightened, extend this guard rather
+    than trusting the docstring.
     """
     if not name:
         raise AgentConfigError(
