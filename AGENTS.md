@@ -451,13 +451,41 @@ Use `/clawctl` to manage the Clawrium fleet from an AI assistant session. The sk
 | Command | Purpose |
 |---------|---------|
 | `/itx-bug-new` | Create bug issue (asks for customer outcome) |
+| `/itx-bug-update <n> <text>` | Add context to an existing bug |
 | `/itx-issue-new` | Create feature issue (asks for customer outcome) |
+| `/itx-issue-update <n> <text>` | Add context to an existing issue |
+| `/itx-note <text>` | Capture an idea in `NOTES.md` |
 | `/itx-triage` | Review unlabeled issues |
 | `/itx-plan-create <n>` | Create high-level implementation plan |
 | `/itx-plan-scaffold <n>` | Create phased execution with entry/exit criteria |
 | `/itx-execute <n>` | Execute issue (parent or subtask) |
 | `/itx-verify` | Run tests and lint |
 | `/itx-review-pr [n]` | Review PR (MCP or manual) |
+| `/itx-pr-status` | Check open pull request status |
+| `/itx-release [version]` | Cut and publish a release |
+
+### Cross-Harness Command Source
+
+The thirteen `.claude/skills/itx-*/SKILL.md` files are the canonical ITX
+workflow definitions for Claude Code, OpenCode, and Pi.
+
+- OpenCode discovers the Claude skill directory directly. Do not add
+  `.opencode/commands/itx-*.md` or `.opencode/skills/itx-*/` copies; explicit
+  OpenCode commands shadow skills and create drift.
+- Pi 0.84.2 or newer loads the canonical directory through `.pi/settings.json`
+  when started from the repository root. Its
+  `.pi/extensions/itx-command-aliases.js` adapter dynamically registers exact
+  `/itx-*` aliases for Pi's native `/skill:itx-*` commands and queues delegated
+  commands as follow-up messages when Pi is streaming.
+- `.claude/itx-config.json` remains the shared ITX configuration file for all
+  harnesses.
+- `itx-execute` orchestrate mode and its tmux-backed standalone worktree path
+  intentionally launch Claude Code child sessions through the `claude` CLI.
+  They must verify that launcher before creating worktrees. Cross-harness child
+  orchestration is a separate behavior change.
+
+See `docs/architecture/itx-cross-harness-commands.md` for the implementation
+plan and maintenance contracts.
 
 ### Planning Artifacts Directory (`.itx/`)
 
@@ -483,46 +511,38 @@ The `/itx-execute` skill uses a structured task checklist approach to prevent ge
 
 **Planning Phase (Mandatory)**:
 1. Read implementation plan from issue
-2. Create implementation tasks using `TaskCreate()` for each phase/step
+2. Create an implementation task for each phase or step using the harness's task tracker
 3. Create verification tasks (tests, lint, review if MCP enabled)
 4. Set dependencies between tasks if needed
 5. Review task list to confirm structure
 
 **Execution Phase**:
-1. Get next pending task using `TaskList()`
-2. Mark task `in_progress` using `TaskUpdate()`
+1. Get the next unblocked pending task
+2. Mark the task `in_progress`
 3. Execute the task requirements
 4. Mark task `completed`
-5. Check progress with `TaskList()`
+5. Inspect the task list for remaining work
 6. Repeat until all tasks done
 
-**Example Task Creation**:
-```python
-# Implementation task
-TaskCreate(
-    subject="Implement: Update CLI help text",
-    description="Update all help text in src/clawrium/cli/agent.py",
-    activeForm="Updating CLI help text"
-)
-
-# Verification task
-TaskCreate(
-    subject="Run test suite",
-    description="Execute 'make test' and ensure all tests pass",
-    activeForm="Running tests"
-)
+**Example Task List**:
+```text
+[pending] Implement: Update CLI help text
+  Requirements: Update all help text in src/clawrium/cli/agent.py
+[pending] Run test suite
+  Requirements: Execute make test and ensure all tests pass
 ```
 
 **Recovery Mechanism**:
 If execution feels unclear or you lose orientation:
-- Run `TaskList()` to see current state
+- Inspect the task list to see current state
 - Check which task is `in_progress`
 - Review that task's description
 - Complete current task before starting next
 
 ## Review
 
-Review requirements depend on whether MCP-based automated review is configured in `.claude/itx-config.json`.
+Review requirements depend on whether automated review is enabled in
+`.claude/itx-config.json` and an ATX transport is available.
 
 ### Check Review Mode
 
@@ -537,13 +557,19 @@ fi
 
 ---
 
-## If MCP Review Enabled (ATX)
+## If Automated Review Enabled (ATX)
 
 <atx-review-requirements>
-When `mcp.review_enabled` is `true`, all code changes MUST include automated review before merging.
+When `mcp.review_enabled` is `true`, all code changes MUST attempt automated
+review before merging. Try an ATX MCP request-review tool available in the
+current harness first. If it is unavailable, fails, or times out, try the
+stateless `atx review request` CLI and require `atx server status` to report
+`Running: true`. If the CLI is unavailable, stopped, fails, or times out, follow
+the manual review requirements below and document each failed or unavailable
+transport.
 
 ### Iteration Requirements
-1. Request review using the configured MCP tool (default: `mcp__atx__request_review`)
+1. Attempt review using the MCP → CLI → manual fallback sequence above
 2. Fix ALL blocking issues (B1, B2, etc.)
 3. Iterate until: Rating > 3/5 AND no blocking issues remain
 4. Document each review iteration in commit message and PR body
@@ -636,7 +662,7 @@ See PRs #19, #21, and #205 for real examples of this format.
 </pr-format-atx>
 
 <enforcement-atx>
-### Enforcement Rules (ATX)
+### Enforcement Rules (ATX Result Available)
 
 1. **No merge without review**: PRs lacking ATX review section will be rejected
 2. **No unresolved blockers**: All `B#` issues must be `Fixed` or `Out-of-scope` with justification
@@ -647,10 +673,12 @@ See PRs #19, #21, and #205 for real examples of this format.
 
 ---
 
-## If MCP Review Not Enabled (Manual Review)
+## If Automated Review Disabled or Unavailable (Manual Review)
 
 <manual-review-requirements>
-When `mcp.review_enabled` is `false` or not configured, use manual review with self-attestation.
+When `mcp.review_enabled` is `false`, not configured, or both ATX transports
+are exhausted, use manual review with self-attestation. If review was enabled,
+record each unavailable, stopped, failed, or timed-out transport in the PR.
 
 ### Requirements
 1. Run all tests and ensure they pass

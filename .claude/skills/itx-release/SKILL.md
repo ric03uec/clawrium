@@ -69,7 +69,7 @@ Do NOT touch:
    git checkout -b release/v<NEW>
    ```
 
-6. **Apply edits** to every file in the known set. Use the Edit tool — exact string matches only, no regex sweeps. After each edit, the file's *previous* version string (e.g. `26.5.1`) must no longer appear in that file (verify with grep).
+6. **Apply edits** to every file in the known set. Use the harness's file-editing tool with exact string matches only, not regex sweeps. After each edit, the file's *previous* version string (e.g. `26.5.1`) must no longer appear in that file (verify with grep).
 
 6a. **Archive + reset the changelog**. The root `CHANGELOG.md` is the working
     log for the just-finished release. Freeze it into a per-version archive,

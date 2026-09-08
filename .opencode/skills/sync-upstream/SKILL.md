@@ -182,7 +182,7 @@ inside each child as inline checklists — no grandchild issues.
 
 ## How to drive
 
-- Each child stands alone — execute them in any order with `/itx:execute <child-n>`.
+- Each child stands alone — execute them in any order with `/itx-execute <child-n>`.
 - Closing all children closes this parent automatically via the checklist.
 - This umbrella does **not** create any code change on its own.
 ```
@@ -297,7 +297,7 @@ playbook resolution. Do not bundle it into an upstream-bump child.
 - Following beta/alpha upstreams — only the latest stable is tracked.
 ```
 
-Do **not** auto-run `/itx:plan-scaffold` or `/itx:execute` — the inline
+Do **not** auto-run `/itx-plan-scaffold` or `/itx-execute` — the inline
 checklist already serves as the scaffold, and the maintainer drives
 execution.
 
@@ -323,7 +323,7 @@ upstream-unreachable:
 ## Guardrails
 
 - **Read-only on local code.** This skill never edits `manifest.yaml`, never edits running fleet config, never restarts agents.
-- **No PRs.** Only `gh issue create`. The actual bump is a separate human-driven `/itx:execute` pass once a maintainer is ready.
+- **No PRs.** Only `gh issue create`. The actual bump is a separate human-driven `/itx-execute` pass once a maintainer is ready.
 - **No betas.** Latest stable only — `isPrerelease==false` for GitHub, `dist-tags.latest` for npm. If a maintainer wants to track beta channels, that is a separate skill.
 - **Confirm before write.** Always print the proposed issues and wait for an explicit "yes" before calling `gh issue create`. Visible-to-others writes follow the project's confirm-first rule.
 - **Tolerate per-source failure.** One upstream being unreachable must not block the other two. Surface the failure in the final summary instead.
