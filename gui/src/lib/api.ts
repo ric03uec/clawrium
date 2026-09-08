@@ -1,16 +1,17 @@
 const API_BASE = "/api";
 
 /**
- * Strip absolute filesystem paths and internal hostnames from error
- * messages before surfacing them to the browser. Mirrors the
- * _sanitize_exception_text convention in the CLI.
+ * Remove terminal-control characters, common absolute server paths, and
+ * credential-shaped values before an SSE error reaches the browser.
  */
 function sanitizeChatError(msg: string): string {
   return msg
-    .replace(/\/home\/[^\s\/]+(\/[^\s]*)*/g, "[path]")
-    .replace(/\/Users\/[^\s\/]+(\/[^\s]*)*/g, "[path]")
-    .replace(/\/tmp\/[^\s]*/g, "[path]")
-    .replace(/\/root(\/[^\s]*)*/g, "[path]");
+    .replace(/[\u0000-\u001f\u007f-\u009f\u061c\u200b-\u200f\u2028-\u202e\u2060\u2066-\u2069\ufeff]/g, " ")
+    .replace(/\b(bearer|basic|digest)\s+([^\s,;]+)/gi, "$1 ***")
+    .replace(/\b([A-Za-z0-9_]*(?:token|auth|password|key|bearer|secret|apikey|authorization)[A-Za-z0-9_]*)\s*[:=]\s*([^\s,;]+)/gi, "$1=***")
+    .replace(/\/(?:home\/[^\s/]+|Users\/[^\s/]+|tmp|root|etc|var|opt|srv|usr)(?:\/[^\s]*)?/g, "[path]")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 async function request<T>(
@@ -226,25 +227,31 @@ export const api = {
     let fullText = "";
     let buf = "";
 
+    const processLine = (line: string) => {
+      if (!line.startsWith("data: ") || line === "data: [DONE]") return;
+      try {
+        const data = JSON.parse(line.slice(6));
+        if (data.type === "content") fullText = data.text;
+        if (data.type === "error") {
+          const message = typeof data.message === "string" ? data.message : "Chat failed";
+          throw new Error(sanitizeChatError(message));
+        }
+      } catch (e) {
+        if (e instanceof SyntaxError) return;
+        throw e;
+      }
+    };
+
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
-      buf += decoder.decode(value);
-      const parts = buf.split("\n");
+      buf += decoder.decode(value, { stream: true });
+      const parts = buf.split(/\r?\n/);
       buf = parts.pop() ?? ""; // keep trailing partial in buf
-      for (const line of parts) {
-        if (line.startsWith("data: ") && line !== "data: [DONE]") {
-          try {
-            const data = JSON.parse(line.slice(6));
-            if (data.type === "content") fullText = data.text;
-            if (data.type === "error") throw new Error(sanitizeChatError(data.message));
-          } catch (e) {
-            if (e instanceof SyntaxError) continue;
-            throw e;
-          }
-        }
-      }
+      parts.forEach(processLine);
     }
+    buf += decoder.decode();
+    if (buf) processLine(buf.replace(/\r$/, ""));
     return fullText;
   },
 

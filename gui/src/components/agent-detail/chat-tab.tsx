@@ -118,6 +118,10 @@ export function ChatTab({ agentKey, agentName }: ChatTabProps) {
       const isEnter = e.key === "Enter";
       const isShift = e.shiftKey;
 
+      // Let Enter commit an active IME composition instead of sending an
+      // incomplete CJK (or other composed) message.
+      if (e.nativeEvent.isComposing) return;
+
       // Enter submits; Shift+Enter inserts newline
       if (isEnter && !isShift) {
         e.preventDefault();

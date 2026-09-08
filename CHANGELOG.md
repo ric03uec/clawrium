@@ -67,9 +67,10 @@ cut. The `itx-release` skill archives this section into a new
 - **gui**: The Chat tab now fills the available pane height instead of a fixed
   500px, so long conversations scroll inside the message list rather than
   growing the page (#788).
-- **gui**: Chat SSE error messages are stripped of absolute filesystem paths
-  before rendering in the browser, and the SSE reader buffers partial lines
-  across chunk boundaries so a payload split mid-line is no longer dropped
+- **gui**: Chat SSE error messages redact common absolute server paths,
+  credential-shaped values, and terminal-control characters before rendering
+  in the browser. The SSE reader also buffers partial lines and split UTF-8
+  code points across chunk boundaries so payloads are not dropped or mangled
   (#788).
 
 ### Documentation

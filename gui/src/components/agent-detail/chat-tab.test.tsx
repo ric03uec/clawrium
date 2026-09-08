@@ -105,6 +105,22 @@ describe("ChatTab", () => {
     );
   });
 
+  it("does not submit Enter while an IME composition is active", async () => {
+    render(<ChatTab {...defaultProps} />);
+    const textarea = document.querySelector("textarea")!;
+
+    fireEvent.change(textarea, { target: { value: "入力中" } });
+    fireEvent.keyDown(textarea, { key: "Enter", isComposing: true });
+
+    expect(sendChatMessage).not.toHaveBeenCalled();
+    expect(textarea.value).toBe("入力中");
+
+    await act(async () => {
+      fireEvent.keyDown(textarea, { key: "Enter", isComposing: false });
+    });
+    expect(sendChatMessage).toHaveBeenCalledTimes(1);
+  });
+
   it("Shift+Enter does NOT submit", async () => {
     render(<ChatTab {...defaultProps} />);
     const textarea = document.querySelector("textarea")!;
