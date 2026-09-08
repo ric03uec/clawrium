@@ -410,6 +410,7 @@ transport = "None"
 workspace_datasheets = false
 
 [heartbeat]
+agent = "{{ agent_alias | toq }}"
 adaptive = false
 deadman_timeout_minutes = 0
 enabled = true

@@ -7369,3 +7369,51 @@ def test_zeroclaw_config_toml_parses_as_valid_v3_shape():
     agent = data["agents"]["clawrium_d01"]
     assert agent["channels"] == ["channels.discord.clawrium_d01"]
     assert agent["model_provider"] == "openrouter.clawrium_d01"
+
+
+# ---------------------------------------------------------------------------
+# #982: zeroclaw 0.8.2 [heartbeat].agent binding
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "agent_name,expected_alias",
+    [
+        ("clawrium-d01", "clawrium_d01"),
+        ("already_ok", "already_ok"),
+    ],
+)
+def test_zeroclaw_heartbeat_agent_binds_sanitized_alias(agent_name, expected_alias):
+    """Zeroclaw 0.8.2's heartbeat worker refuses to start unless
+    `[heartbeat] agent = "<alias>"` names a configured agent. The
+    template MUST emit that binding using the same sanitized
+    `agent_alias` used by `[agents.<alias>]` etc.
+
+    Covers hyphenated → sanitized and already-valid agent names."""
+    import tomllib
+
+    base = _zeroclaw_inputs(ptype="openrouter")
+    inputs = RenderInputs(
+        agent_name=agent_name,
+        agent_type=base.agent_type,
+        provider=base.provider,
+        channels=base.channels,
+        integrations=base.integrations,
+        gateway=base.gateway,
+    )
+    toml = render_zeroclaw(inputs).files[".zeroclaw/config.toml"]
+
+    # Parsed-shape assertion: `[heartbeat].agent` equals the sanitized
+    # alias exactly. Uses tomllib so a template regression that emits
+    # invalid TOML fails here rather than at daemon boot.
+    hb = tomllib.loads(toml)["heartbeat"]
+    assert hb["agent"] == expected_alias
+    # Textual guards on the [heartbeat] block body:
+    #   1. Exactly one `agent =` line (defense against a merge that
+    #      duplicates the key).
+    #   2. The raw agent_name never leaks in — only the sanitized alias.
+    hb_block = toml.split("[heartbeat]\n", 1)[1].split("\n[", 1)[0]
+    assert hb_block.count("agent =") == 1
+    assert f'agent = "{expected_alias}"' in hb_block
+    if agent_name != expected_alias:
+        assert agent_name not in hb_block

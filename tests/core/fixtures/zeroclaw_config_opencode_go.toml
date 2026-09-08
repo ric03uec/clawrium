@@ -387,6 +387,7 @@ transport = "None"
 workspace_datasheets = false
 
 [heartbeat]
+agent = "alpha"
 adaptive = false
 deadman_timeout_minutes = 0
 enabled = true
