@@ -1,6 +1,6 @@
 const API_BASE = "/api";
 
-const UNSAFE_FORMATTING_RE = /[\u0000-\u001f\u007f-\u009f\u061c\u200b-\u200f\u2028-\u202e\u2060\u2066-\u2069\ufeff]/g;
+const UNSAFE_FORMATTING_RE = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u061c\u200b-\u200f\u2028-\u202e\u2060\u2066-\u2069\ufeff]/g;
 
 function sanitizeChatContent(msg: string): string {
   return msg.replace(UNSAFE_FORMATTING_RE, " ");
@@ -265,7 +265,6 @@ export const api = {
       return fullText;
     } finally {
       await reader.cancel().catch(() => undefined);
-      reader.releaseLock();
     }
   },
 

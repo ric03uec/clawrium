@@ -211,9 +211,7 @@ export function ChatTab({ agentKey, agentName }: ChatTabProps) {
             <Button
               variant="primary"
               size="md"
-              onClick={() => {
-                if (input.trim() && !sending) handleSend();
-              }}
+              onClick={handleSend}
               disabled={!input.trim()}
               type="button"
             >

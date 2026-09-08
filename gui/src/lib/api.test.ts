@@ -129,18 +129,30 @@ describe("api.sendChatMessage", () => {
     await expect(api.sendChatMessage("test-agent", "hi")).resolves.toBe("");
   });
 
-  it("ignores non-string content and strips unsafe formatting controls", async () => {
+  it("ignores non-string content, preserves whitespace, and strips unsafe formatting", async () => {
     mockFetch.mockResolvedValue(
       makeSseResponse([
         'data: {"type":"content","text":42}',
-        `data: ${JSON.stringify({ type: "content", text: "safe\u202etext" })}`,
+        `data: ${JSON.stringify({ type: "content", text: "line one\nline two\t\u202etext" })}`,
         "data: [DONE]",
       ]),
     );
 
     await expect(api.sendChatMessage("test-agent", "hi")).resolves.toBe(
-      "safe text",
+      "line one\nline two\t text",
     );
+  });
+
+  it("skips malformed SSE JSON and continues parsing", async () => {
+    mockFetch.mockResolvedValue(
+      makeSseResponse([
+        "data: {broken json}",
+        'data: {"type":"content","text":"ok"}',
+        "data: [DONE]",
+      ]),
+    );
+
+    await expect(api.sendChatMessage("test-agent", "hi")).resolves.toBe("ok");
   });
 
   it("passes the AbortSignal through to fetch", async () => {
