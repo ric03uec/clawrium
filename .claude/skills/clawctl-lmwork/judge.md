@@ -46,8 +46,11 @@ The brief is the contract. The issue is evidence about the brief.
    the dispatcher-only OS fork invariant, the `ansible_user_dir` ban,
    the integration-binary-install pattern?
 
-6. **Staleness.** `git fetch origin && git log --oneline HEAD..origin/main`.
-   If main has moved, the branch must rebase before it can land.
+6. **Reviewed SHA and staleness.** Confirm the orchestrator rebased before
+   this round and record `git rev-parse HEAD`. Run `git fetch origin` and
+   require `git merge-base --is-ancestor origin/main HEAD`. If main moved,
+   return `REVISE` and tell the orchestrator to rebase, then restart lint,
+   tests, judge review, and ATX on the new SHA. Never rebase after a verdict.
 
 7. **Scope creep.** Refactors, abstractions, comments, and error
    handling beyond the brief are findings. Three similar lines beat a
@@ -90,7 +93,7 @@ unresolved item as a Callout. Do not block waiting for the user.
 
 When the orchestrator asks you to open the PR (after ATX clears):
 
-- Rebase on `origin/main` first.
+- Do not rebase or edit. Confirm `HEAD` is the exact SHA that passed judge and ATX and still contains `origin/main`; otherwise return to the review gates.
 - Use `.github/PULL_REQUEST_TEMPLATE.md` **verbatim**.
 - Include the ATX Review Summary table per AGENTS.md `<pr-format-atx>`.
 - Fill the **Agent Execution** table. The orchestrator hands you the wall
