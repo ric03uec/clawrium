@@ -104,7 +104,7 @@ def test_upgrade_no_op_when_already_at_max(isolated_config: Path):
 
 def test_upgrade_nochange_zeroclaw_exits_zero(isolated_config: Path):
     """Zeroclaw already at manifest max → upgrade is a no-op."""
-    _write_host(isolated_config, "zeroclaw", "0.8.2")
+    _write_host(isolated_config, "zeroclaw", "0.8.5")
     with patch("clawrium.core.install.run_installation") as mock_install:
         result = runner.invoke(
             app, ["agent", "upgrade", "test-agent", "--yes"], env=os.environ
@@ -112,7 +112,7 @@ def test_upgrade_nochange_zeroclaw_exits_zero(isolated_config: Path):
     assert result.exit_code == 0, result.output
     assert "already at latest" in result.output.lower()
     mock_install.assert_not_called()
-    assert _read_version(isolated_config) == "0.8.2"
+    assert _read_version(isolated_config) == "0.8.5"
 
 
 def test_upgrade_rejects_drift(isolated_config: Path):
@@ -902,7 +902,7 @@ def test_upgrade_live_probe_non_openclaw_uses_snapshot(
 
     Live version probing for zeroclaw/hermes is deferred per issue #754
     plan step 3. The probe function must NOT be called for these types."""
-    _write_host(isolated_config, "zeroclaw", "0.8.2")
+    _write_host(isolated_config, "zeroclaw", "0.8.5")
     with patch(
         "clawrium.cli.clawctl.agent.upgrade._get_live_openclaw_version",
         side_effect=AssertionError(

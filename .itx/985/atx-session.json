@@ -1,0 +1,11 @@
+{
+  "session_id": "c9793a22-d138-4484-a546-fda885d81ad4",
+  "transport": "cli",
+  "commit_sha": "pending-first-commit",
+  "iteration": 1,
+  "last_rating": 3.5,
+  "last_blockers": [],
+  "last_warnings": ["W1: mixed-version sync risk (CHANGELOG guidance tightened)", "W2: version pin in zeroclaw_fleet fixture (fixed)"],
+  "started_at": "2026-09-08T21:20:30Z",
+  "updated_at": "2026-09-08T21:30:00Z"
+}

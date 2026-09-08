@@ -551,14 +551,8 @@ allow_remote_fetch = false
 max_image_size_mb = 5
 max_images = 4
 
-[node_transport]
-allowed_peers = []
-connection_pool_size = 4
-enabled = true
-max_request_age_secs = 300
-mutual_tls = false
-require_https = true
-shared_secret = ""
+# #985: `[node_transport]` retired in zeroclaw v0.8.5. Do not add back —
+# `[nodes]` remains the supported peer-discovery surface.
 
 [nodes]
 enabled = false
