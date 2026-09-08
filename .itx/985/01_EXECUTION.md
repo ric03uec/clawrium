@@ -17,12 +17,28 @@ Bump zeroclaw upstream pin from v0.8.2 → v0.8.5.
 
 - `make lint` — clean.
 - `make test` — 4851 passed / 2 skipped.
-- Real-host UAT on wolf-i (x86_64): `clawctl agent upgrade e2e-zeroclaw --yes --skip-drift-check` → binary v0.8.5 installed; `clawctl agent sync e2e-zeroclaw` succeeded; `zeroclaw --version` reports `0.8.5`; rendered config on host has zero `[node_transport]` sections (only the retirement comment remains).
+- Real-host UAT on wolf-i (x86_64):
+  - `clawctl agent upgrade e2e-zeroclaw --yes --skip-drift-check` → binary v0.8.5 installed.
+  - `clawctl agent sync e2e-zeroclaw` → drift=0, unit restarted, gateway re-paired.
+  - `zeroclaw --version` → `0.8.5`.
+  - `zeroclaw config migrate` → `Config already at current schema version` (no parse errors, zero silent-reset warnings).
+  - `zeroclaw doctor` → provider healthy, 431 openrouter models fetched, all `[providers]` and `[cron]` checks green.
+  - `clawctl agent chat --once "say only OK"` with a working provider attached → `OK` (round-trip verified end-to-end).
+
+## Post-open regression fix (iteration 2)
+
+The initial iteration removed only `[node_transport]`. Follow-up UAT surfaced two additional v0.8.5 schema breaks that this iteration also drops:
+
+- `[providers]` root with inline `fallback = "..."` — retired; daemon silently reset entire `[providers]` block to defaults.
+- Root-level `[cron]` fields (`catch_up_on_startup`, `enabled`, `jobs`, `max_run_history`) — restructured as a map of named `CronJobDecl` sub-tables; clawrium ships none, so the root block is now omitted entirely.
+
+Both discovered via `zeroclaw config migrate` on wolf-i after the initial upgrade.
 
 ## ATX
 
 - Session `c9793a22-d138-4484-a546-fda885d81ad4`, iteration 1, rating **3.5/5**, no blockers.
 - 2 warnings addressed in-branch (W2 fixed, W1 CHANGELOG guidance tightened).
+- Iteration 2 (this fix commit) not re-run through ATX — the fix follows the same pattern (drop obsolete section, regenerate fixtures) and was verified end-to-end on wolf-i.
 
 ## Prompt Log
 

@@ -37,9 +37,13 @@ lockout_secs = 300
 max_failed_attempts = 5
 max_pending_codes = 3
 
-[providers]
-fallback = "{{ provider.type | toq }}"
-
+# #985: root-level `[providers] fallback = "..."` retired in v0.8.5.
+# The daemon no longer defines a global fallback provider — each agent
+# points directly at a `[providers.models.<type>.<alias>]` sub-table
+# via `[agents.<alias>].model_provider`. Rendering the legacy inline
+# key made the v0.8.5 daemon silently reset the whole `[providers]`
+# section to defaults, wiping every attached model.
+#
 # #817: zeroclaw ≥0.8.2 requires the THREE-level provider table
 # `[providers.models.<type>.<alias>]`. The two-level shape used up
 # through 0.7.5 (`[providers.models.<type>]`) is no longer recognized
@@ -52,7 +56,7 @@ fallback = "{{ provider.type | toq }}"
 # reference below stays in lockstep. #980: alias is
 # `_sanitize_zeroclaw_alias(agent_name)` — raw `agent_name` is invalid
 # here for names containing hyphens / uppercase because zeroclaw
-# 0.8.2's schema v3 alias validator enforces `[a-z0-9_]+` on every
+# ≥0.8.2's schema v3 alias validator enforces `[a-z0-9_]+` on every
 # sub-table key.
 [providers.models.{{ provider.type }}.{{ agent_alias }}]
 model = "{{ provider.default_model | toq }}"
@@ -370,11 +374,13 @@ output = 0.6
 input = 15.0
 output = 60.0
 
-[cron]
-catch_up_on_startup = true
-enabled = true
-jobs = []
-max_run_history = 50
+# #985: root-level `[cron]` block retired in v0.8.5. Cron jobs are
+# now individual `[cron.<name>]` sub-tables shaped as `CronJobDecl`
+# structs (see `zeroclaw config generate 3`); the old root-level
+# `catch_up_on_startup`, `enabled`, `jobs`, `max_run_history` fields
+# no longer exist. Clawrium does not ship any built-in cron jobs, so
+# no `[cron.*]` sub-tables are rendered — operators add jobs via the
+# workspace overlay if needed.
 
 [data_retention]
 categories = []

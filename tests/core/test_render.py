@@ -1217,9 +1217,18 @@ def test_zeroclaw_renders_discord_channel_and_mandatory_blocks():
     inputs = _zeroclaw_inputs(ptype="openrouter")
     out = render_zeroclaw(inputs)
     toml = out.files[".zeroclaw/config.toml"]
-    # #555: canonical zeroclaw schema — provider selection lives in
-    # [providers] block as `fallback`, not as a top-level `default_provider`.
-    assert '[providers]\nfallback = "openrouter"' in toml
+    # #985: root-level `[providers] fallback = "..."` was retired in
+    # v0.8.5. Provider selection now lives entirely on the agent
+    # sub-table's `model_provider` reference. A regression that re-adds
+    # the root block would make the v0.8.5 daemon reset the whole
+    # [providers] section to defaults and break chat.
+    assert "\n[providers]\n" not in toml
+    import tomllib
+    _parsed = tomllib.loads(toml)
+    assert "fallback" not in _parsed.get("providers", {}), (
+        "root-level `providers.fallback` was retired in v0.8.5; "
+        "re-emitting it makes the daemon reset [providers] to defaults"
+    )
     # #817: zeroclaw ≥0.8.2 requires the three-level provider table
     # `[providers.models.<type>.<alias>]`. Alias key = agent name so
     # a single-provider agent has exactly one alias.
@@ -1409,9 +1418,10 @@ def test_zeroclaw_litellm_emits_three_level_provider_block():
     out = render_zeroclaw(inputs)
     toml = out.files[".zeroclaw/config.toml"]
 
-    # Fallback + three-level provider table + agent alias reference all
+    # #985: root-level `[providers] fallback = "..."` was retired in
+    # v0.8.5. The three-level provider table plus agent alias reference
     # pin the litellm type.
-    assert '[providers]\nfallback = "litellm"' in toml
+    assert "\n[providers]\n" not in toml
     assert f"[providers.models.litellm.{inputs.agent_name}]" in toml
     assert 'model = "gemma4:31b"' in toml
     # Endpoint is normalized to /v1 (the baseline litellm endpoint is
@@ -2804,8 +2814,10 @@ def test_zeroclaw_toml_string_interpolations_escape_special_chars():
     assert parsed["gateway"]["require_pairing"] is True
     assert parsed["gateway"]["host"] == '1.2.3.4" require_pairing = false #'
 
-    # Provider values round-trip.
-    assert parsed["providers"]["fallback"] == "openrouter"
+    # #985: root-level `[providers] fallback` retired in v0.8.5 — no
+    # inline fallback key remains. The three-level provider table is
+    # still the routing surface.
+    assert "fallback" not in parsed.get("providers", {})
     # #817: three-level provider table — alias key = agent_name.
     assert (
         parsed["providers"]["models"]["openrouter"][inputs.agent_name]["model"]
