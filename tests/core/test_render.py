@@ -1291,6 +1291,60 @@ def test_zeroclaw_env_drop_in_carries_github_token():
     assert 'Environment=GITHUB_TOKEN="ghp_a"' in env
 
 
+def test_zeroclaw_sanitizes_alias_for_agents_and_provider_headers():
+    """#980: `[agents.<alias>]` and `[providers.models.<type>.<alias>]`
+    must use `_sanitize_zeroclaw_alias(agent_name)`, mirroring the
+    #974 discord fix. Zeroclaw 0.8.2's schema v3 alias validator
+    enforces `[a-z0-9_]+` on every TOML sub-table key. The TOML boot
+    loader is lenient (so the daemon starts and chat works with a
+    hyphenated alias) but the dashboard's per-request alias resolver
+    is strict and returns `[path_not_found]` on any agent-scoped
+    operation when the alias contains a hyphen.
+
+    Contract:
+    - All four alias sites (`[agents.<alias>]`,
+      `[providers.models.<type>.<alias>]`, the
+      `model_provider = "<type>.<alias>"` back-reference, and
+      `[channels.discord.<alias>]`) use the sanitized form
+      `clawrium_d01`.
+    - Path fields (`home_root`/`agent_name`) keep the raw `clawrium-d01`
+      because they must match the on-host filesystem laid down by
+      `install.yaml`.
+    """
+    base = _zeroclaw_inputs(ptype="litellm")
+    inputs = RenderInputs(
+        agent_name="clawrium-d01",
+        agent_type=base.agent_type,
+        provider=base.provider,
+        channels=base.channels,
+        integrations=base.integrations,
+        gateway=base.gateway,
+    )
+    out = render_zeroclaw(inputs)
+    toml = out.files[".zeroclaw/config.toml"]
+
+    # All four in-TOML alias sites use the sanitized alias.
+    assert "[agents.clawrium_d01]" in toml
+    assert "[providers.models.litellm.clawrium_d01]" in toml
+    assert 'model_provider = "litellm.clawrium_d01"' in toml
+    assert "[channels.discord.clawrium_d01]" in toml
+    assert 'channels = ["channels.discord.clawrium_d01"]' in toml
+
+    # And the hyphenated forms MUST NOT appear as sub-table keys —
+    # any of these would trip the dashboard's strict alias resolver.
+    assert "[agents.clawrium-d01]" not in toml
+    assert "[providers.models.litellm.clawrium-d01]" not in toml
+    assert 'model_provider = "litellm.clawrium-d01"' not in toml
+    assert "[channels.discord.clawrium-d01]" not in toml
+
+    # Path fields keep the un-sanitized name — they resolve against
+    # the on-host filesystem (`/home/clawrium-d01/…`) laid down by
+    # install.yaml, which uses the raw clawctl `agent_name`.
+    assert "/home/clawrium-d01/.zeroclaw/knowledge.db" in toml
+    assert "/home/clawrium-d01/.zeroclaw/plugins" in toml
+    assert "/home/clawrium-d01/.zeroclaw/workspaces" in toml
+
+
 def test_zeroclaw_stream_mode_defaults_to_off_when_empty():
     """W2: when stream_mode input is empty, render the canonical default ("off"),
     not "partial". The canonical config always has a `stream_mode` line — the
@@ -7166,9 +7220,32 @@ def test_render_zeroclaw_template_rejects_channel_without_alias():
     with pytest.raises(AgentConfigError, match="discord_alias"):
         _render_zeroclaw_config_template(
             agent_name="alpha",
+            agent_alias="alpha",
             gateway=GatewayInputs(host="0.0.0.0", port=40000, allow_public_bind=True),
             provider=ProviderInputs(name="p", type="openrouter", default_model="m", api_key="sk-1"),
             discord_channel=ChannelInputs(name="d", type="discord", bot_token="t"),
+            discord_alias="",
+            shell_env_passthrough=[],
+        )
+
+
+def test_render_zeroclaw_template_rejects_empty_agent_alias():
+    """#980 B1 (ATX iter-1): `_render_zeroclaw_config_template` must
+    reject an empty `agent_alias` — the template would otherwise emit
+    invalid TOML `[agents.]` and `[providers.models.<type>.]` headers
+    that only surface at daemon boot. Guard here fails at render time
+    so a corrupt config never touches disk. Parallel to the
+    `discord_alias` guard above."""
+    from clawrium.core.render import (
+        _render_zeroclaw_config_template,
+    )
+    with pytest.raises(AgentConfigError, match="agent_alias"):
+        _render_zeroclaw_config_template(
+            agent_name="alpha",
+            agent_alias="",
+            gateway=GatewayInputs(host="0.0.0.0", port=40000, allow_public_bind=True),
+            provider=ProviderInputs(name="p", type="openrouter", default_model="m", api_key="sk-1"),
+            discord_channel=None,
             discord_alias="",
             shell_env_passthrough=[],
         )
@@ -7207,14 +7284,18 @@ def test_zeroclaw_agents_channels_empty_when_no_discord_attached():
 
 def test_zeroclaw_agents_channels_bind_uses_sanitized_alias():
     """Agent names with hyphens (e.g. `clawrium-d01`) must sanitize into a
-    valid v3 alias (`clawrium_d01`) — both in the `[channels.discord.<alias>]`
-    header AND in the `[agents.<agent_name>].channels` binding.
+    valid v3 alias (`clawrium_d01`) at every in-TOML sub-table site —
+    `[channels.discord.<alias>]`, `[agents.<alias>]`, the
+    `channels = ["channels.discord.<alias>"]` binding, AND
+    `[providers.models.<type>.<alias>]` (+ its `model_provider =
+    "<type>.<alias>"` back-reference).
 
-    Note: `[agents.<agent_name>]` itself keeps the original agent_name (with
-    hyphens) — the daemon's TOML parser accepts hyphens for existing agent
-    entries even though `zeroclaw agents create` CLI validation rejects them
-    for new-agent creation. Only channel aliases need sanitization because
-    they are created fresh by clawrium and referenced by string."""
+    #980 extends the #974 discord-alias fix to `agents` and
+    `providers.models.<type>` sub-tables. Zeroclaw 0.8.2's dashboard
+    alias resolver enforces `[a-z0-9_]+` strictly on every sub-table
+    key; the pre-#980 render emitted `[agents.clawrium-d01]` which the
+    daemon's TOML boot loader accepted leniently but the dashboard
+    rejected with `[path_not_found]`."""
     base = _zeroclaw_inputs(ptype="openrouter")
     inputs = RenderInputs(
         agent_name="clawrium-d01",
@@ -7236,8 +7317,14 @@ def test_zeroclaw_agents_channels_bind_uses_sanitized_alias():
     )
     toml = render_zeroclaw(inputs).files[".zeroclaw/config.toml"]
     assert "[channels.discord.clawrium_d01]" in toml
-    assert "[agents.clawrium-d01]" in toml
+    assert "[agents.clawrium_d01]" in toml
     assert 'channels = ["channels.discord.clawrium_d01"]' in toml
+    assert "[providers.models.openrouter.clawrium_d01]" in toml
+    assert 'model_provider = "openrouter.clawrium_d01"' in toml
+    # No hyphenated alias sites — the dashboard's strict validator
+    # would reject any of these.
+    assert "[agents.clawrium-d01]" not in toml
+    assert "[providers.models.openrouter.clawrium-d01]" not in toml
 
 
 def test_zeroclaw_config_toml_parses_as_valid_v3_shape():
@@ -7277,5 +7364,8 @@ def test_zeroclaw_config_toml_parses_as_valid_v3_shape():
     assert sub["mention_only"] is True
     assert sub["stream_mode"] == "off"
 
-    agent = data["agents"]["clawrium-d01"]
+    # #980: agents sub-table is keyed by the sanitized alias too,
+    # not the raw agent_name.
+    agent = data["agents"]["clawrium_d01"]
     assert agent["channels"] == ["channels.discord.clawrium_d01"]
+    assert agent["model_provider"] == "openrouter.clawrium_d01"

@@ -48,8 +48,12 @@ fallback = "ollama"
 # return 503 needs_quickstart until at least one
 # [providers.models.<type>.<alias>] model = \"...\" is set"
 # (crates/zeroclaw-gateway/src/lib.rs line 708).
-# Alias key = agent_name so the `[agents.<alias>].model_provider`
-# reference below stays in lockstep.
+# Alias key = sanitized agent_alias so the `[agents.<alias>].model_provider`
+# reference below stays in lockstep. #980: alias is
+# `_sanitize_zeroclaw_alias(agent_name)` — raw `agent_name` is invalid
+# here for names containing hyphens / uppercase because zeroclaw
+# 0.8.2's schema v3 alias validator enforces `[a-z0-9_]+` on every
+# sub-table key.
 [providers.models.ollama.alpha]
 model = "llama3"
 
@@ -192,12 +196,18 @@ loop_ignore_tools = [
 # Per-agent alias sub-table required by zeroclaw ≥0.8.2. The gateway's
 # `/ws/chat` endpoint refuses connections without `?agent=<alias>` AND
 # a matching `[agents.<alias>]` entry (crates/zeroclaw-gateway/src/ws.rs
-# line 204). Every clawctl-managed agent gets exactly one alias whose
-# name equals `agent_name`.
+# line 204). Every clawctl-managed agent gets exactly one alias.
+#
+# #980: alias key is `_sanitize_zeroclaw_alias(agent_name)` — raw
+# `agent_name` is invalid here for names containing hyphens / uppercase
+# because zeroclaw 0.8.2's schema v3 alias validator enforces
+# `[a-z0-9_]+` on every sub-table key. The TOML boot loader is lenient
+# so the daemon starts, but the dashboard's alias resolver rejects any
+# request scoped to a mis-sanitized alias with `[path_not_found]`.
 #
 # `model_provider` MUST resolve to `<type>.<alias>` — a reference into
 # the three-level `[providers.models.<type>.<alias>]` table rendered
-# above. Alias key equals `agent_name` on both sides so a
+# above. Both sides use the same sanitized `agent_alias` so a
 # single-provider agent always has exactly one alias to point at.
 # `risk_profile` and `runtime_profile` must both name a configured
 # entry: `AliasedAgentConfig::is_dispatchable` demands all three
