@@ -4,7 +4,7 @@ ZeroClaw is the [ZeroClaw Labs Rust agent runtime](https://github.com/zeroclaw-l
 
 **Status:** 🚧 In Development
 
-**Best for:** Low-resource hosts (Raspberry Pi 2/3 armv7l, aarch64 SBCs, small x86_64 servers) that need a minimal, single-binary AI agent with file-based personality and a LAN-reachable chat endpoint. ZeroClaw is intentionally narrower than [Hermes](hermes.md) (no OpenAI-compatible HTTP, no MCP integrations) and narrower than [OpenClaw](openclaw.md) (no Discord/web channels).
+**Best for:** Low-resource hosts (Raspberry Pi 2/3 armv7l, aarch64 SBCs, small x86_64 servers) that need a minimal, single-binary AI agent with file-based personality and a LAN-reachable chat endpoint. ZeroClaw is intentionally narrower than [Hermes](hermes.md) (no OpenAI-compatible HTTP) and [OpenClaw](openclaw.md) (fewer native channels). Discord is supported; MCP integrations are Linux-only, with macOS support deferred (#836).
 
 **Pinned version:** `v0.7.5`. The release tarball SHA256 is pinned per architecture in `src/clawrium/platform/registry/zeroclaw/manifest.yaml` for five `(os, os_version, arch)` combinations; every version bump requires re-pinning all five.
 
@@ -65,7 +65,7 @@ ZeroClaw's only chat surface is the daemon's own WebSocket endpoint at `GET /ws/
 |---------|:------:|-------|
 | **`clawctl agent chat <zeroclaw-name>`** | ✅ | Connects to `ws://<host>:42617/ws/chat` with `Authorization: Bearer <paired-token>`. See [Use the WebSocket chat surface](#3-use-the-websocket-chat-surface). |
 | **OpenAI-compatible HTTP API** | ❌ | Not exposed by upstream ZeroClaw. Use [Hermes](hermes.md) when an OpenAI-style HTTP endpoint is required. |
-| **[Discord](channels/discord.md)** | ✅ | Native — rendered as `[channels.discord]` in `config.toml`. Bot token is **inline TOML**, not env-based (differs from hermes). Schema follows zeroclaw v0.7.5 upstream: `bot_token`, `allowed_guilds`, `allowed_users`, `reply_to_mentions_only`, `draft_update_interval_ms`. Configure via `clawctl channel registry create <channel-name> --type discord ...` + `clawctl agent channel attach <channel-name> --agent <name>`. |
+| **[Discord](channels/discord.md)** | ✅ | Native — rendered as a `[channels.discord.<alias>]` sub-table in `config.toml` and bound to the agent via `[agents.<alias>].channels` (zeroclaw ≥0.8.2 config schema v3; `<alias>` is the agent name sanitized to `[a-z0-9_]+`, #974). Bot token is **inline TOML**, not env-based (differs from hermes). Keys: `bot_token`, `allowed_guilds`, `allowed_users`, `mention_only`, `stream_mode`, `draft_update_interval_ms`, `multi_message_delay_ms`. Configure via `clawctl channel registry create <channel-name> --type discord ...` + `clawctl agent channel attach <channel-name> --agent <name>`. |
 | **Slack** | ❌ | Not supported (use [OpenClaw](openclaw.md) or [Hermes](hermes.md)). Tracked as a follow-up. |
 | **Web / WhatsApp / Telegram / Email / Matrix** | ❌ | Not supported. |
 
@@ -146,7 +146,7 @@ The wizard walks through:
 |-------|----------|
 | **providers** | Required. Pick from your registered clawctl providers; clawctl validates connectivity via `provider_test`. |
 | **identity** | Auto-skipped. ZeroClaw manages its own identity through the workspace MD files (`SOUL.md`, `IDENTITY.md`, …) which clawctl renders below — there is no separate identity wizard. |
-| **channels** | Required. ZeroClaw confirms the always-on CLI channel and offers a `discord` opt-in. Selecting `discord` prompts for the bot token (persists to `secrets.json` as `DISCORD_BOT_TOKEN`) plus optional allowlists; clawctl renders the result as `[channels.discord]` in `~/.zeroclaw/config.toml`. Slack remains unsupported on ZeroClaw — use [Hermes](hermes.md) or [OpenClaw](openclaw.md) for Slack. |
+| **channels** | The legacy interactive stage is retired. Create Discord desired state with `clawctl channel registry create <channel-name> --type discord ...`, attach it with `clawctl agent channel attach <channel-name> --agent <name>`, then run `clawctl agent sync <name>`. clawctl renders `[channels.discord.<alias>]` and binds it through `[agents.<alias>].channels` (zeroclaw ≥0.8.2 schema v3; see [Discord](channels/discord.md#zeroclaw-configuration)). |
 | **validate** | Local validation only, three steps for zeroclaw: (1) agent install record, (2) provider config + API key, (3) provider connectivity. The control-machine SOUL.md check is skipped — zeroclaw owns its identity through `~/.zeroclaw/workspace/` on the agent host, not under `~/.config/clawrium/agents/zeroclaw/`. The playbook's own post-render readiness probe (`GET /health/providers`) is separate from this stage. The manifest's `binary_check` task (`zeroclaw --version`) is not dispatched yet — remote version verification is planned. |
 
 Configure renders TWO things on the agent host, then runs the pairing handshake against the freshly started daemon.
