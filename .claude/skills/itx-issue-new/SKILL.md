@@ -16,7 +16,7 @@ Create a GitHub issue for a feature request or improvement.
    - Improvement suggestions
    - User pain points
 
-2. **Ask for Customer Outcome**: Use `AskUserQuestion` to ask:
+2. **Ask for Customer Outcome**: Use the harness's user-question facility to ask:
    > "What should the user be able to do when this is implemented?"
 
    Example outcomes:

@@ -31,6 +31,8 @@ across all subtasks.
   ```
 - `tmux` available on the host. If not, fail with a clear message —
   orchestrate mode requires tmux.
+- The `claude` CLI is available (`command -v claude`). Check this before
+  creating a tmux session, branch, or worktree; fail clearly if it is missing.
 - A plan file exists at `.itx/<parent>/00_PLAN.md` (created by
   `/itx-plan-create`). Refuse to start otherwise.
 
@@ -42,7 +44,12 @@ clears.
 
 ### Orchestration contract
 
-The orchestrator (the claude session that runs orchestrate mode) does
+Orchestrate mode and the tmux-backed standalone worktree path are currently
+Claude Code-specific even when this skill is invoked from another harness.
+They launch child sessions through the `claude` CLI; selecting the active
+harness for child execution is outside this workflow's current contract.
+
+The orchestrator does
 **only these things**:
 
 1. Creates worktrees + branches + tmux windows for each subtask.
@@ -235,16 +242,17 @@ execution can resume without re-running ATX on identical changes.
 Try each step in order; use the first that works. **Never block the
 user** waiting for ATX to become available.
 
-1. **ATX via MCP** (preferred). Check whether
-   `mcp__atx__request_review` is available in the tool list. If yes,
-   call it with the iteration body specified in
+1. **ATX via MCP** (preferred). Inspect the current harness's tool list for an
+   ATX request-review tool. Tool identifiers differ by harness; only invoke a
+   tool that is actually available. Call it with the iteration body specified in
    [AGENTS.md](../../../AGENTS.md#if-mcp-review-enabled-atx).
-2. **ATX via CLI** (fallback). If MCP is not available, check
-   `command -v atx` on the host, then `atx server status`
+   If MCP is unavailable, fails, or times out, continue to the CLI step.
+2. **ATX via CLI** (fallback). Check `command -v atx` on the host, then `atx server status`
    (expect `Running: true`). Pick the variant that matches who
    authored the changes — see **ATX CLI surface** below. Parse the
-   JSON the same way you'd parse the MCP response.
-3. **Skip ATX** (last resort). If neither MCP nor CLI is available,
+   JSON the same way you'd parse the MCP response. If the CLI is unavailable,
+   stopped, fails, or times out, continue to the last-resort step.
+3. **Skip ATX** (last resort). After both automated transports are exhausted,
    **proceed with the work** — do not block, do not prompt the user.
    Record a Callout on the PR (see "Callouts" below) noting that ATX
    was unavailable so the reviewer knows to do a manual pass.
@@ -386,11 +394,11 @@ near the bottom of the body — even if empty. Format:
   - Tracking: <issue number or `to be filed`>
 ```
 
-If you would otherwise want to ask the user a question via
-`AskUserQuestion`, **don't** — make a best-guess decision using
-existing project conventions (CLAUDE.md, AGENTS.md, neighboring code)
-and record it as a `[DECISION]` callout instead. The PR is the
-synchronization point with the user; do not block during execution.
+If you would otherwise want to use the harness's user-question facility,
+**don't** — make a best-guess decision using existing project conventions
+(CLAUDE.md, AGENTS.md, neighboring code) and record it as a `[DECISION]`
+callout instead. The PR is the synchronization point with the user; do not
+block during execution.
 
 If there are genuinely no callouts, write:
 
@@ -406,6 +414,15 @@ so the reviewer knows the section wasn't forgotten.
 
 Triggered by `in a subtree` or `--worktree` in arguments. Enables working on multiple issues simultaneously.
 
+The tmux path starts a Claude Code child regardless of which harness invoked
+this skill. Before creating a branch or worktree, verify the child launch path:
+
+- If tmux is available, require `command -v claude` to succeed.
+- If tmux is unavailable, require a harness subagent mechanism that can set its
+  working directory to the new worktree.
+- If neither path is available, fail with a clear message before running
+  `git worktree add`.
+
 ### Worktree Naming Convention
 ```
 <repo-parent>/<repo-name>-issue-<number>/
@@ -420,7 +437,7 @@ Example:
 
 ### Worktree Execution Steps
 
-1. **Create Worktree**:
+1. **Create Worktree** only after the child-launch preflight succeeds:
    ```bash
    REPO_NAME=$(basename $(git rev-parse --show-toplevel))
    REPO_PARENT=$(dirname $(git rev-parse --show-toplevel))
@@ -452,11 +469,12 @@ Example:
    ```
 
    **If tmux not available** (fallback):
-   Do **not** prompt the user. Spawn a Task subagent
-   (`subagent_type="general-purpose"`) in the worktree with prompt
-   `/itx-execute ${NUMBER}`. Record this fallback in the PR's
-   **Callouts** section so the user knows the execution path differed
-   from the default (tmux + interactive claude).
+   Do **not** prompt the user. Use the harness's subagent mechanism in
+   `${WORKTREE_PATH}` with prompt `/itx-execute ${NUMBER}`. If the harness
+   cannot set the subagent's working directory, the preflight must fail before
+   the worktree is created. Record a successful fallback in the PR's
+   **Callouts** section so the user knows the execution path differed from the
+   default (tmux + interactive Claude Code).
 
 3. **Exit**: After spawning tmux window, exit current execution (work continues in tmux)
 
@@ -610,62 +628,37 @@ Always:
 
 5. **Create Execution Checklist**:
 
-   **CRITICAL**: ALWAYS create task checklist before any execution. Do not skip this step.
+   **CRITICAL**: ALWAYS create a task checklist before execution. Use the
+   harness's task-tracking facility when available; otherwise maintain an
+   explicit checklist in the session.
 
-   Parse the implementation plan and create tasks for tracking:
+   Parse the implementation plan into:
 
-   a. **Create Implementation Tasks**:
-      For each phase/step in the plan, create a task:
-      ```
-      TaskCreate(
-          subject="Implement: <phase/step description>",
-          description="<detailed requirements from plan>",
-          activeForm="Implementing <phase/step>"
-      )
-      ```
+   a. **Implementation tasks**: one task for each phase or step, including its
+      requirements and affected files.
 
-   b. **Create Verification Tasks**:
-      ```
-      TaskCreate(
-          subject="Run test suite",
-          description="Execute configured test command and ensure all tests pass",
-          activeForm="Running tests"
-      )
+   b. **Verification tasks**: separate tasks for the configured test command,
+      configured lint command, and regression review.
 
-      TaskCreate(
-          subject="Run linter",
-          description="Execute configured lint command and fix any issues",
-          activeForm="Running linter"
-      )
-      ```
+   c. **Dependencies**: record prerequisites between tasks when the harness
+      supports dependencies; otherwise order the checklist explicitly.
 
-   c. **Set Dependencies** (if needed):
-      ```
-      TaskUpdate(
-          taskId="<later-task-id>",
-          addBlockedBy=["<prerequisite-task-id>"]
-      )
-      ```
-
-   d. **Review Task List**:
-      ```
-      TaskList()  # Confirm all tasks created correctly
-      ```
+   d. **Review**: inspect the complete checklist before making changes.
 
 6. **Execute Tasks Systematically**:
 
-   a. Get Next Task: `TaskList()` - Find first pending task with no blockedBy
+   a. Get Next Task: find the first unblocked pending task
 
-   b. Start Task: `TaskUpdate(taskId="<task-id>", status="in_progress")`
+   b. Start Task: mark it in progress
 
    c. Execute Changes: Implement the task requirements
       - Make code changes
       - Write/update tests
       - Follow existing code patterns
 
-   d. Complete Task: `TaskUpdate(taskId="<task-id>", status="completed")`
+   d. Complete Task: mark it completed only after its requirements are met
 
-   e. Check Progress: `TaskList()` - See remaining tasks
+   e. Check Progress: inspect the checklist for remaining work
 
    f. Repeat until all implementation tasks are completed
 
@@ -711,26 +704,26 @@ Always:
 When reading the implementation plan, extract:
 - **Implementation steps**: Each becomes a task
 - **Files to modify**: Include in task descriptions
-- **Dependencies**: Set using addBlockedBy
+- **Dependencies**: Record which tasks block later work
 - **Acceptance criteria**: Include in task descriptions
 
 ### Task Naming Convention
 
 ```
-subject: "Implement: <what>"
-description: "<detailed requirements>"
-activeForm: "Implementing <what>"
+Task: "Implement: <what>"
+Requirements: "<detailed requirements>"
+Status: pending
 ```
 
 Examples:
 ```
-subject: "Implement: Update CLI help text for new terminology"
-description: "Update all help text in src/cli/main.py to use new terminology"
-activeForm: "Updating CLI help text"
+Task: "Implement: Update CLI help text for new terminology"
+Requirements: "Update all help text in src/cli/main.py to use new terminology"
+Status: pending
 
-subject: "Implement: Refactor service.py function names"
-description: "Rename functions: old_name -> new_name, another_old -> another_new"
-activeForm: "Refactoring service.py"
+Task: "Implement: Refactor service.py function names"
+Requirements: "Rename functions: old_name -> new_name, another_old -> another_new"
+Status: pending
 ```
 
 ### Standard Verification Checklist
@@ -743,7 +736,7 @@ Always create these verification tasks:
 ### When You Get Lost
 
 If execution feels unclear or you lose track of progress:
-1. Run `TaskList()` to see current state
+1. Inspect the task list to see current state
 2. Check which task is in_progress
 3. Review that task's description
 4. Complete current task before starting next
@@ -751,16 +744,10 @@ If execution feels unclear or you lose track of progress:
 
 ## Subagent Spawning (for Parent with Subtasks)
 
-Use the Task tool to spawn subagents:
-```
-Task(
-  subagent_type="general-purpose",
-  prompt="Execute /itx-execute <subtask-number>",
-  description="Execute subtask #<number>"
-)
-```
-
-Execute subtasks sequentially to avoid conflicts.
+Use the harness's subagent mechanism when available. Give each subagent the
+prompt `Execute /itx-execute <subtask-number>` and identify the subtask number
+in its description. If the harness has no subagent mechanism, execute the
+subtasks directly. Execute subtasks sequentially to avoid conflicts.
 
 ## Completion Check (for Subtasks)
 
@@ -790,16 +777,16 @@ See [CONFIG.md](../../CONFIG.md) for full configuration options.
 
 ## Notes
 
-- **NEVER block on user input.** No `AskUserQuestion`, no interactive
-  prompts. When in doubt, follow existing project standards (CLAUDE.md,
-  AGENTS.md, neighboring code) and record the decision as a Callout on
-  the PR. The PR is the synchronization point with the user.
+- **NEVER block on user input.** Do not use interactive prompts. When in
+  doubt, follow existing project standards (CLAUDE.md, AGENTS.md, neighboring
+  code) and record the decision as a Callout on the PR. The PR is the
+  synchronization point with the user.
 - **Always include a Callouts section in the PR body** — see the
   Callouts section of this skill. Write `_None._` if empty.
 - **ALWAYS create task checklist before execution** — do not skip this step.
-- **Use TaskList() frequently** to maintain awareness of progress.
+- **Inspect the task list frequently** to maintain awareness of progress.
 - **Complete tasks sequentially** unless explicitly marked as parallel.
-- **If you feel lost**, check TaskList() to reorient.
+- **If you feel lost**, inspect the task list to reorient.
 - **ATX is best-effort**: try MCP, then CLI, then skip and note in
   Callouts. Never block on ATX availability. Persist
   `.itx/<N>/atx-session.json` so interrupted runs don't re-run ATX on

@@ -21,8 +21,7 @@
     }
   },
   "mcp": {
-    "review_enabled": true,
-    "review_tool": "mcp__atx__request_review"
+    "review_enabled": true
   },
   "project": {
     "name": "Clawrium",

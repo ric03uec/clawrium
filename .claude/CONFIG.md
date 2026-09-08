@@ -1,6 +1,6 @@
 # ITX Configuration Guide
 
-ITX skills work with **zero configuration** by default. All configuration is optional and allows you to customize behavior for your specific project.
+ITX skills work with **zero configuration** by default. All configuration is optional and allows you to customize behavior for your specific project. This file is shared by Claude Code, OpenCode, and Pi even though its path remains under `.claude/`.
 
 ## Configuration File
 
@@ -58,20 +58,26 @@ Enable GitHub Projects V2 integration for automatic issue status updates:
 
 **Used by**: `/itx-execute`
 
-### MCP Integration
+### Automated Review
 
-Enable Model Context Protocol for automated code review:
+Enable automated code review:
 
 ```json
 {
   "mcp": {
-    "review_enabled": true,
-    "review_tool": "mcp__atx__request_review"
+    "review_enabled": true
   }
 }
 ```
 
-**Default behavior**: Falls back to manual review checklist
+The historical `mcp` key remains for configuration compatibility. When review
+is enabled, ITX attempts an ATX request-review MCP tool available in the current
+harness. If that request is unavailable, fails, or times out, it tries the
+stateless `atx` CLI. If the CLI is unavailable, stopped, fails, or times out, it
+uses the manual checklist. Shared config does not pin a harness-specific tool
+name.
+
+**Default behavior**: Uses the manual review checklist
 
 **Used by**: `/itx-review-pr`
 
@@ -139,8 +145,7 @@ Without any configuration file, ITX:
     }
   },
   "mcp": {
-    "review_enabled": true,
-    "review_tool": "mcp__atx__request_review"
+    "review_enabled": true
   },
   "project": {
     "name": "MyApp",

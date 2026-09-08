@@ -13,7 +13,7 @@ make install
 # 2. Find an issue to work on
 gh issue list --label ready
 
-# 3. Start working (in Claude Code)
+# 3. Start working in Claude Code, OpenCode, or Pi
 /itx-execute 42
 
 # 4. Verify your changes
@@ -40,7 +40,11 @@ Issue titles describe what the user can do, not what you'll implement:
 
 ### Workflow Skills
 
-Claude Code skills (`/itx-*`) automate the workflow. They handle label transitions, create structured comments, and maintain prompt logs for reproducibility.
+The `/itx-*` skills automate the workflow in Claude Code, OpenCode, and Pi.
+They handle label transitions, create structured comments, and maintain prompt
+logs for reproducibility. The canonical definitions live in
+`.claude/skills/itx-*/SKILL.md`; do not copy them into harness-specific command
+or skill directories.
 
 ## Setup
 
@@ -49,7 +53,9 @@ Claude Code skills (`/itx-*`) automate the workflow. They handle label transitio
 - Python 3.11+
 - [uv](https://github.com/astral-sh/uv) package manager
 - [gh](https://cli.github.com/) GitHub CLI (authenticated)
-- [Claude Code](https://claude.ai/claude-code) CLI
+- One supported assistant: [Claude Code](https://claude.ai/claude-code),
+  [OpenCode](https://opencode.ai), or
+  [Pi](https://github.com/earendil-works/pi) 0.84.2 or newer
 
 ### Installation
 
@@ -68,13 +74,23 @@ make lint
 
 ### Verify Skills are Available
 
-In Claude Code, run `/help` to see available skills. You should see:
-- `/itx-bug-new`
-- `/itx-issue-new`
-- `/itx-plan`
-- `/itx-execute`
-- `/itx-verify`
-- etc.
+| Harness | Loading | Invocation | Refresh after changes |
+|---------|---------|------------|-----------------------|
+| Claude Code | Discovers `.claude/skills/` | `/itx-*` | Start a new session |
+| OpenCode | Discovers `.claude/skills/` directly | `/itx-*` | Quit and restart OpenCode |
+| Pi | From the repository root, `.pi/settings.json` loads `.claude/skills/` | `/itx-*`, or native `/skill:itx-*` | Run `/reload` |
+
+The expected commands are `/itx-bug-new`, `/itx-bug-update`, `/itx-execute`,
+`/itx-issue-new`, `/itx-issue-update`, `/itx-note`, `/itx-plan-create`,
+`/itx-plan-scaffold`, `/itx-pr-status`, `/itx-release`, `/itx-review-pr`,
+`/itx-triage`, and `/itx-verify`.
+
+Pi's `.pi/extensions/itx-command-aliases.js` discovers those canonical skills
+and maps each exact `/itx-*` name to Pi's native `/skill:itx-*` command. It
+does not contain a second list of workflows. Pi project settings and extensions
+are current-directory scoped, so start Pi from the repository root and trust
+the project when prompted. Version 0.84.2 is the minimum because the adapter
+uses Pi's `expandPromptTemplates` API.
 
 ## Workflow
 
@@ -142,7 +158,7 @@ You: I tried to install zeroclaw but got a version mismatch error
 /itx-bug-new
 ```
 
-Claude asks: "What should the user be able to do when this bug is fixed?"
+The assistant asks: "What should the user be able to do when this bug is fixed?"
 
 You: "User can install zeroclaw without version mismatch errors"
 
@@ -154,7 +170,7 @@ Result: Issue #42 created with title "User can install zeroclaw without version 
 /itx-plan-create 42
 ```
 
-Claude:
+The assistant:
 - Reads the issue
 - Explores the codebase
 - Posts high-level implementation plan as comment
@@ -167,7 +183,7 @@ Claude:
 /itx-plan-scaffold 42
 ```
 
-Claude:
+The assistant:
 - Reads the plan-build output
 - Decides single-phase vs multi-phase execution
 - Creates entry/exit criteria for each phase
@@ -180,7 +196,7 @@ Claude:
 /itx-execute 42
 ```
 
-Claude uses a structured task checklist approach:
+The assistant uses a structured task checklist approach:
 
 **Planning Phase**:
 1. Reads implementation plan from issue
@@ -191,7 +207,7 @@ Claude uses a structured task checklist approach:
 4. Reviews task list
 
 **Execution Phase**:
-1. Gets next pending task (`TaskList()`)
+1. Gets the next pending task
 2. Marks task in progress
 3. Implements the requirements
 4. Marks task completed
@@ -200,7 +216,7 @@ Claude uses a structured task checklist approach:
 
 **Example Execution Flow**:
 ```
-TaskList() shows:
+The task list shows:
   #1 [pending] Implement: Update CLI help text
   #2 [pending] Implement: Refactor function names
   #3 [pending] Run test suite
@@ -220,7 +236,7 @@ Issue moves: `ready` → `in-progress`
 /itx-verify
 ```
 
-Claude runs:
+The assistant runs:
 ```bash
 make test   # All tests must pass
 make lint   # No lint errors
@@ -232,7 +248,7 @@ make lint   # No lint errors
 /itx-review-pr
 ```
 
-Claude:
+The assistant:
 - Creates PR if not exists
 - Requests ATX code review
 - Moves issue: `in-progress` → `in-review`
@@ -276,6 +292,7 @@ After review passes and PR merges, issue closes automatically.
 | `/itx-verify` | Before creating PR |
 | `/itx-review-pr` | Request code review |
 | `/itx-pr-status` | Check status of open PRs |
+| `/itx-release [version]` | Cut and publish a release |
 
 ### Utilities
 
@@ -285,7 +302,7 @@ After review passes and PR merges, issue closes automatically.
 
 ## Complex Issues: Parent/Subtask Pattern
 
-For large issues, `/itx-plan` may create subtasks:
+For large issues, `/itx-plan-create` may create subtasks:
 
 ```
 Parent Issue #100: "User can manage multiple hosts in batch"
@@ -318,7 +335,11 @@ Work on multiple issues simultaneously using git worktrees and tmux.
 
 - **Speed**: Work on independent issues concurrently
 - **No conflicts**: Each issue gets its own isolated directory
-- **Autonomous**: Claude runs without permission prompts in tmux
+- **Autonomous**: Claude Code child sessions run without permission prompts in tmux
+
+Both orchestrate mode and the tmux-backed standalone `--worktree` path launch
+the `claude` CLI, even when invoked from OpenCode or Pi. ITX checks that the
+launcher exists before creating a branch or worktree.
 
 ### Quick Start
 
@@ -401,18 +422,24 @@ git worktree prune
 
 ### Without tmux
 
-If tmux is not available, you'll be prompted:
-- **Subagent**: Run as background task (non-interactive)
-- **Same session**: Continue interactively (will ask for permissions)
+If tmux is unavailable, ITX can use the active harness's subagent mechanism
+only when that mechanism can set the child working directory to the new
+worktree. Otherwise it fails before creating the worktree.
 
 ## Code Review
 
-All PRs use ATX automated review. Requirements:
+All PRs attempt ATX automated review. Try an ATX MCP tool exposed by the
+current harness first. If it is unavailable, fails, or times out, use the
+stateless `atx review request` CLI and require `atx server status` to report
+`Running: true`. Automated results must meet these requirements:
 
 - **Rating**: Must be > 3/5
 - **Blocking issues**: Must be zero
 
-If review fails, fix issues and re-run `/itx-review-pr`.
+If review finds code issues, fix them and re-run `/itx-review-pr`. If the CLI is
+unavailable, stopped, fails, or times out after the MCP attempt, complete the
+manual self-review checklist in `AGENTS.md` and document every failed or
+unavailable transport in the PR.
 
 See [AGENTS.md](AGENTS.md) for review format.
 
@@ -457,9 +484,9 @@ Skills automatically log prompts in issue comments:
 <summary>Prompt Log</summary>
 
 **Stage**: planning
-**Skill**: /itx-plan
+**Skill**: /itx-plan-create
 **Timestamp**: 2026-04-04T10:30:00Z
-**Model**: claude-opus-4-5-20251101
+**Model**: <model-id>
 
 ```prompt
 <the prompt that triggered this action>

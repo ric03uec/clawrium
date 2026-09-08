@@ -28,7 +28,6 @@ Request a code review for a pull request.
    ITX_CONFIG="$(git rev-parse --show-toplevel)/.claude/itx-config.json"
    if [ -f "$ITX_CONFIG" ]; then
      REVIEW_ENABLED=$(jq -r '.mcp.review_enabled // false' "$ITX_CONFIG")
-     REVIEW_TOOL=$(jq -r '.mcp.review_tool // "mcp__atx__request_review"' "$ITX_CONFIG")
    else
      REVIEW_ENABLED="false"
    fi
@@ -36,16 +35,31 @@ Request a code review for a pull request.
 
 4. **Execute Review**:
 
-### If MCP Review Enabled
+### If Automated Review Enabled
 
-Use the configured MCP tool for automated review:
+Attempt each transport in order. Tool identifiers differ by harness, so do not
+invoke a configured or example name unless it is available in the current
+harness. An unavailable, failed, or timed-out attempt falls through to the next
+step.
 
-```
-# Use the tool specified in config (default: mcp__atx__request_review)
-$REVIEW_TOOL(prompt="Review PR #<number>")
-```
+1. **ATX via MCP**: Inspect the current tool list for an ATX request-review
+   tool. If one is available, invoke it with `Review PR #<number>`. If MCP is
+   unavailable, fails, or times out, continue to the CLI step.
+2. **ATX via CLI**: Check `command -v atx` and require `atx server status` to report
+   `Running: true`. If both checks pass, run the stateless review command so
+   the result does not depend on harness-specific hooks:
+   ```bash
+   atx review request \
+     --prompt "Review PR #<number>, including its full diff and tests." \
+     --format json --timeout 15m
+   ```
+   If the CLI is unavailable, stopped, fails, or times out, continue to manual
+   review.
+3. **Manual review**: After both automated transports are exhausted, use the
+   manual checklist below and state clearly which attempts were unavailable or
+   failed.
 
-**Process Review Results**:
+**Process Automated Review Results**:
 - If rating <= 3/5 or blocking issues exist:
   - List issues to fix
   - Recommend specific changes
@@ -72,9 +86,10 @@ $REVIEW_TOOL(prompt="Review PR #<number>")
 <READY FOR MERGE / NEEDS CHANGES>
 ```
 
-### If MCP Review Not Enabled (Manual Review)
+### Manual Review
 
-Perform manual review using checklist:
+Use this checklist when automated review is disabled or no ATX transport is
+available:
 
 **Review Checklist**:
 
@@ -197,16 +212,20 @@ Perform manual review using checklist:
 
 ## Configuration
 
-Enable MCP-based automated review in `.claude/itx-config.json`:
+Enable automated review in `.claude/itx-config.json`:
 
 ```json
 {
   "mcp": {
-    "review_enabled": true,
-    "review_tool": "mcp__atx__request_review"
+    "review_enabled": true
   }
 }
 ```
+
+The `mcp` key is retained for configuration compatibility. The workflow
+detects an ATX MCP tool exposed by the active harness, then falls back to the
+`atx` CLI and finally to manual review; it does not pin a harness-specific tool
+identifier in shared configuration.
 
 **Default** (no config): Manual review mode with checklist
 
@@ -214,10 +233,10 @@ See [CONFIG.md](../../CONFIG.md) for full configuration options.
 
 ## Notes
 
-**MCP Review Mode**:
+**Automated Review Mode**:
 - Automated specialist reviews
 - Faster turnaround
-- Requires MCP server configuration
+- Uses an available ATX MCP tool or the `atx` CLI
 - Rating-based approval (> 3/5)
 
 **Manual Review Mode**:

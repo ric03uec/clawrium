@@ -16,7 +16,7 @@ Create a GitHub issue for a bug based on the current conversation context.
    - Steps that led to the issue
    - Environment details (version, OS, etc.)
 
-2. **Ask for Customer Outcome**: Use `AskUserQuestion` to ask:
+2. **Ask for Customer Outcome**: Use the harness's user-question facility to ask:
    > "What should the user be able to do when this bug is fixed?"
 
    Example outcomes:

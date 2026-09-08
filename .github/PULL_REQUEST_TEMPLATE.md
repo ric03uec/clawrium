@@ -37,13 +37,15 @@ fine - round to the nearest 5 minutes. It is a cost signal, not a benchmark.
 ## ATX Review
 
 <!--
-<atx-required>
-MANDATORY: All PRs must include @atx-ci review before merging.
-- Request review using mcp__atx__review_changes or mcp__atx__request_review
+<review-required>
+MANDATORY: Request @atx-ci review before merging when an automated transport is available.
+- Use an ATX request-review MCP tool exposed by the current harness
+- If MCP is unavailable, fails, or times out, use the stateless `atx review request` CLI and require `atx server status` to report `Running: true`
+- If the CLI is unavailable, stopped, fails, or times out, replace this section with `## Manual Review`, complete the AGENTS.md manual checklist, and document every failed or unavailable transport
 - Fix ALL blocking issues (B1, B2, etc.)
 - Iterate until: Rating > 3/5 AND no blocking issues remain
 - Document each review iteration below
-</atx-required>
+</review-required>
 -->
 
 ### Review Summary
