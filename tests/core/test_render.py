@@ -7403,12 +7403,17 @@ def test_zeroclaw_heartbeat_agent_binds_sanitized_alias(agent_name, expected_ali
     )
     toml = render_zeroclaw(inputs).files[".zeroclaw/config.toml"]
 
-    # The bare-alias assertion: raw agent_name must not appear inside
-    # [heartbeat]; only the sanitized alias.
+    # Parsed-shape assertion: `[heartbeat].agent` equals the sanitized
+    # alias exactly. Uses tomllib so a template regression that emits
+    # invalid TOML fails here rather than at daemon boot.
     hb = tomllib.loads(toml)["heartbeat"]
     assert hb["agent"] == expected_alias
-    # Textual guard: exactly one `agent = ` line inside [heartbeat]
-    # (defense against a merge that duplicates the key).
+    # Textual guards on the [heartbeat] block body:
+    #   1. Exactly one `agent =` line (defense against a merge that
+    #      duplicates the key).
+    #   2. The raw agent_name never leaks in — only the sanitized alias.
     hb_block = toml.split("[heartbeat]\n", 1)[1].split("\n[", 1)[0]
     assert hb_block.count("agent =") == 1
     assert f'agent = "{expected_alias}"' in hb_block
+    if agent_name != expected_alias:
+        assert agent_name not in hb_block
