@@ -43,6 +43,7 @@ the missing information, at which point a human re-adds `needs-triage`.
 | `agent-created` | Issue was filed by an agent (Maurice) | clawrium-maurice |
 | `agent-ready` | Cleared for fully autonomous agent execution | clawrium-triage (xs/s only), or human |
 | `agent-blocked` | Agent tried to execute and is stuck; see comment for reason | clawrium-exec |
+| `authored-by:local_qwen` | The local Qwen execution stack touched the issue or PR. Sticky; never remove it. | clawrium-lmwork |
 
 `agent-ready` signals that an issue is safe for autonomous execution by `clawrium-exec`.
 `clawrium-triage` may set this label **only** when it assigns `complexity:xs` or `complexity:s`.
