@@ -93,6 +93,7 @@ cut. The `itx-release` skill archives this section into a new
 
 - Correct the ZeroClaw Discord documentation for schema-v3 aliased channel tables, agent bindings, and the registry/attach/sync workflow (#979).
 - Align the ZeroClaw support matrix and rendered `config.toml` examples with schema v3, current v0.8.2 installs, aliased provider/agent/channel tables, and heartbeat binding (#984).
+- Align the ZeroClaw support matrix with the v0.8.5 pin: the pinned-version, install-URL, and troubleshooting references now say `0.8.5`, and the rendered-`config.toml` prose no longer describes the root-level `[providers] fallback` block (retired upstream in v0.8.5; provider selection lives on `[agents.<alias>].model_provider` only). The audited-surface note warns that root-level `[providers]`, `[cron]`, and `[node_transport]` blocks must not be hand-added via the workspace overlay (#985).
 - **website**: Restore the missing summary blockquote in `website/docs/guides/local-skills.md` mirror so its body matches `docs/local-skills.md` verbatim (#965).
 - Document `clawctl host validate`, the `RUNTIME` column on `clawctl agent get`,
   and openclaw's mandatory `--provider` flag; correct the `clawctl agent create`
