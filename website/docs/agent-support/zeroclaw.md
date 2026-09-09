@@ -6,7 +6,7 @@ ZeroClaw is the [ZeroClaw Labs Rust agent runtime](https://github.com/zeroclaw-l
 
 **Best for:** Low-resource hosts (Raspberry Pi 2/3 armv7l, aarch64 SBCs, small x86_64 servers) that need a minimal, single-binary AI agent with file-based personality and a LAN-reachable chat endpoint. ZeroClaw is intentionally narrower than [Hermes](hermes.md) (no OpenAI-compatible HTTP) and [OpenClaw](openclaw.md) (fewer native channels). Discord is supported; MCP integrations are Linux-only, with macOS support deferred (#836).
 
-**Current pinned version:** `v0.8.2`; `v0.7.5` remains as a legacy manifest entry. The manifest pins each release for five `(os, os_version, arch)` combinations (ten entries total); every version bump requires re-pinning all five current-release combinations.
+**Current pinned version:** `v0.8.5`; `v0.7.5` remains as a legacy manifest entry. The manifest pins each release for five `(os, os_version, arch)` combinations (ten entries total); every version bump requires re-pinning all five current-release combinations.
 
 ---
 
@@ -41,7 +41,7 @@ No GPU required. Python ≥ 3.9 is listed as a manifest dependency for parity wi
 
 ZeroClaw upstream supports a long catalog of providers (anthropic, openai, ollama, bedrock, gemini, openrouter, openai-compatible, azure-openai, copilot, claude-code, telnyx, kilocli). clawctl exposes the ones that are wired end-to-end through `config.toml` rendering and validated by the configure playbook.
 
-| Provider | Status | clawctl `provider.type` | Rendered sub-table / fallback | Rendered keys |
+| Provider | Status | clawctl `provider.type` | Rendered sub-table key | Rendered keys |
 |----------|:------:|---------------------|-------------------------------|---------------|
 | **[Anthropic](providers/anthropic.md)** | ✅ | `anthropic` | `anthropic` | `api_key`, `model` |
 | **[OpenAI](providers/openai.md)** | ✅ | `openai` | `openai` | `api_key`, `model` |
@@ -53,7 +53,7 @@ ZeroClaw upstream supports a long catalog of providers (anthropic, openai, ollam
 | **Azure OpenAI** | 📋 | — | — | Deferred |
 | **Copilot / Claude Code / Telnyx / Kilocli** | 📋 | — | — | Deferred |
 
-The renderer supports only the `provider.type` values marked ✅ above. It writes that type as `[providers] fallback` and as the first key in `[providers.models.<type>.<alias>]`; there is no separate `kind` key.
+The renderer supports only the `provider.type` values marked ✅ above. It writes that type as the key of the `[providers.models.<type>.<alias>]` sub-table; there is no separate `kind` key. Since v0.8.5 (#985) the renderer emits **no root-level `[providers]` block at all** — provider selection lives entirely on the `[agents.<alias>].model_provider = "<type>.<alias>"` reference.
 
 ---
 
@@ -108,7 +108,7 @@ clawctl agent create <agent-name> --type zeroclaw --host <host-alias>
 What happens:
 
 1. The host's `(os, os_version, arch)` is matched against the five platform entries for the current release (the manifest has ten entries including legacy v0.7.5). Unknown architecture fails with a clear remediation message.
-2. The release tarball is fetched from `https://github.com/zeroclaw-labs/zeroclaw/releases/download/v0.8.2/zeroclaw-<arch-triple>.tar.gz` and verified against the SHA256 pinned in `manifest.yaml`.
+2. The release tarball is fetched from `https://github.com/zeroclaw-labs/zeroclaw/releases/download/v0.8.5/zeroclaw-<arch-triple>.tar.gz` and verified against the SHA256 pinned in `manifest.yaml`.
 3. A dedicated Linux user (`<agent-name>`) is created with `/usr/sbin/nologin` (service account, no interactive shell).
 4. The binary is dropped at `/home/<agent-name>/bin/zeroclaw` (mode 0755, owned by the agent user). `~/.zeroclaw/` is created mode 0700.
 5. A systemd unit `/etc/systemd/system/zeroclaw-<agent-name>.service` is dropped, **disabled and not started**:
@@ -162,8 +162,9 @@ port = 42617
 allow_public_bind = true
 require_pairing = true
 
-[providers]
-fallback = "anthropic"
+# No root-level `[providers]` block: the `fallback = "..."` key was
+# retired in v0.8.5 (#985) — re-adding it by hand makes the daemon
+# reset the whole [providers] section to defaults and breaks chat.
 
 # Three-level sub-table (schema v3): the <alias> key is the agent name
 # sanitized to [a-z0-9_]+ and MUST equal the [agents.<alias>] key below.
@@ -171,6 +172,7 @@ fallback = "anthropic"
 model = "<model-id>"
 api_key = "***"             # omitted for ollama
 # base_url = "..."          # ollama / opencode / opencode-go only
+# uri = "..."               # litellm only (normalized to end in /v1)
 
 [agents.<alias>]
 model_provider = "anthropic.<alias>"   # "<type>.<alias>" reference into the table above
@@ -181,9 +183,9 @@ channels = []                    # [ "channels.discord.<alias>" ] when a discord
 
 The example above shows the provider-relevant lines; the renderer emits a **full** canonical `config.toml` (every section the daemon expects is preserved verbatim, only the clawctl-managed values templated). The alias `<alias>` is derived from the agent name by replacing every non-`[a-z0-9_]` character with `_` and lowercasing (e.g. `clawrium-d01` → `clawrium_d01`) — the same sanitized value appears in `[providers.models.<type>.<alias>]`, `[agents.<alias>]`, `[channels.discord.<alias>]`, and `[heartbeat] agent = "..."` (#974/#980/#982).
 
-Per-provider rendering. The `provider.type` is emitted as the `[providers] fallback` value and as the first key of the `[providers.models.<type>.<alias>]` sub-table (there is no separate `kind` key in the rendered file):
+Per-provider rendering. The `provider.type` is emitted as the key of the `[providers.models.<type>.<alias>]` sub-table — there is no separate `kind` key in the rendered file, and no root-level `[providers]` block (retired in v0.8.5, #985):
 
-| clawctl `provider.type` | Sub-table / `fallback` | `api_key` | `base_url` | Notes |
+| clawctl `provider.type` | Sub-table key | `api_key` | `base_url` | Notes |
 |---------------------|------------------|-----------|------------|-------|
 | `anthropic` | `anthropic` | yes (from `provider_api_key` extra-var) | — | — |
 | `openai` | `openai` | yes | — | — |
@@ -315,7 +317,7 @@ ZeroClaw's threat model is **trusted LAN**, parity with the upstream daemon's de
 - **Re-configure always re-mints the bearer (issue #437).** `clawctl agent configure`/`sync`/`restart` overwrite `config.gateway.auth` on every run. Local `clawctl agent chat` reloads the token transparently on 401; remote sessions must reconnect. See [Gateway token lifecycle](#gateway-token-lifecycle).
 - **Server-supplied text is BIDI / control-char sanitized before rendering.** `core/chat_zeroclaw.py` routes every visible field from server frames through `sanitize_server_text` (which strips C0/C1 controls, zero-width codepoints, BIDI overrides U+202A–U+202E and U+2066–U+2069, line/paragraph separators, and the word-joiner). Rich-markup escaping is handled separately by the CLI render layer, not by this sanitizer.
 - **`approval_request` frames tear down the session.** Inline tool approval is not implemented; the client closes the WebSocket and raises a remediation error pointing operators at `~/.zeroclaw/config.toml`. Pre-approve or disable tools at the agent host before invoking them. See [Use the WebSocket chat surface](#3-use-the-websocket-chat-surface) for the full frame envelope.
-- **Treat `config.toml` as an audited surface.** `clawctl agent configure` and `clawctl agent sync` re-render the **full** canonical `config.toml` (the playbook uses `copy`, so the file is rewritten wholesale — `start`/`restart` do not, they only re-mint the bearer). Key per-agent values clawctl templates include: `gateway`, `[providers] fallback`, the three-level `[providers.models.<type>.<alias>]` table, the `[agents.<alias>]` binding, `[channels.discord.<alias>]`, and `[heartbeat] agent`. Any block manually added that clawctl does not template is honored by the daemon only until the next `configure`/`sync` re-renders it away — clawctl never validates it and cannot detect drift between its rendered output and an on-disk hand edit.
+- **Treat `config.toml` as an audited surface.** `clawctl agent configure` and `clawctl agent sync` re-render the **full** canonical `config.toml` (the playbook uses `copy`, so the file is rewritten wholesale — `start`/`restart` do not, they only re-mint the bearer). Key per-agent values clawctl templates include: `gateway`, the three-level `[providers.models.<type>.<alias>]` table, the `[agents.<alias>]` binding (including `model_provider`), `[channels.discord.<alias>]`, and `[heartbeat] agent`. Since v0.8.5 (#985) the renderer emits **no root-level `[providers]` block, no `[cron]` block, and no `[node_transport]` block** — do not hand-add them via the workspace overlay: the v0.8.5 daemon resets a malformed root `[providers]` section to defaults (wiping the model binding) and rejects the retired `[node_transport]`/root-`[cron]` shapes. Any other block manually added that clawctl does not template is honored by the daemon only until the next `configure`/`sync` re-renders it away — clawctl never validates it and cannot detect drift between its rendered output and an on-disk hand edit.
 
 ---
 
@@ -353,7 +355,7 @@ ZeroClaw's threat model is **trusted LAN**, parity with the upstream daemon's de
    sudo -u <agent-name> /home/<agent-name>/bin/zeroclaw --version
    ```
 
-   The current managed version is `0.8.2`. If an older supported version is installed, run `clawctl agent upgrade <agent-name>`; delete and reinstall only when upgrade reports an unrecoverable install mismatch.
+   The current managed version is `0.8.5`. If an older supported version is installed, run `clawctl agent upgrade <agent-name>`; delete and reinstall only when upgrade reports an unrecoverable install mismatch. Note that v0.8.5 retired three config sections (`[node_transport]`, root-level `[providers] fallback`, root-level `[cron]`) — always run `clawctl agent upgrade` (binary bump + config re-render in one step) rather than `clawctl agent sync` alone against a pre-0.8.5 binary (#985).
 
 </details>
 
