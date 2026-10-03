@@ -259,7 +259,10 @@ def _bootstrap_with_tolerance(
     )
     if already_loaded:
         return True, None
-    return False, f"launchctl bootstrap ({kind}) failed (rc={rc}): {err.strip() or out.strip()}"
+    return (
+        False,
+        f"launchctl bootstrap ({kind}) failed (rc={rc}): {err.strip() or out.strip()}",
+    )
 
 
 def start_agent_macos(
@@ -305,10 +308,16 @@ def start_agent_macos(
             client, agent_name, kind="gateway", agent_type=agent_type
         )
         if rc != 0:
-            return False, f"launchctl kickstart (gateway) failed (rc={rc}): {err.strip() or out.strip()}"
+            return (
+                False,
+                f"launchctl kickstart (gateway) failed (rc={rc}): {err.strip() or out.strip()}",
+            )
 
         if dashboard_port is not None:
-            emit("start", f"launchctl bootstrap {agent_name} (dashboard:{dashboard_port})")
+            emit(
+                "start",
+                f"launchctl bootstrap {agent_name} (dashboard:{dashboard_port})",
+            )
             ok, err = _bootstrap_with_tolerance(
                 client, agent_name, kind="dashboard", agent_type=agent_type
             )
@@ -319,7 +328,10 @@ def start_agent_macos(
                 client, agent_name, kind="dashboard", agent_type=agent_type
             )
             if rc != 0:
-                return False, f"launchctl kickstart (dashboard) failed (rc={rc}): {err.strip() or out.strip()}"
+                return (
+                    False,
+                    f"launchctl kickstart (dashboard) failed (rc={rc}): {err.strip() or out.strip()}",
+                )
 
         return True, None
     finally:
@@ -345,9 +357,7 @@ def stop_agent_macos(
             on_event(stage, message)
         logger.info("[%s] %s", stage, message)
 
-    kinds_to_stop = (
-        ("dashboard", "gateway") if agent_type == "hermes" else ("gateway",)
-    )
+    kinds_to_stop = ("dashboard", "gateway") if agent_type == "hermes" else ("gateway",)
     client = _ssh(host)
     try:
         for kind in kinds_to_stop:
@@ -364,7 +374,10 @@ def stop_agent_macos(
                 or "no such file" in combined
             )
             if rc != 0 and not not_loaded:
-                return False, f"launchctl bootout ({kind}) failed (rc={rc}): {err.strip() or out.strip()}"
+                return (
+                    False,
+                    f"launchctl bootout ({kind}) failed (rc={rc}): {err.strip() or out.strip()}",
+                )
         return True, None
     finally:
         client.close()
@@ -867,9 +880,7 @@ def sync_agent(
             )
     except (AgentNotFoundError, OnboardingNotFoundError) as exc:
         result["success"] = False
-        result["error"] = (
-            f"registry record missing for {agent_key} after sync: {exc!s}"
-        )
+        result["error"] = f"registry record missing for {agent_key} after sync: {exc!s}"
     except Exception as exc:
         result["success"] = False
         result["error"] = (
@@ -950,10 +961,11 @@ def atomic_write_macos(
         # otherwise let the sudo install below overwrite that path
         # with `body`. Same defense-in-depth register as
         # _validate_agent_name.
-        if not candidate.startswith("/tmp/clawrium-sync."):
+        prefix = "/tmp/clawrium-sync."
+        if not candidate.startswith(prefix) or "/" in candidate[len(prefix) :]:
             raise CanonicalSyncError(
-                f"mktemp returned unsafe path {candidate!r}; expected "
-                f"prefix '/tmp/clawrium-sync.'"
+                f"mktemp returned unsafe path {candidate!r}; expected prefix "
+                "'/tmp/clawrium-sync.' with no nested path"
             )
         tmp_path = candidate
 
@@ -1075,8 +1087,7 @@ def restart_unit_macos(
             any_not_loaded = True
             break
         raise CanonicalSyncError(
-            f"launchctl kickstart -k ({kind}) failed (rc={rc}): "
-            f"{(err or out).strip()}"
+            f"launchctl kickstart -k ({kind}) failed (rc={rc}): {(err or out).strip()}"
         )
 
     if not any_not_loaded:
@@ -1163,10 +1174,7 @@ def verify_health_macos(
     # `type(...) is int` (not `isinstance`) so `True`/`False` are
     # rejected — bool is a subclass of int and a JSON parser that
     # round-trips `true` through `int` would otherwise sail through.
-    if (
-        type(gateway_port) is not int
-        or not 0 < gateway_port < 65536
-    ):
+    if type(gateway_port) is not int or not 0 < gateway_port < 65536:
         raise CanonicalSyncError(
             f"verify_health_macos: invalid gateway_port {gateway_port!r}"
         )
@@ -1193,9 +1201,8 @@ def verify_health_macos(
         # `connection refused` stderr from a not-yet-listening daemon
         # and prematurely aborting the wait window.
         _NC_MISSING_RE = _re.compile(r"\bnc\b[^\n]*not found", _re.IGNORECASE)
-        if (
-            "command not found" in stderr_text.lower()
-            or _NC_MISSING_RE.search(stderr_text)
+        if "command not found" in stderr_text.lower() or _NC_MISSING_RE.search(
+            stderr_text
         ):
             raise CanonicalSyncError(
                 f"verify_health_macos: `nc` is not available on the agent "

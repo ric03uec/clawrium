@@ -121,8 +121,11 @@ def test_configure_renders_only_validated_settings_without_daemon_or_secrets(
 
     monkeypatch.setattr(lifecycle.ansible_runner, "run", fake_run)
     monkeypatch.setattr(lifecycle, "update_host", fake_update)
-    monkeypatch.setattr(lifecycle, "get_instance_secrets", _unexpected)
     monkeypatch.setattr(lifecycle, "_run_lifecycle_playbook", _unexpected)
+    monkeypatch.setattr(
+        "clawrium.core.claude_credentials.get_active_claude_credential",
+        lambda _: ("ANTHROPIC_API_KEY", "api-test-value"),
+    )
 
     ok, error = lifecycle.configure_agent(
         "claude-host",
@@ -150,6 +153,8 @@ def test_configure_renders_only_validated_settings_without_daemon_or_secrets(
             "  }\n"
             "}\n"
         ),
+        "claude_credential_key": "ANTHROPIC_API_KEY",
+        "claude_credential_value": "api-test-value",
     }
     assert host["agents"]["claude-code"]["config"] == {
         "model": "claude-opus-4-6",
@@ -213,24 +218,39 @@ def test_canonical_sync_writes_only_claude_global_settings_without_restart(
     monkeypatch.setattr(lifecycle_canonical, "_open_ssh", lambda _: client)
     monkeypatch.setattr(
         lifecycle_canonical,
-        "_ensure_claude_settings_directory",
-        lambda _client, **kwargs: captured.setdefault("directory", kwargs),
+        "_validate_claude_credential_activation",
+        lambda _: ("ANTHROPIC_API_KEY", "api-test-value"),
     )
     monkeypatch.setattr(
         lifecycle_canonical,
-        "_atomic_write",
-        lambda _client, **kwargs: captured.setdefault("write", kwargs),
+        "_claude_credential_env_body",
+        lambda *_: "export ANTHROPIC_API_KEY='api-test-value'\n",
     )
+    monkeypatch.setattr(
+        lifecycle_canonical,
+        "_ensure_claude_activation_directories",
+        lambda _client, **kwargs: captured.setdefault("directory", kwargs),
+    )
+
+    def fake_atomic_write(_client, **kwargs):
+        captured.setdefault("writes", []).append(kwargs)
+
+    monkeypatch.setattr(lifecycle_canonical, "_atomic_write", fake_atomic_write)
 
     result = lifecycle_canonical.sync_agent_canonical("claude-code")
 
     assert result.success is True
+    # Credential activation is deliberately not reported in result files,
+    # diffs, or events; only the non-secret settings write is observable.
     assert result.files_written == (".claude/settings.json",)
+    assert all("clawrium-credentials.env" not in diff.path for diff in result.diffs)
     assert captured["diff_host"]["os_family"] == "darwin"
     assert captured["directory"]["os_family"] == "darwin"
-    assert (
-        captured["write"]["remote_path"] == "/Users/claude-code/.claude/settings.json"
-    )
+    assert [write["remote_path"] for write in captured["writes"]] == [
+        "/Users/claude-code/.claude/settings.json",
+        "/Users/claude-code/.profile.d/clawrium-claude.sh",
+        "/Users/claude-code/.claude/clawrium-credentials.env",
+    ]
     assert client.close.call_count == 1
 
 

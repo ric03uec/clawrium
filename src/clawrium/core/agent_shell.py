@@ -175,6 +175,30 @@ def _extract_failure_message(result, default: str) -> str:
     return default
 
 
+def _claude_activation_prepend(host: dict, agent_name: str) -> str:
+    """Return the fixed Claude-only activation source statement, if applicable.
+
+    ``agent shell`` is intentionally a finite command runner, not an
+    interactive-shell feature.  It therefore sources the managed snippet in
+    its already-existing pre-command prelude only for a host record that maps
+    this Unix user to a Claude Code agent.  The statement contains no
+    credential value; the private, agent-owned snippet does that lookup.
+    """
+    agents = host.get("agents")
+    if not isinstance(agents, dict):
+        return ""
+    for key, record in agents.items():
+        if not isinstance(record, dict) or record.get("type") != "claude":
+            continue
+        unix_name = record.get("agent_name") or record.get("name") or key
+        if unix_name == agent_name:
+            return (
+                '[ -r "$HOME/.profile.d/clawrium-claude.sh" ] '
+                '&& . "$HOME/.profile.d/clawrium-claude.sh";'
+            )
+    return ""
+
+
 def _effective_timeout(timeout: int | None) -> int:
     """Resolve the user-supplied timeout to the on-wire `shell_timeout`.
 
@@ -266,7 +290,9 @@ def run_agent_shell(
     # module stays free of OS literals (dispatcher-only OS-fork
     # invariant — `playbook_resolver.py` docstring).
     rc_prepend = playbook_resolver.shell_rc_prepend(os_family)
-    cmd_str = f"{rc_prepend} {user_cmd}"
+    activation_prepend = _claude_activation_prepend(host, agent_name)
+    prelude = f"{rc_prepend} {activation_prepend}" if activation_prepend else rc_prepend
+    cmd_str = f"{prelude} {user_cmd}"
     # The command runs through ansible's templating layer, so a user
     # command of `echo {{ lookup('env','SECRET') }}` would otherwise
     # expand the lookup on the controller and ship the secret to the

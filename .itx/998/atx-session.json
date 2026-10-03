@@ -1,0 +1,47 @@
+{
+  "issue": 998,
+  "reviews": [
+    {
+      "iteration": 1,
+      "revision_id": "65195dfd-c4a3-4378-b434-092978ac5b30",
+      "status": "completed",
+      "result": "Output was truncated before findings could be persisted; superseded by iteration 2."
+    },
+    {
+      "iteration": 2,
+      "revision_id": "fd65fe33-3d7d-47bb-bfdb-50ab475fa3ff",
+      "review_id": "rev-8f486d54-41bc-4ebd-a296-7b59bbbc93be",
+      "rating": 2.5,
+      "cost_usd": 1.7359598,
+      "duration_ms": 246721,
+      "status": "completed",
+      "verified_remediations": [
+        "Sanitized configure exceptions after credential resolution.",
+        "Added direct-sync activation failure and SSH cleanup coverage.",
+        "Installed the non-secret shell hook before rotating the credential.",
+        "Added legacy Claude-name and macOS alias coverage.",
+        "Hardened Linux temporary-file creation to match macOS safeguards."
+      ],
+      "not_applied": [
+        "The claimed Linux Darwin-guard violation: AGENTS.md explicitly permits the task-0 dispatcher-contract guard."
+      ]
+    },
+    {
+      "iteration": 3,
+      "revision_id": "1df5bdae-5907-4b2f-925e-c09b2849791b",
+      "review_id": "rev-8f486d54-41bc-4ebd-a296-7b59bbbc93be",
+      "rating": 2,
+      "cost_usd": 1.5809986,
+      "duration_ms": 317410,
+      "status": "completed",
+      "verified_remediations": [
+        "Resolved the selected credential once per direct-sync operation.",
+        "Made Claude configure runner-data deletion fail closed with a redacted error.",
+        "Sanitized all post-resolution configure errors.",
+        "Sanitized private direct-sync activation errors without retaining a cause chain.",
+        "Added unsafe Linux mktemp-path coverage and rejected nested paths."
+      ],
+      "follow_up": "The operator-specified three-review budget was exhausted after these fixes; focused and full validation plus manual security review passed."
+    }
+  ]
+}
