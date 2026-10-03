@@ -9,6 +9,7 @@ zeroed in the CLI layer.
 
 from __future__ import annotations
 
+import json
 from unittest.mock import MagicMock
 
 import pytest
@@ -18,6 +19,19 @@ from clawrium.cli import app
 from clawrium.cli.clawctl.agent import shell as shell_module
 
 runner = CliRunner()
+
+
+def _add_claude_agent(fleet_dir) -> None:
+    hosts_path = fleet_dir / "hosts.json"
+    hosts = json.loads(hosts_path.read_text())
+    hosts[0]["agents"]["claude-code"] = {
+        "type": "claude",
+        "agent_name": "claude-code",
+        "status": "installed",
+        "installed_at": "2026-10-03T00:00:00+00:00",
+        "config": {},
+    }
+    hosts_path.write_text(json.dumps(hosts, indent=2))
 
 
 @pytest.fixture
@@ -51,6 +65,7 @@ def test_C2_basic_passthrough_exact_kwargs(fleet_dir, stdin_not_tty, mock_run):
         agent_name="wise-hypatia",
         cmd_argv=["ls", "-la"],
         timeout=120,
+        agent_type="openclaw",
     )
 
 
@@ -68,6 +83,7 @@ def test_C3_timeout_600_exact_kwarg(fleet_dir, stdin_not_tty, mock_run):
         agent_name="wise-hypatia",
         cmd_argv=["make", "test"],
         timeout=600,
+        agent_type="openclaw",
     )
 
 
@@ -217,9 +233,69 @@ def test_C13_cli_layer_regex_rejection(
 def test_C14_help_shows_non_interactive_notice(fleet_dir, mock_run):
     result = runner.invoke(app, ["agent", "shell", "--help"])
     assert result.exit_code == 0
-    assert "NON-INTERACTIVE ONLY" in result.output
-    assert "LINUX HOSTS ONLY" in result.output
+    assert "NON-INTERACTIVE AND COMPLETION-ONLY" in result.output
+    assert "daemonless Claude Code agents" in result.output
+    assert "does not start an interactive Claude Code session" in " ".join(
+        result.output.split()
+    )
     mock_run.assert_not_called()
+
+
+def test_claude_shell_requires_explicit_completion_command(
+    fleet_dir, stdin_not_tty, mock_run
+):
+    _add_claude_agent(fleet_dir)
+
+    result = runner.invoke(app, ["agent", "shell", "claude-code"])
+
+    assert result.exit_code == 2
+    assert "Claude Code requires an explicit command after `--`" in result.output
+    assert "interactive shells are not supported" in result.output
+    assert "<command that exits>" in result.output
+    mock_run.assert_not_called()
+
+
+def test_claude_shell_passes_resolved_type_and_propagates_command_failure(
+    fleet_dir, stdin_not_tty, mock_run
+):
+    _add_claude_agent(fleet_dir)
+    mock_run.return_value = ("", "command failed\n", 7)
+
+    result = runner.invoke(
+        app, ["agent", "shell", "claude-code", "--", "command-that-exits"]
+    )
+
+    assert result.exit_code == 7
+    assert "command failed" in result.output
+    mock_run.assert_called_once_with(
+        hostname="10.0.0.1",
+        agent_name="claude-code",
+        cmd_argv=["command-that-exits"],
+        timeout=120,
+        agent_type="claude",
+    )
+
+
+def test_claude_shell_uses_legacy_type_key_for_credential_activation(
+    fleet_dir, stdin_not_tty, mock_run
+):
+    hosts_path = fleet_dir / "hosts.json"
+    hosts = json.loads(hosts_path.read_text())
+    hosts[0]["agents"]["claude"] = {"name": "legacy-claude"}
+    hosts_path.write_text(json.dumps(hosts, indent=2))
+
+    result = runner.invoke(
+        app, ["agent", "shell", "legacy-claude", "--", "command-that-exits"]
+    )
+
+    assert result.exit_code == 0, result.output
+    mock_run.assert_called_once_with(
+        hostname="10.0.0.1",
+        agent_name="legacy-claude",
+        cmd_argv=["command-that-exits"],
+        timeout=120,
+        agent_type="claude",
+    )
 
 
 # ----- W5: AgentShellError from core surfaces as exit 2 ------------

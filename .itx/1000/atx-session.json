@@ -1,0 +1,13 @@
+{
+  "session_id": "8555a7bb-31ed-4500-aaa2-63a9dc583fa6",
+  "transport": "cli",
+  "commit_sha": "15c68607b2940060f00ee6eb1ba64b9e8c5a2061",
+  "iteration": 3,
+  "last_rating": 2,
+  "last_blockers": [],
+  "post_review_fixes": [
+    "Iteration 3 B1 fixed: resolved Claude commands now clear stale credential variables and fail closed unless the managed hook sources successfully; no fourth review was requested because the three-iteration cap was reached."
+  ],
+  "started_at": "2026-10-03T08:29:56Z",
+  "updated_at": "2026-10-03T08:51:37Z"
+}

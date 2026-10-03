@@ -769,9 +769,11 @@ def test_agent_shell_sources_managed_claude_snippet_before_command(
     ) == ("", "", 0)
 
     command = base64.b64decode(captured["inventory"]["all"]["vars"]["cmd_b64"]).decode()
-    source = '[ -r "$HOME/.profile.d/clawrium-claude.sh" ] && . "$HOME/.profile.d/clawrium-claude.sh";'
+    source = '[ -r "$HOME/.profile.d/clawrium-claude.sh" ] && . "$HOME/.profile.d/clawrium-claude.sh"'
+    assert "unset CLAUDE_CODE_OAUTH_TOKEN ANTHROPIC_API_KEY" in command
     assert source in command
     assert command.index(source) < command.index("printf ready")
+    assert "&& printf ready" in command
     assert _SECRET not in command
 
     host["agents"]["claude-code"]["type"] = "hermes"
@@ -819,7 +821,7 @@ def test_managed_snippet_activates_exactly_one_credential_for_finite_command(
         [
             "bash",
             "-c",
-            f'{prelude} [ "$ANTHROPIC_API_KEY" = "active-test-value" ] '
+            f'{prelude} && [ "$ANTHROPIC_API_KEY" = "active-test-value" ] '
             '&& [ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]',
         ],
         env={

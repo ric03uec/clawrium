@@ -59,6 +59,10 @@ cut. The `itx-release` skill archives this section into a new
 
 ### Changed
 
+- Formalize `clawctl agent shell <name> -- <command>` as Claude Code's
+  completion-only, non-interactive native command path. The resolved Claude
+  record is carried to the shell runner before its managed credential hook is
+  sourced; no native exec surface is added (#1000).
 - **zeroclaw**: manifest pins bumped from v0.8.2 → v0.8.5 across all five shipped arch rows (armv7l Debian 13, aarch64 Ubuntu 22.04/24.04, x86_64 Ubuntu 22.04/24.04). SHA256s sourced from the upstream `SHA256SUMS` for `v0.8.5`. `latest_version` resolves to `0.8.5` for fresh installs and `clawctl agent upgrade` on existing agents (#985).
 - ITX review workflows now select an ATX transport by capability instead of a
   Claude-specific MCP tool name, with stateless CLI and documented manual
