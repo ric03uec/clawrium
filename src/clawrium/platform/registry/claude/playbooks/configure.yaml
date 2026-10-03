@@ -1,0 +1,31 @@
+---
+# Bounded global Claude Code settings only. This playbook never invokes
+# Claude Code, creates a service, or touches project-local .claude files.
+- hosts: all
+  become: yes
+  tasks:
+    - name: Refuse to run on Darwin hosts (dispatcher contract)
+      ansible.builtin.fail:
+        msg: configure.yaml invoked against a Darwin host
+      when: ansible_os_family == "Darwin"
+
+    - name: Validate agent_name (defense-in-depth)
+      ansible.builtin.fail:
+        msg: "Invalid agent_name"
+      when: agent_name is not match('^[a-z][a-z0-9_-]{0,31}$')
+
+    - name: Create dedicated Claude global settings directory
+      ansible.builtin.file:
+        path: "/home/{{ agent_name }}/.claude"
+        state: directory
+        owner: "{{ agent_name }}"
+        group: "{{ agent_name }}"
+        mode: "0700"
+
+    - name: Write bounded global Claude settings
+      ansible.builtin.copy:
+        content: "{{ prerendered_claude_settings_json }}"
+        dest: "/home/{{ agent_name }}/.claude/settings.json"
+        owner: "{{ agent_name }}"
+        group: "{{ agent_name }}"
+        mode: "0600"

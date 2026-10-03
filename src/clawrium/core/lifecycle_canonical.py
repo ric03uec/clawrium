@@ -664,6 +664,143 @@ def _atomic_write(
     )
 
 
+def _ensure_claude_settings_directory(
+    client: paramiko.SSHClient,
+    *,
+    agent_name: str,
+    os_family: str,
+    timeout: int = 30,
+) -> None:
+    """Create the only directory Claude settings sync is allowed to touch."""
+    settings_dir = f"{home_root_for(os_family)}/{agent_name}/.claude"
+    command = (
+        "sudo -n install -d -m 0700 -o "
+        f"{shlex.quote(agent_name)} {shlex.quote(settings_dir)}"
+    )
+    _, stdout, stderr = client.exec_command(command, timeout=timeout)
+    stdout_text = stdout.read().decode("utf-8", errors="replace")
+    stderr_text = stderr.read().decode("utf-8", errors="replace")
+    rc = stdout.channel.recv_exit_status()
+    if rc != 0:
+        detail = stderr_text.strip() or stdout_text.strip()
+        raise CanonicalSyncError(
+            f"could not create Claude settings directory {settings_dir!r} "
+            f"(exit {rc}): {detail}"
+        )
+
+
+def _sync_claude_settings(
+    *,
+    agent_name: str,
+    host: dict,
+    claw_record: dict,
+    workspace_only: bool,
+    dry_run: bool,
+    on_event: Callable[[str, str], None] | None,
+) -> CanonicalSyncResult:
+    """Sync the bounded Claude user settings without a daemon lifecycle.
+
+    This bypasses provider assembly, install probes, restart, and health checks:
+    Claude is an installed CLI, and this phase owns exactly one global user
+    settings file. The normal canonical atomic-write + host-diff primitives are
+    retained so Linux and Darwin follow the established file-write contract.
+    """
+    from clawrium.core.playbook_resolver import normalize_os_family
+    from clawrium.core.render import (
+        AgentConfigError,
+        parse_claude_settings,
+        render_claude_settings,
+    )
+
+    hostname = host.get("hostname", "")
+    raw_config = claw_record.get("config", {})
+    try:
+        settings = parse_claude_settings(raw_config)
+        rendered = render_claude_settings(settings)
+    except AgentConfigError as exc:
+        raise CanonicalSyncError(f"Claude settings render failed: {exc}") from exc
+
+    if workspace_only:
+        if on_event is not None:
+            on_event(
+                "sync",
+                "Claude has no workspace overlay; workspace-only sync skipped settings",
+            )
+        return CanonicalSyncResult(
+            success=True,
+            agent=agent_name,
+            host=hostname,
+            files_written=(),
+            files_unchanged=(),
+            diffs=(),
+        )
+
+    os_family = normalize_os_family(host)
+    # `diff_files` owns remote-path construction. Feed it the normalized family
+    # used by the render/write paths so legacy `macos` / `osx` records still
+    # resolve the dedicated account home beneath /Users rather than /home.
+    diff_host = dict(host)
+    diff_host["os_family"] = os_family
+    diffs = diff_files(
+        host=diff_host,
+        agent_name=agent_name,
+        rendered_files=rendered.files,
+    )
+    if dry_run:
+        return CanonicalSyncResult(
+            success=True,
+            agent=agent_name,
+            host=hostname,
+            files_written=(),
+            files_unchanged=tuple(d.path for d in diffs if not d.unified_diff),
+            diffs=tuple(diffs),
+        )
+
+    files_written: list[str] = []
+    files_unchanged: list[str] = []
+    if any(diff.unified_diff for diff in diffs):
+        client = _open_ssh(host)
+        try:
+            _ensure_claude_settings_directory(
+                client,
+                agent_name=agent_name,
+                os_family=os_family,
+            )
+            for diff in diffs:
+                if not diff.unified_diff:
+                    files_unchanged.append(diff.path)
+                    continue
+                if on_event is not None:
+                    on_event("write", f"writing {diff.remote_path}")
+                _atomic_write(
+                    client,
+                    agent_name=agent_name,
+                    remote_path=diff.remote_path,
+                    body=diff.rendered_body,
+                    host=diff_host,
+                )
+                files_written.append(diff.path)
+        finally:
+            client.close()
+    else:
+        files_unchanged.extend(diff.path for diff in diffs)
+
+    if on_event is not None:
+        on_event(
+            "sync",
+            f"synced Claude global settings: {len(files_written)} written, "
+            f"{len(files_unchanged)} unchanged; no daemon restart",
+        )
+    return CanonicalSyncResult(
+        success=True,
+        agent=agent_name,
+        host=hostname,
+        files_written=tuple(files_written),
+        files_unchanged=tuple(files_unchanged),
+        diffs=tuple(diffs),
+    )
+
+
 def _restart_unit_linux(
     client: paramiko.SSHClient,
     *,
@@ -2023,6 +2160,15 @@ def sync_agent_canonical(
         if not has_daemon_lifecycle(agent_type):
             if not has_completed_install(_claw_record):
                 raise CanonicalSyncError(incomplete_install_message(agent_type, "sync"))
+            if agent_type == "claude":
+                return _sync_claude_settings(
+                    agent_name=agent_name,
+                    host=host,
+                    claw_record=_claw_record,
+                    workspace_only=workspace_only,
+                    dry_run=dry_run,
+                    on_event=on_event,
+                )
             emit(
                 "sync",
                 f"{agent_type} is an installed CLI; no daemon configuration is managed yet",

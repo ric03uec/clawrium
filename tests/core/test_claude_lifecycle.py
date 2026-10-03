@@ -63,11 +63,28 @@ def test_macos_lifecycle_rejects_claude_before_launchctl(monkeypatch, operation:
         )
 
 
-def test_no_daemon_sync_and_configure_skip_renderer_ssh_and_restart(monkeypatch):
+def test_no_daemon_legacy_entrypoints_delegate_without_daemon_transport(monkeypatch):
     host = _claude_host()
     monkeypatch.setattr(lifecycle, "get_host", lambda _: host)
     monkeypatch.setattr(lifecycle, "_assert_install_present", _unexpected)
     monkeypatch.setattr(lifecycle, "_run_lifecycle_playbook", _unexpected)
+    monkeypatch.setattr(
+        lifecycle,
+        "_configure_claude_settings",
+        lambda **_kwargs: (True, None),
+    )
+    monkeypatch.setattr(
+        lifecycle_canonical,
+        "sync_agent_canonical",
+        lambda *_args, **_kwargs: lifecycle_canonical.CanonicalSyncResult(
+            success=True,
+            agent="claude-code",
+            host="claude-host",
+            files_written=(".claude/settings.json",),
+            files_unchanged=(),
+            diffs=(),
+        ),
+    )
 
     sync_result = lifecycle.sync_agent(
         "claude-host", "claude", agent_name="claude-code"
@@ -144,23 +161,36 @@ def test_macos_sync_and_configure_do_not_resolve_missing_configure_playbook(
     assert calls == ["configure", "sync"]
 
 
-def test_canonical_sync_for_claude_does_not_build_render_inputs_or_open_ssh(
+def test_canonical_sync_for_claude_dispatches_settings_without_provider_assembly(
     monkeypatch,
 ):
     host = _claude_host()
+    captured: dict = {}
     monkeypatch.setattr(
         lifecycle_canonical,
         "get_agent_by_name",
         lambda _: (host, "claude", host["agents"]["claude-code"]),
     )
     monkeypatch.setattr(lifecycle_canonical, "build_render_inputs", _unexpected)
-    monkeypatch.setattr(lifecycle_canonical, "_open_ssh", _unexpected)
+
+    def _sync_settings(**kwargs):
+        captured.update(kwargs)
+        return lifecycle_canonical.CanonicalSyncResult(
+            success=True,
+            agent="claude-code",
+            host="claude-host",
+            files_written=(".claude/settings.json",),
+            files_unchanged=(),
+            diffs=(),
+        )
+
+    monkeypatch.setattr(lifecycle_canonical, "_sync_claude_settings", _sync_settings)
 
     result = lifecycle_canonical.sync_agent_canonical("claude-code")
 
     assert result.success is True
-    assert result.files_written == ()
-    assert result.files_unchanged == ()
+    assert result.files_written == (".claude/settings.json",)
+    assert captured["claw_record"] == host["agents"]["claude-code"]
 
 
 def test_claude_health_is_ready_without_ssh_or_process_probe(monkeypatch):

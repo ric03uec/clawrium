@@ -1,0 +1,31 @@
+---
+# Darwin counterpart to configure.yaml. It writes only the dedicated user's
+# global Claude settings and never invokes Claude Code or launchctl.
+- hosts: all
+  become: yes
+  tasks:
+    - name: Refuse to run on non-Darwin hosts (dispatcher contract)
+      ansible.builtin.fail:
+        msg: configure_macos.yaml invoked against a non-Darwin host
+      when: ansible_os_family != "Darwin"
+
+    - name: Validate agent_name (defense-in-depth)
+      ansible.builtin.fail:
+        msg: "Invalid agent_name"
+      when: agent_name is not match('^[a-z][a-z0-9_-]{0,31}$')
+
+    - name: Create dedicated Claude global settings directory
+      ansible.builtin.file:
+        path: "/Users/{{ agent_name }}/.claude"
+        state: directory
+        owner: "{{ agent_name }}"
+        group: staff
+        mode: "0700"
+
+    - name: Write bounded global Claude settings
+      ansible.builtin.copy:
+        content: "{{ prerendered_claude_settings_json }}"
+        dest: "/Users/{{ agent_name }}/.claude/settings.json"
+        owner: "{{ agent_name }}"
+        group: staff
+        mode: "0600"

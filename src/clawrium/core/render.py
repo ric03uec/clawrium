@@ -25,8 +25,10 @@ before any production code paths depend on it.
 from __future__ import annotations
 
 import functools as _functools
+import json
 import re
 from dataclasses import dataclass, field, replace
+from typing import Mapping
 
 __all__ = [
     "AgentConfigError",
@@ -39,6 +41,10 @@ __all__ = [
     "GatewayInputs",
     "RenderInputs",
     "RenderedFiles",
+    "ClaudePermissions",
+    "ClaudeSettings",
+    "parse_claude_settings",
+    "render_claude_settings",
     "build_render_inputs",
     "render_hermes",
     "render_zeroclaw",
@@ -288,6 +294,151 @@ class RenderedFiles:
             "files",
             dict(sorted(self.files.items())),
         )
+
+
+# ---------------------------------------------------------------------------
+# Claude Code settings: bounded desired state
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class ClaudePermissions:
+    """The only permission lists Clawrium manages for Claude Code."""
+
+    ask: tuple[str, ...] | None = None
+    deny: tuple[str, ...] | None = None
+    additional_directories: tuple[str, ...] | None = None
+
+    def as_dict(self) -> dict[str, list[str]]:
+        """Return the upstream JSON shape, omitting unspecified keys."""
+        result: dict[str, list[str]] = {}
+        if self.ask is not None:
+            result["ask"] = list(self.ask)
+        if self.deny is not None:
+            result["deny"] = list(self.deny)
+        if self.additional_directories is not None:
+            result["additionalDirectories"] = list(self.additional_directories)
+        return result
+
+
+@dataclass(frozen=True)
+class ClaudeSettings:
+    """Typed, global-only Claude Code settings desired state.
+
+    This deliberately models only the small allowlist approved for the
+    dedicated Claude agent account. Credentials, sessions, auth, project
+    settings, and arbitrary upstream settings are not part of this type.
+    """
+
+    model: str | None = None
+    effort_level: str | None = None
+    permissions: ClaudePermissions | None = None
+
+    def as_dict(self) -> dict[str, object]:
+        """Return Claude Code's settings.json shape with stable key names."""
+        result: dict[str, object] = {}
+        if self.model is not None:
+            result["model"] = self.model
+        if self.effort_level is not None:
+            result["effortLevel"] = self.effort_level
+        if self.permissions is not None:
+            result["permissions"] = self.permissions.as_dict()
+        return result
+
+
+def _parse_claude_string_list(value: object, *, field_name: str) -> tuple[str, ...]:
+    """Validate one Claude settings list without accepting scalar strings."""
+    if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
+        raise AgentConfigError(
+            f"Claude settings {field_name} must be a list of strings"
+        )
+    return tuple(value)
+
+
+def parse_claude_settings(raw: object) -> ClaudeSettings:
+    """Validate and normalize the bounded Claude global-settings schema.
+
+    The settings source can be JSON-decoded data from ``hosts.json`` or a
+    programmatic ``configure_agent`` payload. Unknown keys fail closed so no
+    arbitrary upstream setting — especially an auth/session/credential field —
+    can be passed through to the agent account.
+    """
+    if not isinstance(raw, Mapping):
+        raise AgentConfigError("Claude settings must be an object")
+
+    allowed_top_level = {"model", "effortLevel", "permissions"}
+    unknown_top_level = sorted(
+        (key for key in raw if key not in allowed_top_level), key=repr
+    )
+    if unknown_top_level:
+        raise AgentConfigError(
+            "Claude settings contain unsupported key(s): "
+            f"{', '.join(repr(key) for key in unknown_top_level)}"
+        )
+
+    model = raw.get("model")
+    if "model" in raw and not isinstance(model, str):
+        raise AgentConfigError("Claude settings model must be a string")
+
+    effort_level = raw.get("effortLevel")
+    if "effortLevel" in raw and not isinstance(effort_level, str):
+        raise AgentConfigError("Claude settings effortLevel must be a string")
+
+    permissions: ClaudePermissions | None = None
+    if "permissions" in raw:
+        raw_permissions = raw["permissions"]
+        if not isinstance(raw_permissions, Mapping):
+            raise AgentConfigError("Claude settings permissions must be an object")
+        allowed_permissions = {"ask", "deny", "additionalDirectories"}
+        unknown_permissions = sorted(
+            (key for key in raw_permissions if key not in allowed_permissions),
+            key=repr,
+        )
+        if unknown_permissions:
+            raise AgentConfigError(
+                "Claude settings permissions contain unsupported key(s): "
+                f"{', '.join(repr(key) for key in unknown_permissions)}"
+            )
+        permissions = ClaudePermissions(
+            ask=(
+                _parse_claude_string_list(raw_permissions["ask"], field_name="permissions.ask")
+                if "ask" in raw_permissions
+                else None
+            ),
+            deny=(
+                _parse_claude_string_list(raw_permissions["deny"], field_name="permissions.deny")
+                if "deny" in raw_permissions
+                else None
+            ),
+            additional_directories=(
+                _parse_claude_string_list(
+                    raw_permissions["additionalDirectories"],
+                    field_name="permissions.additionalDirectories",
+                )
+                if "additionalDirectories" in raw_permissions
+                else None
+            ),
+        )
+
+    return ClaudeSettings(
+        model=model,
+        effort_level=effort_level,
+        permissions=permissions,
+    )
+
+
+def render_claude_settings(settings: ClaudeSettings) -> RenderedFiles:
+    """Render only the dedicated account's global Claude settings file."""
+    if not isinstance(settings, ClaudeSettings):
+        raise AgentConfigError("render_claude_settings requires ClaudeSettings")
+    return RenderedFiles(
+        files={
+            ".claude/settings.json": json.dumps(
+                settings.as_dict(), indent=2, sort_keys=True
+            )
+            + "\n"
+        }
+    )
 
 
 # ---------------------------------------------------------------------------
