@@ -56,9 +56,7 @@ class LifecycleError(Exception):
     pass
 
 
-def _assert_install_present(
-    host: dict, *, agent_type: str, agent_name: str
-) -> None:
+def _assert_install_present(host: dict, *, agent_type: str, agent_name: str) -> None:
     """Raise `LifecycleError` if the agent's on-host install is missing (#811).
 
     `start_agent`, `restart_agent` (via `start_agent`), and
@@ -212,9 +210,7 @@ def _get_logs_dir() -> Path:
     return logs_dir
 
 
-def _summarize_ansible_configure_failure(
-    result: object, log_dir: str
-) -> str:
+def _summarize_ansible_configure_failure(result: object, log_dir: str) -> str:
     """Turn an ansible-runner failed `result` into an actionable error string.
 
     Three failure shapes are handled, in priority order:
@@ -251,9 +247,7 @@ def _summarize_ansible_configure_failure(
             # Remember the FIRST censored failure for the hint branch;
             # subsequent ones don't add information.
             if censored_failure_task is None:
-                censored_failure_task = event_data.get(
-                    "task", "<unknown task>"
-                )
+                censored_failure_task = event_data.get("task", "<unknown task>")
             continue
         task_name = event_data.get("task", "<unknown task>")
         # ATX #445 iter-3 NW4: `is not None` so a `{"msg": None}` entry
@@ -548,13 +542,9 @@ def _run_lifecycle_playbook(
     if _resolve_agent_type(agent_type) == "openclaw":
         agent_record = host.get("agents", {}).get(agent_name, {})
         config = (
-            agent_record.get("config", {})
-            if isinstance(agent_record, dict)
-            else {}
+            agent_record.get("config", {}) if isinstance(agent_record, dict) else {}
         )
-        sandbox_name = (
-            config.get("sandbox_name") if isinstance(config, dict) else None
-        )
+        sandbox_name = config.get("sandbox_name") if isinstance(config, dict) else None
         # Validate via the canonical validator so the regex only lives in
         # one place (ATX iter-1 W4). Phase 3 (#945) removed bare
         # openclaw lifecycle support: every openclaw lifecycle runbook
@@ -832,7 +822,10 @@ def _hermes_env_token_matches_secrets(
             client.close()
 
         if not raw:
-            return True, "API_SERVER_KEY not present in .env (will be rendered on configure)"
+            return (
+                True,
+                "API_SERVER_KEY not present in .env (will be rendered on configure)",
+            )
 
         # Format: API_SERVER_KEY='<value>'  (rendered via shell_quote)
         # Strip the leading key= and any surrounding single/double quotes.
@@ -905,9 +898,7 @@ def start_agent(
     # unprotected in iter-6. Without this, a wedged agent (record
     # says installed but unit/home gone) crashes systemctl with the
     # same opaque error #811 was filed against.
-    _assert_install_present(
-        host, agent_type=agent_type, agent_name=agent_key
-    )
+    _assert_install_present(host, agent_type=agent_type, agent_name=agent_key)
 
     onboarding = claw_record.get("onboarding", {})
     state_value = onboarding.get("state", "pending")
@@ -1013,9 +1004,7 @@ def start_agent(
             # re-renders .env with the canonical secrets.json bearer
             # without altering any other field the operator set.
             persisted_config = (
-                claw_record.get("config", {})
-                if isinstance(claw_record, dict)
-                else {}
+                claw_record.get("config", {}) if isinstance(claw_record, dict) else {}
             )
             if not isinstance(persisted_config, dict):
                 persisted_config = {}
@@ -1433,8 +1422,15 @@ def _create_ethos_chat_token(
         '[ -x "$p" ] && echo "$p" && break; done'
     )
 
-    ssh_base = ["ssh", "-o", "StrictHostKeyChecking=yes", "-o", "BatchMode=yes",
-                "-o", "ConnectTimeout=15"]
+    ssh_base = [
+        "ssh",
+        "-o",
+        "StrictHostKeyChecking=yes",
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        "ConnectTimeout=15",
+    ]
     if port and port != 22:
         ssh_base += ["-p", str(port)]
     if ssh_key:
@@ -1443,14 +1439,18 @@ def _create_ethos_chat_token(
     try:
         probe_result = subprocess.run(
             ssh_base + [f"{user}@{hostname}", _probe],
-            capture_output=True, text=True, timeout=15,
+            capture_output=True,
+            text=True,
+            timeout=15,
         )
         ethos_bin = probe_result.stdout.strip()
     except Exception:
         ethos_bin = ""
 
     if not ethos_bin:
-        logger.warning("ethos binary not found on %s; skipping ETHOS_CHAT_TOKEN creation", hostname)
+        logger.warning(
+            "ethos binary not found on %s; skipping ETHOS_CHAT_TOKEN creation", hostname
+        )
         return None
 
     cmd = ssh_base + [
@@ -1467,7 +1467,9 @@ def _create_ethos_chat_token(
             if on_event:
                 on_event("configure", f"Created ETHOS_CHAT_TOKEN for {agent_name}")
             return token
-        logger.warning("ethos api-key create ran but no sk-ethos- token found in output")
+        logger.warning(
+            "ethos api-key create ran but no sk-ethos- token found in output"
+        )
     except Exception as exc:
         logger.warning("Failed to create ethos API key via SSH: %s", exc)
     return None
@@ -1634,9 +1636,7 @@ def _zeroclaw_repair_after_start(
         # comparison (otherwise a dict survives `isinstance(str)`
         # checks downstream and the rotation event is silently
         # suppressed).
-        old_token = read_gateway_auth(
-            agent_record.get("config", {}).get("gateway")
-        )
+        old_token = read_gateway_auth(agent_record.get("config", {}).get("gateway"))
 
         def updater(h: dict) -> dict:
             agents = h.setdefault("agents", {})
@@ -1712,10 +1712,15 @@ def _ethos_health_check_after_start(
         try:
             r = subprocess.run(
                 [
-                    "ssh", "-i", str(ssh_key),
-                    "-o", "StrictHostKeyChecking=no",
-                    "-o", "ConnectTimeout=3",
-                    "-p", str(ssh_port),
+                    "ssh",
+                    "-i",
+                    str(ssh_key),
+                    "-o",
+                    "StrictHostKeyChecking=no",
+                    "-o",
+                    "ConnectTimeout=3",
+                    "-p",
+                    str(ssh_port),
                     f"{ssh_user}@{hostname}",
                     cmd,
                 ],
@@ -1938,9 +1943,7 @@ def sync_agent(
                 {"provider_id": provider_name_for_state},
             )
         except InvalidTransitionError:
-            _safe_update_metadata(
-                "providers", {"provider_id": provider_name_for_state}
-            )
+            _safe_update_metadata("providers", {"provider_id": provider_name_for_state})
         _safe_transition(_OS.PROVIDERS)
 
         # --- remaining stages (Option D walk) ---------------------
@@ -1967,9 +1970,7 @@ def sync_agent(
             _safe_transition(_STAGE_NEXT_STATE[stage_name])
             if can_skip_stage(agent_type, stage_name):
                 try:
-                    complete_stage(
-                        hostname, agent_key, stage_name, StageStatus.SKIPPED
-                    )
+                    complete_stage(hostname, agent_key, stage_name, StageStatus.SKIPPED)
                 except InvalidTransitionError:
                     pass
                 continue
@@ -1989,9 +1990,7 @@ def sync_agent(
                 # `complete` (or `skipped`) on disk — treat this walk as
                 # an idempotent no-op for that stage instead of blocking
                 # the providers / sync path forever with a stale gate.
-                stage_record = (
-                    onboarding.get("stages", {}).get(stage_name, {})
-                )
+                stage_record = onboarding.get("stages", {}).get(stage_name, {})
                 stage_status = stage_record.get("status")
                 if stage_status in (
                     StageStatus.COMPLETE.value,
@@ -2017,9 +2016,7 @@ def sync_agent(
                     f"then retry this command."
                 )
             try:
-                complete_stage(
-                    hostname, agent_key, stage_name, StageStatus.COMPLETE
-                )
+                complete_stage(hostname, agent_key, stage_name, StageStatus.COMPLETE)
             except InvalidTransitionError:
                 pass
 
@@ -2331,12 +2328,12 @@ def _configure_claude_settings(
     config_data: dict,
     extra_vars: dict | None,
 ) -> tuple[bool, str | None]:
-    """Apply the bounded, global-only Claude settings desired state.
+    """Apply settings plus the selected Claude credential activation.
 
-    Claude Code has no service lifecycle, provider plumbing, or credential
-    activation in this phase. Keep its configure transport narrow: the only
-    extravar is pre-rendered ``~/.claude/settings.json`` bytes, and its entire
-    persisted config is the validated non-secret settings object.
+    The only secret transport field is the selected encrypted instance secret.
+    The playbook uses it under ``no_log`` to atomically replace the dedicated
+    credential env file; hosts.json remains the validated non-secret settings
+    object and no service lifecycle is involved.
     """
     from clawrium.core.playbook_resolver import (
         normalize_os_family,
@@ -2360,14 +2357,29 @@ def _configure_claude_settings(
     except AgentConfigError as exc:
         return False, f"Claude settings render failed: {exc}"
 
+    from clawrium.core.claude_credentials import (
+        ClaudeCredentialError,
+        get_active_claude_credential,
+    )
+
+    try:
+        credential_key, credential_value = get_active_claude_credential(unix_agent_name)
+    except ClaudeCredentialError as exc:
+        return False, f"Claude credential activation failed: {exc}"
+
     try:
         os_family = normalize_os_family(host)
         playbook_path = resolve_agent_playbook("claude", "configure", os_family)
-    except (FileNotFoundError, ValueError) as exc:
-        return False, f"Claude configure playbook unavailable: {exc}"
+    except Exception:
+        # Credential resolution precedes platform dispatch. Do not expose a
+        # controller path or other implementation detail on this public path.
+        return False, "Claude settings configure unavailable"
 
     key_id = host.get("key_id") or hostname
-    ssh_key = get_host_private_key(key_id)
+    try:
+        ssh_key = get_host_private_key(key_id)
+    except Exception:
+        return False, "Claude settings configure unavailable"
     if not ssh_key:
         return False, "SSH key not found"
 
@@ -2390,17 +2402,25 @@ def _configure_claude_settings(
                 "prerendered_claude_settings_json": rendered.files[
                     ".claude/settings.json"
                 ],
+                # Keep the only secret in this inventory as a dedicated
+                # no-log playbook extravar. It is never persisted, rendered,
+                # emitted, or passed as a remote command argument.
+                "claude_credential_key": credential_key,
+                "claude_credential_value": credential_value,
             },
         }
     }
 
-    logs_dir = _get_logs_dir()
-    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    operation_log_dir = logs_dir / (
-        f"configure-claude-{_safe_host_display(host, hostname)}-{timestamp}"
-    )
-    operation_log_dir.mkdir(parents=True, exist_ok=True)
-    os.chmod(operation_log_dir, 0o700)
+    try:
+        logs_dir = _get_logs_dir()
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        operation_log_dir = logs_dir / (
+            f"configure-claude-{_safe_host_display(host, hostname)}-{timestamp}"
+        )
+        operation_log_dir.mkdir(parents=True, exist_ok=True)
+        os.chmod(operation_log_dir, 0o700)
+    except Exception:
+        return False, "Claude settings configure failed"
 
     try:
         result = ansible_runner.run(
@@ -2417,9 +2437,10 @@ def _configure_claude_settings(
         if result.status == "timeout":
             return False, "Claude settings configure operation timed out"
         if result.status != "successful":
-            return False, _summarize_ansible_configure_failure(
-                result, str(operation_log_dir)
-            )
+            # The credential task is no_log; do not inspect runner event
+            # payloads here because a broken Ansible/plugin stack can still
+            # echo inventory variables in an otherwise untrusted failure.
+            return False, f"Claude settings configure playbook failed: {result.status}"
 
         # Never merge arbitrary caller or legacy config into this record.
         # The bounded parser already made a fresh dict containing only the
@@ -2440,12 +2461,23 @@ def _configure_claude_settings(
         if not update_host(hostname, updater):
             return False, f"Host '{hostname}' not found while saving Claude settings"
         return True, None
-    except LifecycleError as exc:
-        return False, str(exc)
-    except Exception as exc:
-        return False, f"Claude settings configure failed: {exc}"
+    except LifecycleError:
+        # Credential resolution has already occurred. Keep this public error
+        # fixed so neither a custom exception nor runner context can disclose
+        # the selected inventory value.
+        return False, "Claude settings configure failed"
+    except Exception:
+        return False, "Claude settings configure failed"
     finally:
-        _cleanup_ansible_artifacts(operation_log_dir)
+        # This entire private-data directory held the selected credential in
+        # Ansible inventory. A partial cleanup is not acceptable: fail closed
+        # if it cannot be removed, without echoing a path or secret publicly.
+        try:
+            if operation_log_dir.exists():
+                shutil.rmtree(operation_log_dir)
+        except OSError:
+            logger.error("Could not remove Claude configure runner data")
+            return False, "Claude settings configure cleanup failed"
 
 
 def configure_agent(
@@ -2540,9 +2572,7 @@ def configure_agent(
     # mid-playbook with an opaque ansible error. Matches the
     # protection sync_agent_canonical added in the iter-1..5 work
     # and that start_agent / restart_agent added in iter-6.
-    _assert_install_present(
-        host, agent_type=resolved_type, agent_name=agent_key
-    )
+    _assert_install_present(host, agent_type=resolved_type, agent_name=agent_key)
 
     # Hermes: hydrate the persisted api_server block (non-sensitive shape from
     # hosts.json) PLUS the bearer token from secrets.json into config_data so
@@ -3017,9 +3047,9 @@ def configure_agent(
             # Key matches the rendered.files dict from render_zeroclaw —
             # the playbook references this by its full key so the var
             # name and the file path stay locked together.
-            prerendered_files[".zeroclaw/config.toml"] = (
-                rendered.files[".zeroclaw/config.toml"]
-            )
+            prerendered_files[".zeroclaw/config.toml"] = rendered.files[
+                ".zeroclaw/config.toml"
+            ]
         except Exception as exc:
             # Surface the render failure with the same error shape the
             # Ansible reporter uses, so the operator sees a single
@@ -3063,9 +3093,9 @@ def configure_agent(
             os_family = normalize_os_family(host)
             rendered = render_hermes(render_inputs, os_family=os_family)
             prerendered_files[".hermes/.env"] = rendered.files[".hermes/.env"]
-            prerendered_files[".hermes/config.yaml"] = (
-                rendered.files[".hermes/config.yaml"]
-            )
+            prerendered_files[".hermes/config.yaml"] = rendered.files[
+                ".hermes/config.yaml"
+            ]
         except AgentConfigError as exc:
             # Loud failure at assembly time: same-type provider conflicts,
             # >1 bedrock attachment, etc. Nothing pushed to host.
@@ -3101,9 +3131,9 @@ def configure_agent(
 
             _of = normalize_os_family(host)
             rendered = render_openclaw(render_inputs, os_family=_of)
-            prerendered_files[".openclaw/openclaw.json"] = (
-                rendered.files[".openclaw/openclaw.json"]
-            )
+            prerendered_files[".openclaw/openclaw.json"] = rendered.files[
+                ".openclaw/openclaw.json"
+            ]
         except AgentConfigError as exc:
             # Loud failure at assembly time: provider name with bad
             # chars, missing endpoint, dual-discord/dual-slack, etc.
@@ -3142,9 +3172,7 @@ def configure_agent(
             # pre-rendered .env can never diverge from the config the
             # playbook's verify tasks check.
             if render_inputs.gateway is not None:
-                gw = _dataclasses.replace(
-                    render_inputs.gateway, api_key=ethos_api_key
-                )
+                gw = _dataclasses.replace(render_inputs.gateway, api_key=ethos_api_key)
             else:
                 # hosts.json gateway shape was missing; mirror the
                 # reconstruction the merge block above applied to
@@ -3155,9 +3183,7 @@ def configure_agent(
                     host="127.0.0.1",
                     port=int(merged_gw.get("port", 3000) or 3000),
                     api_key=ethos_api_key,
-                    internal_port=int(
-                        merged_gw.get("internal_port", 44410) or 44410
-                    ),
+                    internal_port=int(merged_gw.get("internal_port", 44410) or 44410),
                 )
             render_inputs = _dataclasses.replace(render_inputs, gateway=gw)
             rendered = render_ethos(render_inputs)
@@ -3190,8 +3216,7 @@ def configure_agent(
         from clawrium.core.openclaw_version import get_host_openclaw_version
 
         if any(
-            (entry or {}).get("type") == "brave"
-            for entry in integrations_data.values()
+            (entry or {}).get("type") == "brave" for entry in integrations_data.values()
         ):
             try:
                 _pin = _load_openclaw_brave_pin()
@@ -3217,7 +3242,9 @@ def configure_agent(
                     key_filename=str(_private_key),
                     timeout=10,
                 )
-                _ver = get_host_openclaw_version(_client, unix_agent_name, os_family=host.get("os_family", "linux"))
+                _ver = get_host_openclaw_version(
+                    _client, unix_agent_name, os_family=host.get("os_family", "linux")
+                )
             except Exception as exc:
                 _client.close()
                 return False, (
@@ -3362,9 +3389,7 @@ def configure_agent(
         "ANSIBLE_PIPELINING": "True",
     }
     if filter_plugin_dir.is_dir():
-        ansible_runner_envvars["ANSIBLE_FILTER_PLUGINS"] = str(
-            filter_plugin_dir
-        )
+        ansible_runner_envvars["ANSIBLE_FILTER_PLUGINS"] = str(filter_plugin_dir)
 
     try:
         result = ansible_runner.run(
@@ -3649,8 +3674,7 @@ def configure_agent(
             if not ws_result.success:
                 emit(
                     "configure",
-                    f"warning: workspace overlay push failed: "
-                    f"{ws_result.error}",
+                    f"warning: workspace overlay push failed: {ws_result.error}",
                 )
         except Exception as ws_exc:
             logger.warning(

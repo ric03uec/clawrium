@@ -30,6 +30,7 @@ __all__ = [
     "ClaudeOAuthSourceError",
     "OAUTH_TOKEN_ENVIRONMENT_VARIABLE",
     "configure_claude_credentials",
+    "get_active_claude_credential",
     "get_claude_credential_state",
     "import_claude_oauth_from_environment",
 ]
@@ -129,6 +130,41 @@ def get_claude_credential_state(agent_name: str) -> ClaudeCredentialState:
             "configure exactly one OAuth token or Anthropic API key"
         )
     return ClaudeCredentialState(mode=active_modes[0] if active_modes else None)
+
+
+def get_active_claude_credential(agent_name: str) -> tuple[str, str]:
+    """Return the selected local credential for remote activation.
+
+    The tuple is intentionally the narrow bridge to the next lifecycle phase:
+    callers receive one already-selected key and its value, never both modes or
+    any host/settings/provider state.  Errors name only the invalid state, not
+    the credential value.
+    """
+    state = get_claude_credential_state(agent_name)
+    if state.mode is None:
+        raise ClaudeCredentialError(
+            "Claude Code credential is not configured; select OAuth or an Anthropic API key"
+        )
+
+    secret_key = _MODE_KEYS[state.mode]
+    instance_key = _resolve_claude_instance_key(agent_name)
+    entry = get_instance_secrets(instance_key).get(secret_key)
+    value = entry.get("value") if isinstance(entry, dict) else None
+    try:
+        normalized = (
+            _normalize_oauth_token(value)
+            if state.mode is ClaudeCredentialMode.OAUTH
+            else _normalize_credential(value, label="Anthropic API key")
+        )
+    except ClaudeCredentialError as exc:
+        raise ClaudeCredentialError(
+            "Claude Code credential in the encrypted secrets store is invalid"
+        ) from exc
+    if normalized != value:
+        raise ClaudeCredentialError(
+            "Claude Code credential in the encrypted secrets store is invalid"
+        )
+    return secret_key, value
 
 
 def configure_claude_credentials(

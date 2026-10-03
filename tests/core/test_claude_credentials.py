@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from clawrium.core import secrets as secrets_module
+from clawrium.core import claude_credentials, secrets as secrets_module
 from clawrium.core.claude_credentials import (
     ANTHROPIC_API_KEY,
     CLAUDE_CODE_OAUTH_TOKEN,
@@ -16,6 +16,7 @@ from clawrium.core.claude_credentials import (
     ClaudeCredentialState,
     ClaudeOAuthSourceError,
     configure_claude_credentials,
+    get_active_claude_credential,
     get_claude_credential_state,
     import_claude_oauth_from_environment,
 )
@@ -99,6 +100,82 @@ def test_api_key_switch_replaces_oauth_without_provider_or_settings_state(
     assert CLAUDE_CODE_OAUTH_TOKEN not in entries
     assert hosts_path.read_text() == before_hosts
     assert not (isolated_config / "providers.json").exists()
+
+
+@pytest.mark.parametrize(
+    ("credential_kwargs", "expected"),
+    [
+        (
+            {"oauth_token": "oauth-active-test-token"},
+            (CLAUDE_CODE_OAUTH_TOKEN, "oauth-active-test-token"),
+        ),
+        (
+            {"anthropic_api_key": "api-active-test-key"},
+            (ANTHROPIC_API_KEY, "api-active-test-key"),
+        ),
+    ],
+)
+def test_get_active_credential_returns_exactly_the_selected_mode(
+    isolated_config: Path,
+    credential_kwargs: dict[str, str],
+    expected: tuple[str, str],
+):
+    _seed_claude_agent(isolated_config)
+    configure_claude_credentials("claude-code", **credential_kwargs)
+
+    assert get_active_claude_credential("claude-code") == expected
+
+
+def test_get_active_credential_rejects_absent_or_malformed_secret_without_leaking(
+    isolated_config: Path,
+):
+    _seed_claude_agent(isolated_config)
+    with pytest.raises(ClaudeCredentialError) as absent:
+        get_active_claude_credential("claude-code")
+    assert "credential is not configured" in str(absent.value)
+
+    malformed = "api malformed sentinel"
+    set_instance_secret(_claude_instance_key(), ANTHROPIC_API_KEY, malformed)
+    with pytest.raises(ClaudeCredentialError) as error:
+        get_active_claude_credential("claude-code")
+    assert "encrypted secrets store is invalid" in str(error.value)
+    assert malformed not in str(error.value)
+
+
+def test_get_active_credential_rejects_noncanonical_oauth_store_value(
+    isolated_config: Path,
+):
+    _seed_claude_agent(isolated_config)
+    stored_value = "Bearer oauth-noncanonical-test-token"
+    set_instance_secret(_claude_instance_key(), CLAUDE_CODE_OAUTH_TOKEN, stored_value)
+
+    with pytest.raises(ClaudeCredentialError) as error:
+        get_active_claude_credential("claude-code")
+
+    assert "encrypted secrets store is invalid" in str(error.value)
+    assert stored_value not in str(error.value)
+
+
+def test_get_active_credential_rejects_missing_or_invalid_store_entry(
+    isolated_config: Path, monkeypatch: pytest.MonkeyPatch
+):
+    _seed_claude_agent(isolated_config)
+    instance_key = _claude_instance_key()
+    valid = {ANTHROPIC_API_KEY: {"value": "api-valid-test-key"}}
+
+    for invalid in ({}, {ANTHROPIC_API_KEY: "not-a-mapping"}):
+        calls = iter((valid, invalid))
+        monkeypatch.setattr(
+            claude_credentials, "get_instance_secrets", lambda _: next(calls)
+        )
+        with pytest.raises(
+            ClaudeCredentialError, match="encrypted secrets store is invalid"
+        ):
+            get_active_claude_credential("claude-code")
+
+    # Keep the local variable used above intentional: the public helper must
+    # resolve this exact instance key, never accept an arbitrary secret scope.
+    assert instance_key == _claude_instance_key()
 
 
 def test_credential_inputs_and_tampered_dual_modes_are_rejected(
