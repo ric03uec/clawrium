@@ -1,0 +1,207 @@
+---
+# Install-only Claude Code boundary. The package is installed into a prefix
+# owned by a Clawrium-created account; no shared npm prefix is touched.
+- hosts: all
+  become: yes
+  vars:
+    claude_package_name: "@anthropic-ai/claude-code"
+    claude_default_version: "2.1.100"
+    claude_home: "/home/{{ agent_name }}"
+    claude_prefix: "{{ claude_home }}/.local/claude"
+    claude_package_metadata: "{{ claude_prefix }}/lib/node_modules/@anthropic-ai/claude-code/package.json"
+    claude_install_state: "{{ claude_prefix }}/.clawrium-install-state.json"
+    claude_ownership_dir: "/var/lib/clawrium/claude"
+    claude_ownership_marker: "{{ claude_ownership_dir }}/{{ agent_name }}.json"
+  tasks:
+    - name: Validate agent_name (defense-in-depth)
+      ansible.builtin.fail:
+        msg: "Invalid agent_name"
+      when: agent_name is not match('^[a-z][a-z0-9_-]{0,31}$')
+
+    - name: Normalize target Claude Code package version
+      ansible.builtin.set_fact:
+        claude_package_version: "{{ (claw_version | default('v' ~ claude_default_version)) | regex_replace('^v', '') }}"
+
+    - name: Reject non-immutable Claude Code package version
+      ansible.builtin.fail:
+        msg: "Claude Code version must be an immutable semantic version"
+      when: claude_package_version is not match('^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$')
+
+    - name: Check whether dedicated Claude Code account exists
+      ansible.builtin.command:
+        argv:
+          - getent
+          - passwd
+          - "{{ agent_name }}"
+      register: claude_agent_account
+      changed_when: false
+      failed_when: false
+
+    - name: Check Claude Code account ownership marker
+      ansible.builtin.stat:
+        path: "{{ claude_ownership_marker }}"
+      register: claude_ownership_marker_stat
+
+    - name: Check Claude Code ownership marker directory
+      ansible.builtin.stat:
+        path: "{{ claude_ownership_dir }}"
+      register: claude_ownership_dir_stat
+      when: claude_ownership_marker_stat.stat.exists
+
+    - name: Verify trusted Claude Code ownership marker permissions
+      ansible.builtin.assert:
+        that:
+          - claude_ownership_dir_stat.stat.pw_name == "root"
+          - claude_ownership_dir_stat.stat.gr_name == "root"
+          - claude_ownership_dir_stat.stat.mode == "0700"
+          - claude_ownership_marker_stat.stat.pw_name == "root"
+          - claude_ownership_marker_stat.stat.gr_name == "root"
+          - claude_ownership_marker_stat.stat.mode == "0600"
+        fail_msg: "Refusing to trust an ownership marker that is not root-owned and private."
+      when: claude_ownership_marker_stat.stat.exists
+
+    - name: Read Claude Code account ownership marker
+      ansible.builtin.slurp:
+        src: "{{ claude_ownership_marker }}"
+      register: claude_ownership_marker_content
+      when: claude_ownership_marker_stat.stat.exists
+
+    - name: Parse Claude Code account ownership marker
+      ansible.builtin.set_fact:
+        claude_ownership: >-
+          {{ claude_ownership_marker_content.content | b64decode | from_json }}
+      when: claude_ownership_marker_stat.stat.exists
+
+    - name: Refuse unmanaged or incomplete dedicated Claude Code account
+      ansible.builtin.fail:
+        msg: >-
+          Refusing to use {{ agent_name }}: an existing account must have a
+          matching root-owned Claude Code ownership marker, and a marker must
+          never exist without its dedicated account.
+      when: >-
+        (claude_agent_account.rc == 0) !=
+        (claude_ownership_marker_stat.stat.exists | bool)
+
+    - name: Verify existing Claude Code account ownership
+      ansible.builtin.assert:
+        that:
+          - claude_ownership.agent_name == agent_name
+          - (claude_ownership.uid | string) == (claude_agent_account.stdout.split(':')[2] | string)
+          - claude_ownership.home == claude_home
+        fail_msg: "Refusing to use {{ agent_name }} because its ownership marker does not match the account."
+      when: claude_ownership_marker_stat.stat.exists
+
+    - name: Create dedicated Claude Code agent account
+      ansible.builtin.user:
+        name: "{{ agent_name }}"
+        state: present
+        create_home: yes
+        shell: /bin/bash
+      when: claude_agent_account.rc != 0
+
+    - name: Read dedicated Claude Code account UID
+      ansible.builtin.command:
+        argv:
+          - id
+          - -u
+          - "{{ agent_name }}"
+      register: claude_agent_uid
+      changed_when: false
+
+    - name: Create Claude Code ownership marker directory
+      ansible.builtin.file:
+        path: "{{ claude_ownership_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0700"
+      when: claude_agent_account.rc != 0
+
+    - name: Record dedicated Claude Code account ownership
+      ansible.builtin.copy:
+        dest: "{{ claude_ownership_marker }}"
+        content: |
+          {
+            "schema": 1,
+            "agent_name": "{{ agent_name }}",
+            "uid": {{ claude_agent_uid.stdout | trim }},
+            "home": "{{ claude_home }}"
+          }
+        owner: root
+        group: root
+        mode: "0600"
+      when: claude_agent_account.rc != 0
+
+    - name: Create owned Claude Code install prefix
+      ansible.builtin.file:
+        path: "{{ claude_prefix }}"
+        state: directory
+        owner: "{{ agent_name }}"
+        group: "{{ agent_name }}"
+        mode: "0755"
+
+    - name: Check installed Claude Code package metadata
+      ansible.builtin.stat:
+        path: "{{ claude_package_metadata }}"
+      register: claude_package_metadata_stat
+
+    - name: Read installed Claude Code package metadata
+      ansible.builtin.slurp:
+        src: "{{ claude_package_metadata }}"
+      register: claude_package_metadata_content
+      when: claude_package_metadata_stat.stat.exists
+
+    - name: Determine whether installed package metadata matches the pin
+      ansible.builtin.set_fact:
+        claude_package_at_target: >-
+          {{
+            claude_package_metadata_content is defined
+            and (
+              (claude_package_metadata_content.content | b64decode
+              | regex_search('"version"\\s*:\\s*"' ~ claude_package_version ~ '"'))
+              is not none
+            )
+          }}
+
+    - name: Set install skip condition
+      ansible.builtin.set_fact:
+        claude_already_installed: >-
+          {{
+            (claude_package_at_target | bool)
+            and not (force_install | default(false) | bool)
+          }}
+
+    - name: Mark install as skipped when already installed
+      ansible.builtin.debug:
+        msg: "Claude Code package v{{ claude_package_version }} is already installed in the dedicated prefix."
+      when: claude_already_installed | bool
+
+    - name: Install pinned Claude Code package into owned prefix
+      ansible.builtin.command:
+        argv:
+          - npm
+          - install
+          - --global
+          - --prefix
+          - "{{ claude_prefix }}"
+          - --ignore-scripts
+          - --no-audit
+          - --no-fund
+          - "{{ claude_package_name }}@{{ claude_package_version }}"
+      become_user: "{{ agent_name }}"
+      environment:
+        HOME: "{{ claude_home }}"
+      when: not (claude_already_installed | bool)
+
+    - name: Record installed Claude Code package state
+      ansible.builtin.copy:
+        dest: "{{ claude_install_state }}"
+        content: |
+          {
+            "schema": 1,
+            "package": "{{ claude_package_name }}",
+            "version": "{{ claude_package_version }}"
+          }
+        owner: "{{ agent_name }}"
+        group: "{{ agent_name }}"
+        mode: "0600"

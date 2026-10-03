@@ -1,0 +1,130 @@
+---
+# macOS counterpart to remove.yaml. It removes only resources proven to belong
+# to the dedicated account and does not alter shared npm/project configuration.
+- hosts: all
+  become: yes
+  vars:
+    claude_home: "/Users/{{ agent_name }}"
+    claude_prefix: "{{ claude_home }}/.local/claude"
+    claude_ownership_dir: "/Library/Application Support/clawrium/claude"
+    claude_ownership_marker: "{{ claude_ownership_dir }}/{{ agent_name }}.json"
+  tasks:
+    - name: Refuse to run on non-Darwin hosts (dispatcher contract)
+      ansible.builtin.fail:
+        msg: remove_macos.yaml invoked against a non-Darwin host
+      when: ansible_os_family != "Darwin"
+
+    - name: Validate agent_name (defense-in-depth)
+      ansible.builtin.fail:
+        msg: "Invalid agent_name"
+      when: agent_name is not match('^[a-z][a-z0-9_-]{0,31}$')
+
+    - name: Discover existing UID for dedicated Claude Code account
+      ansible.builtin.shell: |
+        dscl . -read /Users/{{ agent_name | quote }} UniqueID 2>/dev/null \
+          | awk '/UniqueID:/{print $2}'
+      args:
+        executable: /bin/bash
+      register: claude_agent_uid_existing
+      changed_when: false
+      failed_when: false
+
+    - name: Check Claude Code account ownership marker
+      ansible.builtin.stat:
+        path: "{{ claude_ownership_marker }}"
+      register: claude_ownership_marker_stat
+
+    - name: Check Claude Code ownership marker directory
+      ansible.builtin.stat:
+        path: "{{ claude_ownership_dir }}"
+      register: claude_ownership_dir_stat
+      when: claude_ownership_marker_stat.stat.exists
+
+    - name: Verify trusted Claude Code ownership marker permissions
+      ansible.builtin.assert:
+        that:
+          - claude_ownership_dir_stat.stat.pw_name == "root"
+          - claude_ownership_dir_stat.stat.gr_name == "wheel"
+          - claude_ownership_dir_stat.stat.mode == "0700"
+          - claude_ownership_marker_stat.stat.pw_name == "root"
+          - claude_ownership_marker_stat.stat.gr_name == "wheel"
+          - claude_ownership_marker_stat.stat.mode == "0600"
+        fail_msg: "Refusing to trust an ownership marker that is not root-owned and private."
+      when: claude_ownership_marker_stat.stat.exists
+
+    - name: Read Claude Code account ownership marker
+      ansible.builtin.slurp:
+        src: "{{ claude_ownership_marker }}"
+      register: claude_ownership_marker_content
+      when: claude_ownership_marker_stat.stat.exists
+
+    - name: Parse Claude Code account ownership marker
+      ansible.builtin.set_fact:
+        claude_ownership: >-
+          {{ claude_ownership_marker_content.content | b64decode | from_json }}
+      when: claude_ownership_marker_stat.stat.exists
+
+    - name: Refuse removal of unmanaged or incomplete Claude Code account
+      ansible.builtin.fail:
+        msg: >-
+          Refusing to remove {{ agent_name }} because its dedicated account and
+          root-owned Claude Code ownership marker do not match.
+      when: >-
+        ((claude_agent_uid_existing.stdout | trim) != "") !=
+        (claude_ownership_marker_stat.stat.exists | bool)
+
+    - name: Verify Claude Code account ownership before removal
+      ansible.builtin.assert:
+        that:
+          - claude_ownership.agent_name == agent_name
+          - (claude_ownership.uid | string) == (claude_agent_uid_existing.stdout | trim)
+          - claude_ownership.home == claude_home
+        fail_msg: "Refusing to remove {{ agent_name }} because its ownership marker does not match the account."
+      when: claude_ownership_marker_stat.stat.exists
+
+    - name: Note already-absent dedicated Claude Code account
+      ansible.builtin.debug:
+        msg: "Dedicated Claude Code account {{ agent_name }} is already absent."
+      when:
+        - (claude_agent_uid_existing.stdout | trim) == ""
+        - not (claude_ownership_marker_stat.stat.exists | bool)
+
+    - name: Remove managed Claude Code startup snippet
+      ansible.builtin.file:
+        path: "{{ claude_home }}/.profile.d/clawrium-claude.sh"
+        state: absent
+      when: claude_ownership_marker_stat.stat.exists
+
+    - name: Remove managed Claude Code credential file
+      ansible.builtin.file:
+        path: "{{ claude_home }}/.claude/clawrium-credentials.env"
+        state: absent
+      when: claude_ownership_marker_stat.stat.exists
+
+    - name: Remove full dedicated Claude Code state directory
+      ansible.builtin.file:
+        path: "{{ claude_home }}/.claude"
+        state: absent
+      when: claude_ownership_marker_stat.stat.exists
+
+    - name: Remove owned Claude Code install prefix
+      ansible.builtin.file:
+        path: "{{ claude_prefix }}"
+        state: absent
+      when: claude_ownership_marker_stat.stat.exists
+
+    - name: Delete dedicated Claude Code account via dscl
+      ansible.builtin.command: "dscl . -delete /Users/{{ agent_name }}"
+      when: claude_ownership_marker_stat.stat.exists
+
+    - name: Remove dedicated Claude Code home directory
+      ansible.builtin.file:
+        path: "{{ claude_home }}"
+        state: absent
+      when: claude_ownership_marker_stat.stat.exists
+
+    - name: Remove Claude Code account ownership marker
+      ansible.builtin.file:
+        path: "{{ claude_ownership_marker }}"
+        state: absent
+      when: claude_ownership_marker_stat.stat.exists

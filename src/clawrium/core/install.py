@@ -1015,10 +1015,14 @@ def run_installation(
     dashboard_port = chosen_dashboard_port[0]
     api_server_port = chosen_api_server_port[0]
 
-    # Generate auth token for gateway access
+    # Only gateway-backed agents need an install-time bearer. Install-only
+    # registry types must not mint a credential or gain a gateway-shaped
+    # config as a side effect of installation.
     import secrets
 
-    gateway_auth_token = secrets.token_hex(24)  # 48-character hex token
+    gateway_auth_token = ""
+    if claw_name in ("openclaw", "zeroclaw"):
+        gateway_auth_token = secrets.token_hex(24)  # 48-character hex token
 
     # Build minimal config for templates.
     # gateway.auth.mode must be explicitly "token" for full operator scopes
