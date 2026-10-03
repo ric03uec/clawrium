@@ -186,7 +186,8 @@
       ansible.builtin.set_fact:
         claude_package_at_target: >-
           {{
-            claude_package_metadata_content is defined
+            (claude_package_metadata_stat.stat.exists | bool)
+            and (claude_package_metadata_content.content is defined)
             and (
               (claude_package_metadata_content.content | b64decode
               | regex_search('"version"\\s*:\\s*"' ~ claude_package_version ~ '"'))

@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import base64
 from pathlib import Path
 import re
 import secrets as stdlib_secrets
 from unittest.mock import Mock
 
+from jinja2 import Environment, StrictUndefined
+import pytest
 import yaml
 
 from clawrium.core.install import _install_was_skipped, run_installation
@@ -126,7 +129,6 @@ def test_claude_install_runbooks_are_state_based_and_never_invoke_claude():
         assert "force_install" in yaml.safe_dump(
             _task(tasks, "Set install skip condition")
         )
-
         install_argv = _task(
             tasks, "Install pinned Claude Code package into owned prefix"
         )["ansible.builtin.command"]["argv"]
@@ -178,6 +180,45 @@ def test_claude_install_runbooks_are_state_based_and_never_invoke_claude():
         )
         for executable_text in _executable_task_texts(tasks):
             assert not forbidden_executable.search(executable_text.lower())
+
+
+@pytest.mark.parametrize("name", ("install.yaml", "install_macos.yaml"))
+@pytest.mark.parametrize(
+    ("metadata_exists", "slurp_result", "expected"),
+    (
+        (False, {"skipped": True}, "False"),
+        (
+            True,
+            {
+                "content": base64.b64encode(
+                    b'{"name":"@anthropic-ai/claude-code","version":"2.1.100"}'
+                ).decode()
+            },
+            "True",
+        ),
+    ),
+)
+def test_claude_package_metadata_match_handles_skipped_slurp(
+    name: str, metadata_exists: bool, slurp_result: dict, expected: str
+):
+    """Evaluate the exact Ansible Jinja expression for fresh and repeat installs."""
+    package_match = _task(
+        _tasks(name), "Determine whether installed package metadata matches the pin"
+    )["ansible.builtin.set_fact"]["claude_package_at_target"]
+    environment = Environment(undefined=StrictUndefined)
+    environment.filters["bool"] = bool
+    environment.filters["b64decode"] = lambda value: base64.b64decode(value).decode()
+    environment.filters["regex_search"] = lambda value, pattern: re.search(
+        pattern, value
+    )
+
+    result = environment.from_string(package_match).render(
+        claude_package_metadata_stat={"stat": {"exists": metadata_exists}},
+        claude_package_metadata_content=slurp_result,
+        claude_package_version=PINNED_VERSION,
+    )
+
+    assert result.strip() == expected
 
 
 def test_claude_install_skip_marker_uses_the_generic_idempotency_contract():

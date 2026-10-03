@@ -1,0 +1,29 @@
+{
+  "session_id": "8fda8df8-c145-428a-9c3d-31b5f42fbc4b",
+  "review_id": "rev-98da2b89-fe37-4003-a159-8aed8723e299",
+  "transport": "cli",
+  "commit_sha": "238f2bdf18ff24b7205e8da38674ffc04a048a7e",
+  "iteration": 2,
+  "last_rating": 5,
+  "last_blockers": [],
+  "started_at": "2026-10-03T09:32:53Z",
+  "updated_at": "2026-10-03T09:36:50Z",
+  "reviews": [
+    {
+      "iteration": 1,
+      "revision_id": "94baf465-e3f1-4776-9a91-fde6b1fb3e07",
+      "rating": 2,
+      "blockers": ["B1: evaluate the first-install Jinja expression, not just guard text"],
+      "cost_usd": 0.16769,
+      "duration_ms": 59628
+    },
+    {
+      "iteration": 2,
+      "revision_id": "8fda8df8-c145-428a-9c3d-31b5f42fbc4b",
+      "rating": 5,
+      "blockers": [],
+      "cost_usd": 0.240172,
+      "duration_ms": 73668
+    }
+  ]
+}
