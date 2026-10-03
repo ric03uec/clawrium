@@ -1,12 +1,11 @@
 """`clawctl agent shell <name> -- <cmd>` -- run an arbitrary command
-on the agent's host in a login bash shell.
+on the agent's host in a finite, non-interactive login bash shell.
 
-Differs from `exec`: `exec` invokes the agent's native binary
-(`hermes`, `openclaw`, ...); `shell` runs a full login bash shell as
-the agent user, so `~/.bashrc`, PATH shims, virtualenv activations,
-pipes, redirects, and `&&`/`||` all work as in an interactive ssh
-session. Use `shell` for host-level ops (`ls`, `cat`, `make`, `git`,
-...); use `exec` to drive the agent's own CLI.
+Differs from `exec`: `exec` invokes an agent's native binary
+(`hermes`, `openclaw`, ...); `shell` runs a supplied command as the
+agent user, so configured shell environment, pipes, redirects, and
+`&&`/`||` work without allocating a terminal. `claude` intentionally
+uses this existing command path rather than adding native-exec support.
 
 Self-contained — does NOT reuse `agent/exec.py` plumbing. The flow
 talks to `core.agent_shell.run_agent_shell` directly.
@@ -62,21 +61,24 @@ def shell(
         callback=_reject_negative_timeout,
     ),
 ) -> None:
-    """Run an arbitrary command on the host in the agent user's login shell.
+    """Run a supplied command in the agent user's finite login shell.
 
-    The command runs as the agent's unix user via `bash -lic` (login
-    + interactive), which sources `~/.bash_profile` / `~/.profile`
-    AND `~/.bashrc` — PATH shims (pyenv, nvm, asdf), virtualenv
-    activations, aliases, and function definitions are all loaded
-    before the command runs. Tilde expansion, $HOME, pipes,
-    redirects, and && / || all work as in an interactive ssh session.
+    The command runs as the agent's unix user via non-interactive
+    `bash -lc`. Clawrium explicitly loads the supported login and
+    `.bashrc` environment files first, so PATH shims (pyenv, nvm,
+    asdf) and virtualenv activation remain available. Tilde expansion,
+    $HOME, pipes, redirects, and && / || work in the supplied command.
 
-    LINUX HOSTS ONLY in v1. macOS hosts return a clear error;
-    support is tracked in a separate issue.
+    Linux and macOS hosts are supported.
 
-    NON-INTERACTIVE ONLY. No TTY is allocated. Commands that prompt
-    for input will hang; TTY-only UIs (colors, progress bars) will
-    not render. For interactive sessions, ssh to the host directly.
+    NON-INTERACTIVE AND COMPLETION-ONLY. No TTY is allocated and no
+    prompt is opened: the supplied command must terminate. Commands
+    that prompt for input will hang; terminal-only UIs will not render.
+
+    For daemonless Claude Code agents, this is the supported native
+    command path. It requires an explicit command after `--`, activates
+    the managed per-agent credential hook before that command, and does
+    not start an interactive Claude Code session.
 
     Examples:
 
@@ -91,13 +93,6 @@ def shell(
         clawctl agent shell my-agent -- '<cmd> --help'
     """
     cmd = list(ctx.args)
-    if not cmd:
-        emit_error(
-            "no command provided",
-            hint="clawctl agent shell <name> -- <cmd> [args...]",
-            exit_code=2,
-        )
-
     if not _AGENT_NAME_RE.match(name):
         emit_error(
             f"invalid agent name: {name!r}",
@@ -105,8 +100,22 @@ def shell(
             exit_code=2,
         )
 
-    host, _agent_key, claw_record = safe_resolve_agent(name)
-    unix_name = claw_record.get("agent_name") or name
+    host, agent_type, claw_record = safe_resolve_agent(name)
+    unix_name = claw_record.get("agent_name") or claw_record.get("name") or name
+
+    if not cmd:
+        if agent_type == "claude":
+            emit_error(
+                "Claude Code requires an explicit command after `--`; "
+                "interactive shells are not supported",
+                hint="clawctl agent shell <name> -- '<command that exits>'",
+                exit_code=2,
+            )
+        emit_error(
+            "no command provided",
+            hint="clawctl agent shell <name> -- <cmd> [args...]",
+            exit_code=2,
+        )
 
     # Defense-in-depth: refuse to run the shell as a reserved system
     # account even if a tampered hosts.json record lists one. Core
@@ -124,6 +133,7 @@ def shell(
             agent_name=unix_name,
             cmd_argv=cmd,
             timeout=timeout,
+            agent_type=agent_type,
         )
     except AgentShellError as exc:
         emit_error(
