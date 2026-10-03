@@ -39,6 +39,7 @@ cut. The `itx-release` skill archives this section into a new
 
 ### Added
 
+- Add the install-only `claude` agent registry type. It installs the pinned Claude Code npm package into a dedicated agent account and owned prefix without starting Claude Code, a service, authentication, chat, or a web UI (#995).
 - Make all thirteen `/itx-*` workflow skills available from Claude Code,
   OpenCode, and Pi from one canonical `.claude/skills/` source. Pi also exposes
   native `/skill:itx-*` commands, with project aliases preserving the shared

@@ -1,0 +1,34 @@
+agent:
+  type: claude
+  description: "Anthropic Claude Code (install-only)"
+
+# Claude Code is a user-scoped npm package. This phase deliberately declares
+# no chat, web UI, service, credential, or configuration capabilities.
+platforms:
+  - version: "2.1.100"
+    os: ubuntu
+    os_version: "24.04"
+    arch: x86_64
+    requirements:
+      min_memory_mb: 1024
+      gpu_required: false
+      dependencies:
+        nodejs: ">=20.0.0"
+  - version: "2.1.100"
+    os: ubuntu
+    os_version: "22.04"
+    arch: x86_64
+    requirements:
+      min_memory_mb: 1024
+      gpu_required: false
+      dependencies:
+        nodejs: ">=20.0.0"
+  - version: "2.1.100"
+    os: macos
+    os_version: ">=14"
+    arch: arm64
+    requirements:
+      min_memory_mb: 1024
+      gpu_required: false
+      dependencies:
+        nodejs: ">=20.0.0"

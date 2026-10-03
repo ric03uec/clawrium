@@ -1,0 +1,320 @@
+"""Install-only boundary contracts for the Claude Code registry type (#995)."""
+
+from __future__ import annotations
+
+from pathlib import Path
+import re
+import secrets as stdlib_secrets
+from unittest.mock import Mock
+
+import yaml
+
+from clawrium.core.install import _install_was_skipped, run_installation
+from clawrium.core.registry import list_claws, load_manifest
+
+
+PROJECT_ROOT = Path(__file__).parents[2]
+CLAUDE_ROOT = PROJECT_ROOT / "src" / "clawrium" / "platform" / "registry" / "claude"
+PINNED_VERSION = "2.1.100"
+PACKAGE = "@anthropic-ai/claude-code"
+
+
+def _manifest() -> dict:
+    return yaml.safe_load((CLAUDE_ROOT / "manifest.yaml").read_text())
+
+
+def _tasks(name: str) -> list[dict]:
+    playbook = yaml.safe_load((CLAUDE_ROOT / "playbooks" / name).read_text())
+    assert isinstance(playbook, list)
+    tasks = playbook[0]["tasks"]
+    assert isinstance(tasks, list)
+    return tasks
+
+
+def _task(tasks: list[dict], name: str) -> dict:
+    return next(task for task in tasks if task["name"] == name)
+
+
+def _executable_task_texts(tasks: list[dict]) -> list[str]:
+    """Return every executable module's payload, excluding task metadata."""
+    executable_modules = {
+        "ansible.builtin.command",
+        "ansible.builtin.raw",
+        "ansible.builtin.script",
+        "ansible.builtin.shell",
+    }
+    return [
+        yaml.safe_dump(task[module])
+        for task in tasks
+        for module in executable_modules
+        if module in task
+    ]
+
+
+def _successful_runner_result(tmp_path: Path, events: list[dict] | None = None):
+    result = Mock()
+    result.status = "successful"
+    result.events = events or []
+    result.config.artifact_dir = str(tmp_path / "artifacts")
+    return result
+
+
+def test_claude_manifest_is_first_class_and_install_only():
+    manifest = load_manifest("claude")
+
+    assert "claude" in list_claws()
+    assert manifest["agent"] == {
+        "type": "claude",
+        "description": "Anthropic Claude Code (install-only)",
+    }
+    assert "features" not in manifest
+    assert "secrets" not in manifest
+    assert {entry["version"] for entry in manifest["platforms"]} == {PINNED_VERSION}
+    assert {
+        (entry["os"], entry["os_version"], entry["arch"])
+        for entry in manifest["platforms"]
+    } == {
+        ("ubuntu", "22.04", "x86_64"),
+        ("ubuntu", "24.04", "x86_64"),
+        ("macos", ">=14", "arm64"),
+    }
+
+
+def test_claude_manifest_pin_matches_both_install_runbooks():
+    manifest_versions = {entry["version"] for entry in _manifest()["platforms"]}
+    assert manifest_versions == {PINNED_VERSION}
+
+    for name in ("install.yaml", "install_macos.yaml"):
+        playbook = yaml.safe_load((CLAUDE_ROOT / "playbooks" / name).read_text())
+        assert playbook[0]["vars"]["claude_default_version"] == PINNED_VERSION
+
+
+def test_claude_install_runbooks_are_state_based_and_never_invoke_claude():
+    forbidden_modules = {
+        "ansible.builtin.systemd",
+        "ansible.builtin.service",
+        "ansible.builtin.wait_for",
+        "ansible.builtin.uri",
+    }
+    forbidden_words = ("gateway", "launchctl", "login", "auth", "port")
+
+    for name, home in (
+        ("install.yaml", "/home/{{ agent_name }}"),
+        ("install_macos.yaml", "/Users/{{ agent_name }}"),
+    ):
+        tasks = _tasks(name)
+        serialized = yaml.safe_dump(tasks).lower()
+        module_names = {key for task in tasks for key in task}
+        assert forbidden_modules.isdisjoint(module_names)
+        assert not any(word in serialized for word in forbidden_words)
+
+        assert (
+            _task(tasks, "Check installed Claude Code package metadata")[
+                "ansible.builtin.stat"
+            ]["path"]
+            == "{{ claude_package_metadata }}"
+        )
+        assert (
+            _task(tasks, "Read installed Claude Code package metadata")[
+                "ansible.builtin.slurp"
+            ]["src"]
+            == "{{ claude_package_metadata }}"
+        )
+        assert "claude_package_at_target" in yaml.safe_dump(
+            _task(tasks, "Set install skip condition")
+        )
+        assert "force_install" in yaml.safe_dump(
+            _task(tasks, "Set install skip condition")
+        )
+
+        install_argv = _task(
+            tasks, "Install pinned Claude Code package into owned prefix"
+        )["ansible.builtin.command"]["argv"]
+        assert install_argv == [
+            "npm",
+            "install",
+            "--global",
+            "--prefix",
+            "{{ claude_prefix }}",
+            "--ignore-scripts",
+            "--no-audit",
+            "--no-fund",
+            "{{ claude_package_name }}@{{ claude_package_version }}",
+        ]
+        assert (
+            _task(tasks, "Record installed Claude Code package state")[
+                "ansible.builtin.copy"
+            ]["dest"]
+            == "{{ claude_install_state }}"
+        )
+        playbook = yaml.safe_load((CLAUDE_ROOT / "playbooks" / name).read_text())
+        assert playbook[0]["vars"]["claude_home"] == home
+        assert playbook[0]["vars"]["claude_prefix"] == "{{ claude_home }}/.local/claude"
+        assert "claude_ownership_marker" in playbook[0]["vars"]
+        assert _task(tasks, "Reject non-immutable Claude Code package version")[
+            "ansible.builtin.fail"
+        ]
+        assert _task(tasks, "Refuse unmanaged or incomplete dedicated Claude Code account")[
+            "ansible.builtin.fail"
+        ]
+        assert _task(tasks, "Record dedicated Claude Code account ownership")[
+            "ansible.builtin.copy"
+        ]["mode"] == "0600"
+        marker_group = "wheel" if name.endswith("_macos.yaml") else "root"
+        marker_assertions = _task(
+            tasks, "Verify trusted Claude Code ownership marker permissions"
+        )["ansible.builtin.assert"]["that"]
+        assert marker_assertions == [
+            'claude_ownership_dir_stat.stat.pw_name == "root"',
+            f'claude_ownership_dir_stat.stat.gr_name == "{marker_group}"',
+            'claude_ownership_dir_stat.stat.mode == "0700"',
+            'claude_ownership_marker_stat.stat.pw_name == "root"',
+            f'claude_ownership_marker_stat.stat.gr_name == "{marker_group}"',
+            'claude_ownership_marker_stat.stat.mode == "0600"',
+        ]
+
+        forbidden_executable = re.compile(
+            r"(?<![A-Za-z0-9_-])(claude|systemctl|service|launchctl)(?![A-Za-z0-9_-])"
+        )
+        for executable_text in _executable_task_texts(tasks):
+            assert not forbidden_executable.search(executable_text.lower())
+
+
+def test_claude_install_skip_marker_uses_the_generic_idempotency_contract():
+    class Result:
+        events = [
+            {
+                "event": "runner_on_ok",
+                "event_data": {
+                    "task": "Set install skip condition",
+                    "res": {"ansible_facts": {"claude_already_installed": True}},
+                },
+            }
+        ]
+
+    assert _install_was_skipped(Result(), "claude") is True
+
+
+def test_claude_remove_runbooks_only_target_dedicated_resources():
+    expected_paths = {
+        "{{ claude_home }}/.profile.d/clawrium-claude.sh",
+        "{{ claude_home }}/.claude/clawrium-credentials.env",
+        "{{ claude_home }}/.claude",
+        "{{ claude_prefix }}",
+    }
+
+    for name, home in (
+        ("remove.yaml", "/home/{{ agent_name }}"),
+        ("remove_macos.yaml", "/Users/{{ agent_name }}"),
+    ):
+        tasks = _tasks(name)
+        file_paths = {
+            task["ansible.builtin.file"]["path"]
+            for task in tasks
+            if "ansible.builtin.file" in task
+        }
+        assert expected_paths.issubset(file_paths)
+        assert all(
+            not path.startswith(("/usr/", "/etc/", "/opt/")) for path in file_paths
+        )
+        assert (
+            home
+            == yaml.safe_load((CLAUDE_ROOT / "playbooks" / name).read_text())[0][
+                "vars"
+            ]["claude_home"]
+        )
+        serialized = yaml.safe_dump(tasks).lower()
+        assert "systemd" not in serialized
+        assert "launchctl" not in serialized
+        assert _task(tasks, "Refuse removal of unmanaged or incomplete Claude Code account")[
+            "ansible.builtin.fail"
+        ]
+        assert _task(tasks, "Verify Claude Code account ownership before removal")[
+            "ansible.builtin.assert"
+        ]
+        marker_group = "wheel" if name.endswith("_macos.yaml") else "root"
+        assert _task(tasks, "Verify trusted Claude Code ownership marker permissions")[
+            "ansible.builtin.assert"
+        ]["that"] == [
+            'claude_ownership_dir_stat.stat.pw_name == "root"',
+            f'claude_ownership_dir_stat.stat.gr_name == "{marker_group}"',
+            'claude_ownership_dir_stat.stat.mode == "0700"',
+            'claude_ownership_marker_stat.stat.pw_name == "root"',
+            f'claude_ownership_marker_stat.stat.gr_name == "{marker_group}"',
+            'claude_ownership_marker_stat.stat.mode == "0600"',
+        ]
+        for task in tasks:
+            if task["name"].startswith("Remove ") or task["name"].startswith(
+                "Delete dedicated"
+            ):
+                assert "claude_ownership_marker_stat.stat.exists" in yaml.safe_dump(task)
+
+
+def test_claude_install_does_not_mint_gateway_state(monkeypatch, tmp_path):
+    """Install orchestration must leave an install-only record free of gateway state."""
+    host = {
+        "hostname": "test-host",
+        "key_id": "test-host",
+        "hardware": {
+            "architecture": "x86_64",
+            "os": "ubuntu",
+            "os_version": "24.04",
+            "memtotal_mb": 4096,
+        },
+        "agents": {},
+    }
+    host_state = [host]
+    captured_inventories: list[dict] = []
+
+    def update_host(_hostname: str, updater):
+        host_state[0] = updater(host_state[0])
+        return True
+
+    def run_playbook(**kwargs):
+        captured_inventories.append(kwargs["inventory"])
+        events = []
+        if len(captured_inventories) == 2:
+            events = [
+                {
+                    "event": "runner_on_ok",
+                    "event_data": {
+                        "task": "Set install skip condition",
+                        "res": {
+                            "ansible_facts": {"claude_already_installed": True}
+                        },
+                    },
+                }
+            ]
+        return _successful_runner_result(tmp_path, events)
+
+    key_path = tmp_path / "test-key"
+    key_path.write_text("not a real key")
+
+    monkeypatch.setattr("clawrium.core.install.get_host", lambda _: host_state[0])
+    monkeypatch.setattr("clawrium.core.install.update_host", update_host)
+    monkeypatch.setattr(
+        "clawrium.core.install.get_host_private_key", lambda _: key_path
+    )
+    monkeypatch.setattr("clawrium.core.install.get_instance_secrets", lambda _: {})
+    monkeypatch.setattr("clawrium.core.install.get_config_dir", lambda: tmp_path)
+    monkeypatch.setattr("clawrium.core.install.initialize_onboarding", lambda *_: True)
+    monkeypatch.setattr("clawrium.core.install.ansible_runner.run", run_playbook)
+    monkeypatch.setattr(
+        stdlib_secrets,
+        "token_hex",
+        lambda *_: (_ for _ in ()).throw(
+            AssertionError("must not mint a gateway token")
+        ),
+    )
+
+    result = run_installation("claude", "test-host", name="claude-agent")
+
+    assert result["success"] is True
+    assert result["skipped"] is True
+    assert result["skip_reason"] == "already_installed"
+    assert len(captured_inventories) == 2
+    assert captured_inventories[-1]["all"]["vars"]["config"] == {}
+    record = host_state[0]["agents"]["claude-agent"]
+    assert record["type"] == "claude"
+    assert record["status"] == "installed"
+    assert record.get("config", {}) == {}
