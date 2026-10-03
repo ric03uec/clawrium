@@ -250,6 +250,84 @@ def test_claude_remove_runbooks_only_target_dedicated_resources():
                 assert "claude_ownership_marker_stat.stat.exists" in yaml.safe_dump(task)
 
 
+def test_claude_remove_runbooks_allowlist_dedicated_cleanup_only():
+    """Removal must not grow into a global Claude or project cleanup path."""
+    shared_install_fragments = (
+        "/usr/local",
+        "/usr/lib",
+        "/etc/",
+        "/opt/",
+        "/Library/",
+    )
+    cleanup_tasks = {
+        "remove.yaml": [
+            "Remove managed Claude Code startup snippet",
+            "Remove managed Claude Code credential file",
+            "Remove full dedicated Claude Code state directory",
+            "Remove owned Claude Code install prefix",
+            "Remove dedicated Claude Code agent account and home",
+            "Remove Claude Code account ownership marker",
+        ],
+        "remove_macos.yaml": [
+            "Remove managed Claude Code startup snippet",
+            "Remove managed Claude Code credential file",
+            "Remove full dedicated Claude Code state directory",
+            "Remove owned Claude Code install prefix",
+            "Delete dedicated Claude Code account via dscl",
+            "Remove dedicated Claude Code home directory",
+            "Remove Claude Code account ownership marker",
+        ],
+    }
+
+    for name, expected_cleanup_order in cleanup_tasks.items():
+        tasks = _tasks(name)
+        file_paths = {
+            task["ansible.builtin.file"]["path"]
+            for task in tasks
+            if "ansible.builtin.file" in task
+        }
+        allowed_file_paths = {
+            "{{ claude_home }}/.profile.d/clawrium-claude.sh",
+            "{{ claude_home }}/.claude/clawrium-credentials.env",
+            "{{ claude_home }}/.claude",
+            "{{ claude_prefix }}",
+            "{{ claude_ownership_marker }}",
+        }
+        if name == "remove_macos.yaml":
+            allowed_file_paths.add("{{ claude_home }}")
+        assert file_paths == allowed_file_paths
+        assert not any(
+            fragment in path
+            for path in file_paths
+            for fragment in shared_install_fragments
+        )
+
+        task_names = [task["name"] for task in tasks]
+        assert [task_names.index(task_name) for task_name in expected_cleanup_order] == sorted(
+            task_names.index(task_name) for task_name in expected_cleanup_order
+        )
+        for task_name in expected_cleanup_order:
+            task = _task(tasks, task_name)
+            assert "claude_ownership_marker_stat.stat.exists" in yaml.safe_dump(task)
+            if "ansible.builtin.file" in task:
+                assert task["ansible.builtin.file"]["state"] == "absent"
+
+        executable_text = "\n".join(_executable_task_texts(tasks)).lower()
+        assert not re.search(r"(?<![a-z0-9_-])(npm|claude)(?![a-z0-9_-])", executable_text)
+
+    linux_account = _task(
+        _tasks("remove.yaml"), "Remove dedicated Claude Code agent account and home"
+    )["ansible.builtin.user"]
+    assert linux_account == {
+        "name": "{{ agent_name }}",
+        "state": "absent",
+        "remove": True,
+    }
+    assert _task(
+        _tasks("remove_macos.yaml"), "Delete dedicated Claude Code account via dscl"
+    )["ansible.builtin.command"] == "dscl . -delete /Users/{{ agent_name }}"
+
+
 def test_claude_install_does_not_mint_gateway_state(monkeypatch, tmp_path):
     """Install orchestration must leave an install-only record free of gateway state."""
     host = {
