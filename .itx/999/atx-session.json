@@ -1,0 +1,56 @@
+{
+  "session_id": "029c7554-e896-4d82-98f7-962f0a3aa9aa",
+  "transport": "cli",
+  "commit_sha": "10f4f14c3f3ce2dbeb21560a4e20e5ee90d6026e",
+  "iteration": 3,
+  "last_rating": 3,
+  "last_blockers": [],
+  "started_at": "2026-10-03T07:04:10Z",
+  "updated_at": "2026-10-03T07:13:50Z",
+  "review_command": "atx review request --worktree issue-999-claude-credential-modes --prompt \"Review the full diff against issue-997-claude-settings. Focus on credential-mode exclusivity, encrypted-secret boundaries, redaction, safe OAuth handling, replacement ordering, regressions, and tests.\" --format json --timeout 15m",
+  "reviews": [
+    {
+      "iteration": 1,
+      "revision_id": "7bb73491-f316-4c6e-b5fb-a9df14876e8b",
+      "review_id": "rev-c740be69-3a8b-43c4-85d5-bf947608eada",
+      "rating": 2,
+      "envelope_rating": 3,
+      "cost_usd": 0.383764,
+      "duration_ms": 141937,
+      "status": "completed",
+      "blocking_findings": [
+        "Direct replacement primitive coverage was missing."
+      ],
+      "resolution": "Added direct atomic-switch, isolation, metadata, no-op-removal, validation, and persisted-byte failure tests."
+    },
+    {
+      "iteration": 2,
+      "revision_id": "3c73f0d5-d44a-4f2c-a585-80634dd2e35f",
+      "review_id": "rev-c740be69-3a8b-43c4-85d5-bf947608eada",
+      "rating": 2,
+      "envelope_rating": 2.5,
+      "cost_usd": 0.31734,
+      "duration_ms": 110261,
+      "status": "completed",
+      "blocking_findings": [
+        "ATX could not inspect untracked implementation files."
+      ],
+      "warnings_fixed": [
+        "Staged all implementation and test paths for the next review.",
+        "Added malformed OAuth/API-key and failure-path redaction coverage."
+      ]
+    },
+    {
+      "iteration": 3,
+      "revision_id": "029c7554-e896-4d82-98f7-962f0a3aa9aa",
+      "review_id": "rev-c740be69-3a8b-43c4-85d5-bf947608eada",
+      "rating": 3,
+      "envelope_rating": 4,
+      "cost_usd": 0.212292,
+      "duration_ms": 83119,
+      "status": "completed",
+      "blocking_findings": [],
+      "note": "No fourth review was requested: the issue contract caps stateless ATX review at three iterations. The normalized review reported 3/5 with no blockers; the ATX envelope reported 4/5."
+    }
+  ]
+}

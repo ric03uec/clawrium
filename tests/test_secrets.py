@@ -2,6 +2,7 @@
 
 import json
 import pytest
+from clawrium.core import secrets as secrets_module
 from clawrium.core.secrets import (
     load_secrets,
     save_secrets,
@@ -13,6 +14,7 @@ from clawrium.core.secrets import (
     get_instance_key,
     get_instance_secrets,
     set_instance_secret,
+    replace_instance_secret,
     remove_instance_secret,
     list_instances_with_secrets,
 )
@@ -357,6 +359,108 @@ def test_same_key_different_instances(isolated_config):
 
     assert secrets1["OPENAI_API_KEY"]["value"] == "sk-work-123"
     assert secrets2["OPENAI_API_KEY"]["value"] == "sk-personal-456"
+
+
+def test_replace_instance_secret_swaps_only_target_instance_keys(isolated_config):
+    """Replacement is mode-safe without touching unrelated instance secrets."""
+    target = "wolf:claude:work"
+    sibling = "wolf:claude:personal"
+    set_instance_secret(target, "ANTHROPIC_API_KEY", "api-before")
+    set_instance_secret(target, "UNRELATED_KEY", "unrelated")
+    set_instance_secret(sibling, "ANTHROPIC_API_KEY", "sibling-api")
+
+    created = replace_instance_secret(
+        target,
+        "CLAUDE_CODE_OAUTH_TOKEN",
+        "oauth-after",
+        remove_key="ANTHROPIC_API_KEY",
+    )
+
+    assert created is True
+    target_entries = get_instance_secrets(target)
+    assert set(target_entries) == {"CLAUDE_CODE_OAUTH_TOKEN", "UNRELATED_KEY"}
+    assert target_entries["CLAUDE_CODE_OAUTH_TOKEN"]["value"] == "oauth-after"
+    assert target_entries["UNRELATED_KEY"]["value"] == "unrelated"
+    assert get_instance_secrets(sibling)["ANTHROPIC_API_KEY"]["value"] == "sibling-api"
+
+    created = replace_instance_secret(
+        target,
+        "ANTHROPIC_API_KEY",
+        "api-after",
+        remove_key="CLAUDE_CODE_OAUTH_TOKEN",
+    )
+
+    assert created is True
+    target_entries = get_instance_secrets(target)
+    assert set(target_entries) == {"ANTHROPIC_API_KEY", "UNRELATED_KEY"}
+    assert target_entries["ANTHROPIC_API_KEY"]["value"] == "api-after"
+
+
+def test_replace_instance_secret_preserves_existing_target_and_ignores_noop_removal(
+    isolated_config,
+):
+    """An existing target keeps metadata; absent and self-removals are harmless."""
+    instance_key = "wolf:claude:work"
+    set_instance_secret(instance_key, "TARGET_KEY", "before", "Initial description")
+    created_at = get_instance_secrets(instance_key)["TARGET_KEY"]["created_at"]
+
+    created = replace_instance_secret(
+        instance_key,
+        "TARGET_KEY",
+        "after",
+        remove_key="MISSING_KEY",
+    )
+
+    assert created is False
+    entry = get_instance_secrets(instance_key)["TARGET_KEY"]
+    assert entry["value"] == "after"
+    assert entry["created_at"] == created_at
+    assert entry["description"] == "Initial description"
+
+    created = replace_instance_secret(
+        instance_key,
+        "TARGET_KEY",
+        "after-again",
+        remove_key="TARGET_KEY",
+    )
+
+    assert created is False
+    assert get_instance_secrets(instance_key)["TARGET_KEY"]["value"] == "after-again"
+
+
+def test_replace_instance_secret_failed_save_leaves_persisted_mapping_unchanged(
+    isolated_config, monkeypatch
+):
+    """Atomic replacement never removes a valid mode before its replacement saves."""
+    instance_key = "wolf:claude:work"
+    set_instance_secret(instance_key, "ANTHROPIC_API_KEY", "api-before")
+    secrets_path = isolated_config / SECRETS_FILE
+    before = secrets_path.read_bytes()
+
+    def fail_save(*_args, **_kwargs):
+        raise OSError("simulated atomic write failure")
+
+    monkeypatch.setattr(secrets_module, "_save_secrets_atomic", fail_save)
+    with pytest.raises(OSError, match="simulated atomic write failure"):
+        replace_instance_secret(
+            instance_key,
+            "CLAUDE_CODE_OAUTH_TOKEN",
+            "oauth-after",
+            remove_key="ANTHROPIC_API_KEY",
+        )
+
+    assert secrets_path.read_bytes() == before
+    assert set(get_instance_secrets(instance_key)) == {"ANTHROPIC_API_KEY"}
+
+
+@pytest.mark.parametrize(
+    "key, remove_key", [("invalid-key", None), ("NEW_KEY", "invalid-key")]
+)
+def test_replace_instance_secret_validates_all_keys(isolated_config, key, remove_key):
+    """Replacement rejects invalid target and superseded key names before writing."""
+    with pytest.raises(InvalidSecretKeyError):
+        replace_instance_secret("wolf:claude:work", key, "value", remove_key=remove_key)
+    assert get_instance_secrets("wolf:claude:work") == {}
 
 
 def test_remove_instance_secret(isolated_config):

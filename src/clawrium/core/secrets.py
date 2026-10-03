@@ -24,6 +24,7 @@ __all__ = [
     "get_installed_claw",
     "get_instance_secrets",
     "set_instance_secret",
+    "replace_instance_secret",
     "remove_instance_secret",
     "remove_instance_secrets",
     "list_instances_with_secrets",
@@ -379,6 +380,62 @@ def set_instance_secret(
         config_dir = init_config_dir()
         _save_secrets_atomic(secrets, config_dir)
 
+        return created
+
+
+def replace_instance_secret(
+    instance_key: str,
+    key: str,
+    value: str,
+    *,
+    remove_key: str | None = None,
+    description: str = "",
+) -> bool:
+    """Store one secret and atomically remove a superseded secret.
+
+    This is the safe primitive for credential-mode switches. The replacement
+    entry is constructed before the old entry is removed, and the complete
+    resulting per-instance mapping is committed with one atomic rename. If
+    the write fails, the prior on-disk mapping remains intact.
+    """
+    validate_secret_key(key)
+    if remove_key is not None:
+        validate_secret_key(remove_key)
+
+    with _secrets_lock():
+        secrets = load_secrets()
+        now = datetime.now(timezone.utc).isoformat()
+        instance_secrets = secrets.setdefault(instance_key, {})
+
+        if key in instance_secrets:
+            existing = instance_secrets[key]
+            instance_secrets[key] = SecretEntry(
+                key=key,
+                value=value,
+                created_at=existing["created_at"],
+                updated_at=now,
+                description=description
+                if description
+                else existing.get("description", ""),
+            )
+            created = False
+        else:
+            instance_secrets[key] = SecretEntry(
+                key=key,
+                value=value,
+                created_at=now,
+                updated_at=now,
+                description=description,
+            )
+            created = True
+
+        # Stage the replacement before removing a prior mode. The one atomic
+        # save below means a failed write leaves the old on-disk secret usable.
+        if remove_key is not None and remove_key != key:
+            instance_secrets.pop(remove_key, None)
+
+        config_dir = init_config_dir()
+        _save_secrets_atomic(secrets, config_dir)
         return created
 
 
