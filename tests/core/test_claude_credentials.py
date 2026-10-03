@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
+import secrets
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -19,6 +22,7 @@ from clawrium.core.claude_credentials import (
     get_active_claude_credential,
     get_claude_credential_state,
     import_claude_oauth_from_environment,
+    read_local_claude_oauth_token,
 )
 from clawrium.core.providers.storage import (
     get_provider_api_key,
@@ -273,10 +277,7 @@ def test_oauth_import_refuses_unknown_local_sources_without_scraping(
         import_claude_oauth_from_environment("claude-code", environment={})
 
     message = str(error.value).lower()
-    assert "explicitly exported" in message
-    assert "keychains" in message
-    assert "browser profiles" in message
-    assert "local .claude" in message
+    assert "supplied environment" in message
     assert get_claude_credential_state("claude-code").mode is None
 
 
@@ -314,6 +315,62 @@ def test_claude_per_instance_credentials_do_not_mutate_provider_credentials(
     agent_entries = get_instance_secrets(_claude_instance_key())
     assert set(agent_entries) == {ANTHROPIC_API_KEY}
     assert agent_entries[ANTHROPIC_API_KEY]["value"] == "agent-api-test-key"
+
+
+def test_setup_token_reader_uses_fake_subprocess_without_environment_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """The supported adapter captures a fake CLI export without local reads."""
+    local_token = "oauth-" + secrets.token_urlsafe(24)
+    inherited_token = "oauth-" + secrets.token_urlsafe(24)
+    captured: dict[str, object] = {}
+    monkeypatch.setattr(claude_credentials.sys, "platform", "linux")
+    monkeypatch.setattr(claude_credentials.shutil, "which", lambda _cmd: "/fake/claude")
+    monkeypatch.setenv(CLAUDE_CODE_OAUTH_TOKEN, inherited_token)
+    monkeypatch.setenv(ANTHROPIC_API_KEY, "api-" + secrets.token_urlsafe(24))
+
+    def fake_run(command, **kwargs):
+        captured["command"] = command
+        captured.update(kwargs)
+        return SimpleNamespace(
+            returncode=0,
+            stdout=f"CLAUDE_CODE_OAUTH_TOKEN={local_token}\n",
+            stderr="",
+        )
+
+    monkeypatch.setattr(claude_credentials.subprocess, "run", fake_run)
+
+    value = read_local_claude_oauth_token()
+
+    assert (
+        hashlib.sha256(value.encode()).hexdigest()
+        == hashlib.sha256(local_token.encode()).hexdigest()
+    )
+    assert captured["command"] == ["/fake/claude", "setup-token"]
+    assert captured["check"] is False
+    assert captured["stdin"] is claude_credentials.subprocess.DEVNULL
+    assert captured["stdout"] is claude_credentials.subprocess.PIPE
+    assert captured["stderr"] is claude_credentials.subprocess.PIPE
+    assert CLAUDE_CODE_OAUTH_TOKEN not in captured["env"]
+    assert ANTHROPIC_API_KEY not in captured["env"]
+
+
+def test_setup_token_reader_fails_closed_on_unsupported_platform(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(claude_credentials.sys, "platform", "darwin")
+    monkeypatch.setattr(
+        claude_credentials.subprocess,
+        "run",
+        lambda *_args, **_kwargs: pytest.fail(
+            "unsupported reader must not run a subprocess"
+        ),
+    )
+
+    with pytest.raises(ClaudeOAuthSourceError) as error:
+        read_local_claude_oauth_token()
+
+    assert "only on Linux" in str(error.value)
 
 
 def test_non_claude_agent_cannot_use_claude_credential_modes(isolated_config: Path):

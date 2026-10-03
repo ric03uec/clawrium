@@ -52,6 +52,7 @@ from clawrium.core.providers.storage import (
     LiteLLMConnectionError,
     OllamaConnectionError,
     ProvidersFileCorruptedError,
+    CLAUDE_OAUTH_PROVIDER_TYPE,
     PROVIDER_MODELS,
     add_provider,
     fetch_litellm_models,
@@ -146,7 +147,7 @@ def _provider_to_row(record: dict) -> dict:
 
 
 def _credentials_status(name: str, ptype: str) -> str:
-    if ptype == "ollama":
+    if ptype in ("ollama", CLAUDE_OAUTH_PROVIDER_TYPE):
         return "n/a"
     if ptype == "bedrock":
         access, secret = get_provider_aws_credentials(name)
@@ -207,7 +208,7 @@ def create(
         ...,
         "--type",
         "-t",
-        help="Provider type (anthropic, openai, bedrock, opencode, opencode-go, ollama, ...).",
+        help="Provider type (anthropic, claude-oauth, openai, bedrock, opencode, opencode-go, ollama, ...).",
     ),
     model: Optional[str] = typer.Option(
         None, "--model", "-m", help="Default model id."
@@ -280,6 +281,40 @@ def create(
         emit_error(str(exc), hint="check ~/.config/clawrium/providers.json")
 
     now = _now_iso()
+
+    if provider_type == CLAUDE_OAUTH_PROVIDER_TYPE:
+        if any(
+            (
+                model is not None,
+                api_key is not None,
+                api_key_stdin,
+                access_key is not None,
+                secret_key is not None,
+                region is not None,
+                ollama_url is not None,
+                litellm_url is not None,
+                context_window is not None,
+            )
+        ):
+            emit_error(
+                "claude-oauth providers do not accept provider-scoped credentials or settings",
+                hint=(
+                    "attach the provider to a Claude agent to import its OAuth "
+                    "credential into that agent's private secret scope"
+                ),
+            )
+        record = {
+            "name": name,
+            "type": provider_type,
+            "created_at": now,
+            "updated_at": now,
+        }
+        try:
+            add_provider(record)
+        except DuplicateProviderError as exc:
+            emit_error(str(exc))
+        typer.echo(f"provider/{name}: created (type={provider_type})")
+        return
 
     if provider_type == "ollama":
         require_flag(ollama_url, flag="--ollama-url")
@@ -579,7 +614,7 @@ def delete(
         emit_error(f"failed to delete provider {name!r}")
     if ptype == "bedrock":
         remove_provider_aws_credentials(name)
-    elif ptype != "ollama":
+    elif ptype not in ("ollama", CLAUDE_OAUTH_PROVIDER_TYPE):
         remove_provider_api_key(name)
     typer.echo(f"provider/{name}: deleted")
 
@@ -631,6 +666,15 @@ def edit(
     """Edit an existing provider record."""
     record = _safe_get_provider(name)
     ptype = record.get("type")
+
+    if ptype == CLAUDE_OAUTH_PROVIDER_TYPE:
+        emit_error(
+            "claude-oauth providers have no provider-scoped editable settings",
+            hint=(
+                "attach the provider to a Claude agent to refresh its local OAuth "
+                "credential"
+            ),
+        )
 
     if not any(
         [
@@ -705,7 +749,7 @@ def edit(
 
     new_api_key: Optional[str] = None
     if api_key or api_key_stdin:
-        if ptype in ("ollama", "bedrock"):
+        if ptype in ("ollama", "bedrock", CLAUDE_OAUTH_PROVIDER_TYPE):
             emit_error(f"--api-key is not valid for {ptype} providers")
         new_api_key = _resolve_api_key(api_key, api_key_stdin, required=True)
 

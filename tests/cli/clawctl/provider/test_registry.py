@@ -215,6 +215,50 @@ def test_get_types_lists_catalog(fleet_dir, stdin_not_tty) -> None:
     assert "ollama" in result.output
 
 
+def test_get_types_visibly_lists_claude_oauth(fleet_dir, stdin_not_tty) -> None:
+    result = runner.invoke(
+        app, ["provider", "registry", "get", "--types", "-o", "json"]
+    )
+
+    assert result.exit_code == 0, result.output
+    rows = json.loads(result.output)
+    oauth = next(row for row in rows if row["name"] == "claude-oauth")
+    assert oauth == {
+        "kind": "provider-type",
+        "name": "claude-oauth",
+        "endpoint": "",
+        "model_count": 0,
+    }
+
+
+def test_create_claude_oauth_has_no_provider_scoped_credential(
+    fleet_dir, stdin_not_tty
+) -> None:
+    result = runner.invoke(
+        app,
+        [
+            "provider",
+            "registry",
+            "create",
+            "local-claude-oauth",
+            "--type",
+            "claude-oauth",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    record = get_provider("local-claude-oauth")
+    assert record is not None
+    assert set(record) == {"name", "type", "created_at", "updated_at"}
+    assert record["name"] == "local-claude-oauth"
+    assert record["type"] == "claude-oauth"
+    described = runner.invoke(
+        app, ["provider", "registry", "describe", "local-claude-oauth"]
+    )
+    assert described.exit_code == 0, described.output
+    assert "Credentials:  n/a" in described.output
+
+
 def test_describe_unknown_fails(fleet_dir, stdin_not_tty) -> None:
     result = runner.invoke(app, ["provider", "registry", "describe", "missing"])
     assert result.exit_code != 0

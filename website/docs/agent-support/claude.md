@@ -71,11 +71,29 @@ printf '%s' "$ANTHROPIC_API_KEY" | \
 clawctl agent sync <name>
 ```
 
-OAuth import accepts only an explicitly exported `CLAUDE_CODE_OAUTH_TOKEN`
-from the local invoking environment. It does not inspect or copy a keychain,
-browser profile, credential database, OAuth file guessed from disk, or local
-`~/.claude` directory. If that explicit supported source is unavailable,
-OAuth sync cannot proceed; there is no fallback import path.
+Claude OAuth is a first-class provider type. On a Linux Clawrium
+controller, register and select it through the normal provider workflow:
+
+```bash
+clawctl provider registry get --types
+clawctl provider registry create local-claude-oauth --type claude-oauth
+clawctl agent provider attach local-claude-oauth --agent <name>
+clawctl agent sync <name>
+```
+
+Attach invokes Claude Code's documented `claude setup-token` export command in
+a local, non-logging subprocess. Its stdout and stderr stay in memory and are
+never printed, logged, or included in errors. After browser authorization, the
+normalized token is stored only as `CLAUDE_CODE_OAUTH_TOKEN` in that selected
+agent's encrypted per-instance secret scope; the next sync uses the existing
+private activation path to write it on the selected host. This does **not**
+require `CLAUDE_CODE_OAUTH_TOKEN` to be pre-exported by the caller.
+
+The supported reader is currently Linux-controller-only. A controller on any
+other platform fails closed with a clear unsupported-reader error; it does not
+read or copy a keychain, browser profile, credential database, guessed OAuth
+file, or local `~/.claude` directory. Re-attaching the same provider refreshes
+the agent's locally imported token without showing its value.
 
 Do not retain both keys in the agent secret scope. If both are present,
 configure and sync fail rather than choose an undocumented precedence. Check
@@ -96,11 +114,10 @@ Do not print or copy the remote credential file to diagnose a configuration.
 The `wolf-i` (i-wolf) validation proved install-only behavior, exclusive
 remote API-key environment propagation with a generated **dummy** value, and
 owned-resource cleanup. It did **not** authenticate to Anthropic with that
-dummy value. OAuth activation was not run because the explicit
-`CLAUDE_CODE_OAUTH_TOKEN` source was absent; the test deliberately did not
-inspect local `~/.claude` or any protected credential store. Supplying an
-explicit supported local OAuth token source is required before an OAuth E2E or
-sync can be attempted.
+dummy value. The earlier OAuth E2E predates the supported `claude setup-token`
+provider reader and deliberately did not inspect local credential storage.
+Authenticated i-wolf OAuth E2E validation is a follow-up; ordinary provider
+selection and sync remain covered by fake-reader unit/integration tests.
 
 ## Run a finite command
 

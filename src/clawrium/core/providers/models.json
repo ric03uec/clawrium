@@ -6714,6 +6714,9 @@
         }
       ]
     },
+    "claude-oauth": {
+      "models": []
+    },
     "ollama": {
       "models": []
     }

@@ -9,6 +9,10 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
+import subprocess
+import sys
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
 from typing import Mapping
@@ -28,11 +32,14 @@ __all__ = [
     "ClaudeCredentialMode",
     "ClaudeCredentialState",
     "ClaudeOAuthSourceError",
+    "ClaudeOAuthCredentialReader",
     "OAUTH_TOKEN_ENVIRONMENT_VARIABLE",
     "configure_claude_credentials",
     "get_active_claude_credential",
     "get_claude_credential_state",
     "import_claude_oauth_from_environment",
+    "import_claude_oauth_from_local_reader",
+    "read_local_claude_oauth_token",
 ]
 
 
@@ -40,13 +47,32 @@ CLAUDE_CODE_OAUTH_TOKEN = "CLAUDE_CODE_OAUTH_TOKEN"
 ANTHROPIC_API_KEY = "ANTHROPIC_API_KEY"
 OAUTH_TOKEN_ENVIRONMENT_VARIABLE = CLAUDE_CODE_OAUTH_TOKEN
 
+# Anthropic documents `claude setup-token` as the supported way to mint a
+# long-lived `CLAUDE_CODE_OAUTH_TOKEN` for scripts. The Linux adapter below
+# invokes that CLI in a private subprocess rather than reading any local
+# credential file, keychain, browser profile, or database.
+_CLAUDE_SETUP_TOKEN_PLATFORM = "linux"
+_CLAUDE_SETUP_TOKEN_COMMAND = "claude"
+_CLAUDE_SETUP_TOKEN_TIMEOUT_SECONDS = 120
+_CLAUDE_SETUP_TOKEN_LINE = re.compile(
+    r"(?m)^\s*(?:export\s+)?CLAUDE_CODE_OAUTH_TOKEN\s*=\s*(?P<value>[^\s]+)\s*$"
+)
+_CREDENTIAL_SOURCE_ENVIRONMENT_VARIABLES = (
+    CLAUDE_CODE_OAUTH_TOKEN,
+    ANTHROPIC_API_KEY,
+    "ANTHROPIC_AUTH_TOKEN",
+    "CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR",
+)
+
+ClaudeOAuthCredentialReader = Callable[[], object]
+
 
 class ClaudeCredentialError(ValueError):
     """Raised when Claude Code credential modes are invalid or ambiguous."""
 
 
 class ClaudeOAuthSourceError(ClaudeCredentialError):
-    """Raised when the explicit portable OAuth environment source is absent."""
+    """Raised when the supported local Claude OAuth source is unavailable."""
 
 
 class ClaudeCredentialMode(str, Enum):
@@ -215,24 +241,109 @@ def configure_claude_credentials(
     return ClaudeCredentialState(mode=mode)
 
 
+def read_local_claude_oauth_token() -> str:
+    """Mint an OAuth token through Claude Code's documented Linux CLI path.
+
+    `claude setup-token` performs Claude Code's browser authorization flow
+    and writes the resulting token to its standard streams. Both streams are
+    captured in memory and are deliberately never forwarded to a terminal,
+    logger, exception, or subprocess argument. The caller environment's
+    credential overrides are removed so this source cannot silently fall back
+    to an already-exported bearer or API key.
+    """
+    if sys.platform != _CLAUDE_SETUP_TOKEN_PLATFORM:
+        raise ClaudeOAuthSourceError(
+            "local Claude OAuth import is supported only on Linux controllers; "
+            "no safe credential reader is registered for this platform"
+        )
+
+    executable = shutil.which(_CLAUDE_SETUP_TOKEN_COMMAND)
+    if executable is None:
+        raise ClaudeOAuthSourceError(
+            "local Claude OAuth import requires the Claude Code CLI on this Linux controller"
+        )
+
+    environment = os.environ.copy()
+    for key in _CREDENTIAL_SOURCE_ENVIRONMENT_VARIABLES:
+        environment.pop(key, None)
+
+    try:
+        result = subprocess.run(
+            [executable, "setup-token"],
+            check=False,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=_CLAUDE_SETUP_TOKEN_TIMEOUT_SECONDS,
+            env=environment,
+        )
+    except subprocess.TimeoutExpired:
+        raise ClaudeOAuthSourceError(
+            "local Claude OAuth import timed out; complete Claude Code authorization and retry"
+        ) from None
+    except OSError:
+        raise ClaudeOAuthSourceError(
+            "could not run the local Claude Code credential reader"
+        ) from None
+
+    if result.returncode != 0:
+        raise ClaudeOAuthSourceError(
+            "local Claude OAuth import failed; sign in with Claude Code and retry"
+        )
+
+    matches = list(
+        _CLAUDE_SETUP_TOKEN_LINE.finditer(result.stdout + "\n" + result.stderr)
+    )
+    if len(matches) != 1:
+        raise ClaudeOAuthSourceError(
+            "local Claude OAuth import returned an unrecognized credential response; "
+            "update Claude Code and retry"
+        )
+    return matches[0].group("value")
+
+
+def import_claude_oauth_from_local_reader(
+    agent_name: str,
+    *,
+    reader: ClaudeOAuthCredentialReader | None = None,
+) -> ClaudeCredentialState:
+    """Read and store OAuth through the selected safe local-reader seam.
+
+    Tests inject ``reader`` so ordinary test runs never access local Claude
+    credentials. Reader failures are normalized to fixed, secret-free errors;
+    only the normalized token reaches the encrypted per-instance secret store.
+    """
+    source = read_local_claude_oauth_token if reader is None else reader
+    try:
+        value = source()
+    except ClaudeOAuthSourceError:
+        raise ClaudeOAuthSourceError(
+            "local Claude OAuth credential reader is unavailable"
+        ) from None
+    except Exception:
+        raise ClaudeOAuthSourceError(
+            "local Claude OAuth credential reader failed"
+        ) from None
+    return configure_claude_credentials(agent_name, oauth_token=value)
+
+
 def import_claude_oauth_from_environment(
     agent_name: str,
     *,
     environment: Mapping[str, str] | None = None,
 ) -> ClaudeCredentialState:
-    """Import OAuth only from an explicitly exported environment variable.
+    """Import a caller-supplied OAuth value for backwards-compatible APIs.
 
-    The portable source contract is ``CLAUDE_CODE_OAUTH_TOKEN`` in the
-    invoking process environment. This deliberately does not inspect a
-    keychain, browser profile, ``~/.claude`` directory, database, or guessed
-    OAuth-file path.
+    This helper remains available to code that already supplies a value, but
+    the normal Claude provider workflow uses ``claude setup-token`` through
+    ``import_claude_oauth_from_local_reader`` instead. It never probes local
+    credential stores.
     """
     source = os.environ if environment is None else environment
     value = source.get(OAUTH_TOKEN_ENVIRONMENT_VARIABLE)
     if value is None:
         raise ClaudeOAuthSourceError(
-            "OAuth import requires an explicitly exported CLAUDE_CODE_OAUTH_TOKEN; "
-            "keychains, browser profiles, local .claude directories, and credential "
-            "databases are not supported sources"
+            "OAuth token value is not available from the supplied environment"
         )
     return configure_claude_credentials(agent_name, oauth_token=value)

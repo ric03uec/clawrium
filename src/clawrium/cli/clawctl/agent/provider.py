@@ -9,10 +9,14 @@ The shape depends on agent type — see `core/provider_attachments.py`:
 - `openclaw` / `zeroclaw` (singleton) — list of provider-name strings.
   Second attach is rejected with the pinned `single-provider invariant`
   message that callers + docs depend on (#426).
+- `claude` (singleton) — accepts only a registered `claude-oauth` provider;
+  attach imports OAuth through the local Claude Code reader into the selected
+  agent's per-instance secret scope before the next normal sync.
 
 The provider record itself lives in `~/.config/clawrium/providers.json`
-and is the source of truth for credentials, default model, etc.; the
-agent record only tracks the *attachment*.
+and is the source of truth for ordinary backend credentials and default model;
+Claude OAuth records are selection-only, while the agent record tracks the
+non-secret attachment and its OAuth token stays in per-instance secrets.
 """
 
 from __future__ import annotations
@@ -29,8 +33,13 @@ from clawrium.cli.output import (
     dump_yaml,
     emit_error,
     render_table,
+    stream_action,
 )
 from clawrium.core.hosts import update_host
+from clawrium.core.claude_credentials import (
+    ClaudeCredentialError,
+    import_claude_oauth_from_local_reader,
+)
 from clawrium.core.provider_attachments import (
     AUXILIARY_SLOTS,
     PRIMARY_ROLE,
@@ -41,6 +50,7 @@ from clawrium.core.provider_attachments import (
     validate,
 )
 from clawrium.core.providers.storage import (
+    CLAUDE_OAUTH_PROVIDER_TYPE,
     ProvidersFileCorruptedError,
     get_provider,
 )
@@ -132,6 +142,156 @@ def _find_attachment(attachments: list, name: str) -> Optional[object]:
     return None
 
 
+def _restore_claude_attachment(
+    hostname: str,
+    agent_key: str,
+    *,
+    had_providers: bool,
+    raw_providers: object,
+    expected_providers: list[str],
+) -> bool:
+    """Restore this operation's unchanged attachment metadata only.
+
+    The reader can be interactive. A concurrent attach or detach must win over
+    this operation's failed import, so do not restore the pre-import snapshot
+    unless the record still has exactly the list this operation wrote.
+    """
+    restored = False
+
+    def updater(host: dict) -> dict:
+        nonlocal restored
+        agents = host.get("agents", {})
+        record = agents.get(agent_key)
+        if (
+            not isinstance(record, dict)
+            or record.get("providers") != expected_providers
+        ):
+            return host
+        if had_providers:
+            record["providers"] = raw_providers
+        else:
+            record.pop("providers", None)
+        restored = True
+        return host
+
+    try:
+        return update_host(hostname, updater) and restored
+    except Exception:
+        # The public reader failure remains fixed and secret-free even if a
+        # concurrent host-record change prevents metadata rollback.
+        return False
+
+
+def _attach_claude_oauth_provider(
+    *,
+    provider_record: dict,
+    host: dict,
+    agent: str,
+    hostname: str,
+    agent_key: str,
+) -> None:
+    """Attach Claude OAuth metadata and import one per-instance credential.
+
+    Provider metadata contains only the selected provider name. The token is
+    read through the local-reader seam and stored by the credential module in
+    the selected Claude agent's secret scope; it never enters hosts.json. On a
+    reader failure, restore the pre-attach metadata so an unusable OAuth
+    selection cannot be left behind.
+    """
+    if provider_record.get("type") != CLAUDE_OAUTH_PROVIDER_TYPE:
+        emit_error(
+            "Claude agents require a claude-oauth provider",
+            hint=(
+                "create one with: clawctl provider registry create <name> "
+                "--type claude-oauth"
+            ),
+        )
+
+    provider_name = str(provider_record.get("name") or "")
+    agent_data = (host.get("agents", {}) or {}).get(agent_key, {})
+    had_providers = isinstance(agent_data, dict) and "providers" in agent_data
+    raw_providers = (
+        agent_data.get("providers") if isinstance(agent_data, dict) else None
+    )
+    current = _get_attachments(host, agent_key, "claude")
+    existing = _find_attachment(current, provider_name)
+    if existing is None and current:
+        other = _attachment_name(current[0]) or ""
+        emit_error(
+            f"agent '{agent}' already has provider {other!r} attached",
+            hint=(
+                f"detach first: clawctl agent provider detach {other} --agent {agent}"
+            ),
+        )
+
+    attached_now = existing is None
+    if attached_now and not _set_attachments(
+        hostname, agent_key, "claude", [provider_name]
+    ):
+        emit_error(f"failed to attach provider {provider_name!r} to agent {agent!r}")
+
+    try:
+        import_claude_oauth_from_local_reader(agent)
+    except ClaudeCredentialError as exc:
+        credential_hint = str(exc)
+    except Exception:
+        # A secret-store or resolution failure must not leave newly written
+        # attachment metadata behind or produce an unredacted traceback.
+        credential_hint = "local Claude OAuth credential import failed"
+    except BaseException:
+        # Do not leave a selected provider behind if browser authorization is
+        # cancelled or the process exits while the local reader is running.
+        rollback_succeeded = not attached_now or _restore_claude_attachment(
+            hostname,
+            agent_key,
+            had_providers=had_providers,
+            raw_providers=raw_providers,
+            expected_providers=[provider_name],
+        )
+        if not rollback_succeeded:
+            stream_action(
+                resource=f"agent/{agent}",
+                message=(
+                    "provider attachment rollback could not be confirmed; "
+                    f"detach {provider_name!r} before retrying"
+                ),
+            )
+        raise
+    else:
+        credential_hint = None
+
+    if credential_hint is not None:
+        rollback_succeeded = not attached_now or _restore_claude_attachment(
+            hostname,
+            agent_key,
+            had_providers=had_providers,
+            raw_providers=raw_providers,
+            expected_providers=[provider_name],
+        )
+        if not rollback_succeeded:
+            credential_hint += (
+                "; provider attachment rollback could not be confirmed. "
+                f"Detach {provider_name!r} from agent {agent!r} before retrying"
+            )
+        emit_error(
+            "could not import the local Claude OAuth credential",
+            hint=credential_hint,
+        )
+
+    if attached_now:
+        stream_action(
+            resource=f"agent/{agent}",
+            message=f"attached provider {provider_name!r}",
+        )
+    else:
+        stream_action(
+            resource=f"agent/{agent}",
+            message=(
+                f"provider {provider_name!r} already attached; refreshed local OAuth credential"
+            ),
+        )
+
+
 @provider_app.command("attach")
 def attach(
     name: str = typer.Argument(..., help="Provider name to attach."),
@@ -147,9 +307,10 @@ def attach(
 ) -> None:
     """Attach a registered provider to an agent.
 
-    The attachment is metadata only at this point — the provider config
-    is materialized onto the remote agent on the next `clawctl agent
-    sync`.
+    Ordinary provider attachments are metadata only until the next `clawctl
+    agent sync`. A Claude `claude-oauth` attachment additionally imports the
+    local OAuth token into that selected agent's private secret scope; the
+    next sync uses the existing credential activation path.
 
     On hermes, `--role` is required: pass `--role primary` for the
     primary attachment and one of the auxiliary slot names for any
@@ -162,6 +323,29 @@ def attach(
     hostname = host["hostname"]
     agent_key = resolve_agent_key(host, agent)
     agent_type = _agent_type(claw)
+    if (
+        provider_record.get("type") == CLAUDE_OAUTH_PROVIDER_TYPE
+        and agent_type != "claude"
+    ):
+        emit_error(
+            "claude-oauth providers can only be attached to Claude agents",
+            hint="select a provider type supported by this agent",
+        )
+    if agent_type == "claude":
+        if role is not None:
+            emit_error(
+                "--role is not supported on agent type 'claude'",
+                hint="Claude OAuth uses the single-provider selection",
+            )
+        _attach_claude_oauth_provider(
+            provider_record=provider_record,
+            host=host,
+            agent=agent,
+            hostname=hostname,
+            agent_key=agent_key,
+        )
+        return
+
     multi = supports_multi_provider(agent_type)
 
     # Role flag validity is agent-type-scoped.
