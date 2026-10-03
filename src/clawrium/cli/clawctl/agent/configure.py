@@ -23,6 +23,11 @@ import typer
 from clawrium.cli.clawctl._common import stdin_is_tty
 from clawrium.cli.clawctl.agent._shared import resolve_agent_key, safe_resolve_agent
 from clawrium.cli.output import emit_error, stream_action
+from clawrium.core.agent_lifecycle import (
+    has_completed_install,
+    has_daemon_lifecycle,
+    incomplete_install_message,
+)
 from clawrium.core.hosts import HostsFileCorruptedError, update_host
 from clawrium.core.lifecycle import LifecycleError, sync_agent
 from clawrium.core.playbook_resolver import resolve_lifecycle_backend
@@ -192,6 +197,15 @@ def configure(
     agent_key = resolve_agent_key(host, name)
     hostname = host["hostname"]
     agent_type = claw_record.get("type", _agent_type)
+
+    if not has_daemon_lifecycle(agent_type):
+        if not has_completed_install(claw_record):
+            emit_error(incomplete_install_message(agent_type, "configure"))
+        stream_action(
+            resource=f"agent/{name}",
+            message=f"{agent_type} is an installed CLI; no daemon configuration is managed yet",
+        )
+        return
 
     if stage is None:
         # Non-interactive contract: stdin closed + no stage = clean failure.

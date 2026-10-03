@@ -2001,6 +2001,41 @@ def sync_agent_canonical(
 
     _validate_agent_name(agent_name)
 
+    resolved = get_agent_by_name(agent_name)
+    if resolved is not None:
+        # Issue #917: the middle element of `get_agent_by_name` is the
+        # agent *type* (e.g. "zeroclaw"), NOT the instance name. The old
+        # `agent_key` local misled its two consumers below into treating
+        # the type as an instance name, producing a spurious "registry
+        # record missing for zeroclaw after sync" warning at line ~2417
+        # when `_transition` looked up the type as if it were a claw name.
+        # Callers that actually want the instance name use `agent_name`
+        # (the function parameter at line 1742).
+        host, agent_type, _claw_record = resolved
+        hostname = host.get("hostname", "")
+
+        from clawrium.core.agent_lifecycle import (
+            has_completed_install,
+            has_daemon_lifecycle,
+            incomplete_install_message,
+        )
+
+        if not has_daemon_lifecycle(agent_type):
+            if not has_completed_install(_claw_record):
+                raise CanonicalSyncError(incomplete_install_message(agent_type, "sync"))
+            emit(
+                "sync",
+                f"{agent_type} is an installed CLI; no daemon configuration is managed yet",
+            )
+            return CanonicalSyncResult(
+                success=True,
+                agent=agent_name,
+                host=hostname,
+                files_written=(),
+                files_unchanged=(),
+                diffs=(),
+            )
+
     emit("validate", f"assembling render inputs for {agent_name}")
     inputs = build_render_inputs(agent_name)
 
@@ -2010,17 +2045,8 @@ def sync_agent_canonical(
             f"no canonical renderer for agent type {inputs.agent_type!r}"
         )
 
-    resolved = get_agent_by_name(agent_name)
     if resolved is None:
         raise CanonicalSyncError(f"agent {agent_name!r} not found in hosts.json")
-    # Issue #917: the middle element of `get_agent_by_name` is the
-    # agent *type* (e.g. "zeroclaw"), NOT the instance name. The old
-    # `agent_key` local misled its two consumers below into treating
-    # the type as an instance name, producing a spurious "registry
-    # record missing for zeroclaw after sync" warning at line ~2417
-    # when `_transition` looked up the type as if it were a claw name.
-    # Callers that actually want the instance name use `agent_name`
-    # (the function parameter at line 1742).
     host, agent_type, _claw_record = resolved
     hostname = host.get("hostname", "")
 
