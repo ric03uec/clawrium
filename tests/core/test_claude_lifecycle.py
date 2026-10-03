@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -10,7 +11,13 @@ from clawrium.cli.tui.data import get_fleet_data_local
 from clawrium.core import lifecycle, lifecycle_canonical, lifecycle_macos
 from clawrium.core.agent_lifecycle import incomplete_install_message
 from clawrium.core.health import ClawStatus, check_claw_health
+from clawrium.core.hosts import get_host
 from clawrium.core.playbook_resolver import resolve_agent_playbook
+from clawrium.core.secrets import (
+    get_instance_key,
+    get_instance_secrets,
+    set_instance_secret,
+)
 
 
 def _claude_host(*, os_family: str = "linux") -> dict:
@@ -283,34 +290,77 @@ def test_static_fleet_marks_incomplete_claude_install_not_ready(isolated_config:
     assert agents[0]["health_error"] == "npm install failed"
 
 
-@pytest.mark.parametrize("os_family", ["linux", "darwin"])
-def test_claude_removal_uses_os_specific_playbook_before_local_cleanup(
-    monkeypatch, os_family: str
-):
+def _persist_claude_removal_state(
+    config: Path, *, os_family: str = "linux"
+) -> tuple[dict, str]:
+    """Persist a Claude record and secret so remove ordering is observable."""
     host = _claude_host(os_family=os_family)
-    captured: dict = {}
+    config.mkdir(parents=True)
+    (config / "hosts.json").write_text(json.dumps([host]))
+    instance_key = get_instance_key(host["key_id"], "claude", "claude-code")
+    set_instance_secret(
+        instance_key,
+        "CLAUDE_CODE_OAUTH_TOKEN",
+        "removal-ordering-test-token",
+    )
+    return host, instance_key
+
+
+@pytest.mark.parametrize("os_family", ["linux", "darwin"])
+def test_claude_successful_remote_removal_prunes_local_state_after_cleanup(
+    isolated_config: Path, monkeypatch, os_family: str
+):
+    host, instance_key = _persist_claude_removal_state(
+        isolated_config, os_family=os_family
+    )
+    order: list[str] = []
+    playbook_paths = []
+    remove_secrets = lifecycle.remove_instance_secrets
+    remove_record = lifecycle.remove_agent_from_host
 
     def _run(*_args, **kwargs):
-        captured.update(kwargs)
+        order.append("remote")
+        playbook_paths.append(kwargs["playbook_path_override"])
+        assert set(get_instance_secrets(instance_key)) == {"CLAUDE_CODE_OAUTH_TOKEN"}
+        assert "claude-code" in get_host(host["hostname"])["agents"]
         return True, None
 
-    monkeypatch.setattr(lifecycle, "get_host", lambda _: host)
+    def _remove_secrets(received_instance_key: str) -> bool:
+        assert received_instance_key == instance_key
+        assert order == ["remote"]
+        order.append("secrets")
+        return remove_secrets(received_instance_key)
+
+    def _cleanup_state(agent_name: str) -> bool:
+        assert agent_name == "claude-code"
+        assert order == ["remote", "secrets"]
+        order.append("state")
+        return False
+
+    def _remove_record(hostname: str, agent_name: str) -> bool:
+        assert (hostname, agent_name) == ("claude-host", "claude-code")
+        assert order == ["remote", "secrets", "state"]
+        order.append("hosts")
+        return remove_record(hostname, agent_name)
+
     monkeypatch.setattr(lifecycle, "_run_lifecycle_playbook", _run)
-    monkeypatch.setattr(lifecycle, "remove_instance_secrets", lambda _: None)
-    monkeypatch.setattr(lifecycle, "cleanup_agent_state", lambda _: False)
-    monkeypatch.setattr(lifecycle, "remove_agent_from_host", lambda *_: True)
+    monkeypatch.setattr(lifecycle, "remove_instance_secrets", _remove_secrets)
+    monkeypatch.setattr(lifecycle, "cleanup_agent_state", _cleanup_state)
+    monkeypatch.setattr(lifecycle, "remove_agent_from_host", _remove_record)
 
     result = lifecycle.remove_agent("claude-host", "claude", agent_name="claude-code")
 
     assert result["success"] is True
-    assert captured["playbook_path_override"] == resolve_agent_playbook(
-        "claude", "remove", os_family
-    )
+    assert order == ["remote", "secrets", "state", "hosts"]
+    assert playbook_paths == [resolve_agent_playbook("claude", "remove", os_family)]
+    assert get_instance_secrets(instance_key) == {}
+    assert "claude-code" not in get_host(host["hostname"])["agents"]
 
 
-def test_claude_remote_removal_failure_preserves_local_record(monkeypatch):
-    host = _claude_host()
-    monkeypatch.setattr(lifecycle, "get_host", lambda _: host)
+def test_claude_remote_removal_failure_preserves_persisted_local_state(
+    isolated_config: Path, monkeypatch
+):
+    host, instance_key = _persist_claude_removal_state(isolated_config)
     monkeypatch.setattr(
         lifecycle, "_run_lifecycle_playbook", lambda *_args, **_kwargs: (False, "boom")
     )
@@ -322,3 +372,5 @@ def test_claude_remote_removal_failure_preserves_local_record(monkeypatch):
 
     assert result["success"] is False
     assert result["error"] == "boom"
+    assert set(get_instance_secrets(instance_key)) == {"CLAUDE_CODE_OAUTH_TOKEN"}
+    assert "claude-code" in get_host(host["hostname"])["agents"]
