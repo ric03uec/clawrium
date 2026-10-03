@@ -22,6 +22,10 @@ from clawrium.cli.tui.data import (
 )
 from clawrium.core import web_ui as web_ui_module
 from clawrium.core import web_ui_tunnel
+from clawrium.core.agent_lifecycle import (
+    has_daemon_lifecycle,
+    lifecycle_not_applicable_message,
+)
 from clawrium.core.health import ClawStatus
 from clawrium.core.lifecycle import (
     LifecycleError,
@@ -39,6 +43,17 @@ router = APIRouter(prefix="/api", tags=["fleet"])
 # ansible-runner subprocess per agent, so a tight polling loop can
 # exhaust fd / thread-pool limits on small homelab hardware.
 _FLEET_HEALTH_TIMEOUT_S = 60.0
+
+
+def _require_daemon_lifecycle(agent_type: str, operation: str) -> None:
+    """Reject GUI lifecycle actions that have no daemon to manage."""
+    if not has_daemon_lifecycle(agent_type):
+        raise HTTPException(
+            status_code=409,
+            detail=lifecycle_not_applicable_message(agent_type, operation),
+        )
+
+
 # Dedicated thread pool so a leaked / still-running SSH thread (asyncio
 # can't actually cancel a sync function past `wait_for`) cannot starve
 # the default executor that backs every other `asyncio.to_thread` site.
@@ -332,6 +347,7 @@ async def start_agent_endpoint(agent_key: str):
     if not resolved:
         raise HTTPException(status_code=404, detail=f"Agent '{agent_key}' not found")
     host_record, agent_type, _agent_record = resolved
+    _require_daemon_lifecycle(agent_type, "start")
 
     try:
         result = await asyncio.to_thread(
@@ -371,6 +387,7 @@ async def stop_agent_endpoint(agent_key: str):
     if not resolved:
         raise HTTPException(status_code=404, detail=f"Agent '{agent_key}' not found")
     host_record, agent_type, _agent_record = resolved
+    _require_daemon_lifecycle(agent_type, "stop")
 
     try:
         result = await asyncio.to_thread(
@@ -410,6 +427,7 @@ async def restart_agent_endpoint(agent_key: str):
     if not resolved:
         raise HTTPException(status_code=404, detail=f"Agent '{agent_key}' not found")
     host_record, agent_type, _agent_record = resolved
+    _require_daemon_lifecycle(agent_type, "restart")
 
     try:
         result = await asyncio.to_thread(

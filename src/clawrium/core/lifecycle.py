@@ -464,6 +464,7 @@ def _run_lifecycle_playbook(
     operation: str,
     host: dict,
     timeout: int = 60,
+    playbook_path_override: Path | None = None,
 ) -> tuple[bool, str | None]:
     """Run a lifecycle playbook on a host.
 
@@ -478,7 +479,9 @@ def _run_lifecycle_playbook(
     Returns:
         Tuple of (success, error_message)
     """
-    playbook_path = _get_lifecycle_playbook_path(agent_type, operation)
+    playbook_path = playbook_path_override or _get_lifecycle_playbook_path(
+        agent_type, operation
+    )
 
     if not playbook_path.exists():
         return False, f"Playbook not found: {playbook_path}"
@@ -888,6 +891,14 @@ def start_agent(
         raise LifecycleError(f"Agent '{target}' not installed on '{hostname}'")
     agent_key, agent_type, claw_record = resolved
 
+    from clawrium.core.agent_lifecycle import (
+        has_daemon_lifecycle,
+        lifecycle_not_applicable_message,
+    )
+
+    if not has_daemon_lifecycle(agent_type):
+        raise LifecycleError(lifecycle_not_applicable_message(agent_type, "start"))
+
     # #811: probe the on-host install before starting. start_agent is
     # the load-bearing callee of restart_agent, so this also covers
     # the `clawctl agent restart` path the auditor flagged as
@@ -1226,6 +1237,14 @@ def stop_agent(
         raise LifecycleError(f"Agent '{target}' not installed on '{hostname}'")
     agent_key, agent_type, _ = resolved
 
+    from clawrium.core.agent_lifecycle import (
+        has_daemon_lifecycle,
+        lifecycle_not_applicable_message,
+    )
+
+    if not has_daemon_lifecycle(agent_type):
+        raise LifecycleError(lifecycle_not_applicable_message(agent_type, "stop"))
+
     emit("stop", f"Stopping {agent_key} on {hostname}...")
 
     success, error = _run_lifecycle_playbook(
@@ -1292,6 +1311,23 @@ def restart_agent(
 
     target = agent_name or claw_name
     emit("restart", f"Restarting {target} on {hostname}...")
+
+    host = get_host(hostname)
+    if not host:
+        raise LifecycleError(f"Host '{hostname}' not found")
+
+    resolved = _resolve_agent_record(host, target, expected_type=claw_name)
+    if not resolved:
+        raise LifecycleError(f"Agent '{target}' not installed on '{hostname}'")
+    _, agent_type, _ = resolved
+
+    from clawrium.core.agent_lifecycle import (
+        has_daemon_lifecycle,
+        lifecycle_not_applicable_message,
+    )
+
+    if not has_daemon_lifecycle(agent_type):
+        raise LifecycleError(lifecycle_not_applicable_message(agent_type, "restart"))
 
     stop_result = stop_agent(
         hostname, claw_name, agent_name=agent_name, on_event=on_event
@@ -1755,6 +1791,29 @@ def sync_agent(
     if not resolved:
         raise LifecycleError(f"Agent '{target}' not installed on '{hostname}'")
     agent_key, agent_type, claw_record = resolved
+
+    from clawrium.core.agent_lifecycle import (
+        has_completed_install,
+        has_daemon_lifecycle,
+        incomplete_install_message,
+    )
+
+    if not has_daemon_lifecycle(agent_type):
+        if not has_completed_install(claw_record):
+            raise LifecycleError(incomplete_install_message(agent_type, "sync"))
+        emit(
+            "sync",
+            f"{agent_type} is an installed CLI; no daemon configuration is managed yet",
+        )
+        return {
+            "success": True,
+            "agent": agent_key,
+            "host": hostname,
+            "operation": "sync",
+            "pid": None,
+            "started_at": None,
+            "error": None,
+        }
 
     # Issue #426: bridge `agent.providers` (the attach list written by
     # `clawctl agent provider attach`) → `config.provider` (the dict the
@@ -2295,6 +2354,21 @@ def configure_agent(
     agent_key, resolved_type, agent_record = resolved
     # Use inner agent_name (Unix username) if available, otherwise fall back to dict key
     unix_agent_name = agent_record.get("agent_name") or agent_key
+
+    from clawrium.core.agent_lifecycle import (
+        has_completed_install,
+        has_daemon_lifecycle,
+        incomplete_install_message,
+    )
+
+    if not has_daemon_lifecycle(resolved_type):
+        if not has_completed_install(agent_record):
+            return False, incomplete_install_message(resolved_type, "configure")
+        emit(
+            "configure",
+            f"{resolved_type} is an installed CLI; no daemon configuration is managed yet",
+        )
+        return True, None
 
     # #811: probe the on-host install before configure. configure
     # renders extravars + writes templates that depend on the agent
@@ -3471,11 +3545,13 @@ def remove_agent(
         raise LifecycleError(f"Agent '{target}' not installed on '{hostname}'")
     agent_key, agent_type, claw_record = resolved
 
+    from clawrium.core.agent_lifecycle import has_daemon_lifecycle
+
     # Check if agent is running and stop it first
     runtime = claw_record.get("runtime", {})
     status = runtime.get("status", "stopped")
 
-    if status == "running":
+    if status == "running" and has_daemon_lifecycle(agent_type):
         emit("remove", f"Stopping {agent_key} before removal...")
         try:
             stop_result = stop_agent(
@@ -3495,8 +3571,36 @@ def remove_agent(
 
     emit("remove", f"Removing {agent_key} from {hostname}...")
 
+    playbook_path_override = None
+    if not has_daemon_lifecycle(agent_type):
+        from clawrium.core.playbook_resolver import (
+            normalize_os_family,
+            resolve_agent_playbook,
+        )
+
+        try:
+            playbook_path_override = resolve_agent_playbook(
+                agent_type, "remove", normalize_os_family(host)
+            )
+        except (FileNotFoundError, ValueError) as exc:
+            return {
+                "success": False,
+                "agent": agent_key,
+                "host": hostname,
+                "operation": "remove",
+                "pid": None,
+                "started_at": None,
+                "error": str(exc),
+            }
+
     success, error = _run_lifecycle_playbook(
-        agent_type, agent_key, host["hostname"], "remove", host, timeout=120
+        agent_type,
+        agent_key,
+        host["hostname"],
+        "remove",
+        host,
+        timeout=120,
+        playbook_path_override=playbook_path_override,
     )
 
     if not success:

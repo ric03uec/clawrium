@@ -1580,6 +1580,32 @@ def test_restart_agent_502_no_path_leak(isolated_config: Path):
     assert "/home/user/.config" not in resp.json()["detail"]
 
 
+@pytest.mark.parametrize(
+    ("operation", "lifecycle_target"),
+    [
+        ("start", "start_agent"),
+        ("stop", "stop_agent"),
+        ("restart", "restart_agent"),
+    ],
+)
+def test_daemonless_agent_lifecycle_is_not_applicable(
+    isolated_config: Path, monkeypatch, operation: str, lifecycle_target: str
+):
+    """Claude Code has no daemon, so GUI actions fail clearly before dispatch."""
+    _seed_hosts(isolated_config, "claude")
+
+    def _unexpected(*_args, **_kwargs):
+        raise AssertionError("daemon lifecycle must not run for Claude Code")
+
+    monkeypatch.setattr(fleet_mod, lifecycle_target, _unexpected)
+    with TestClient(app, base_url="http://localhost:36000") as client:
+        resp = client.post(f"/api/agents/demo/{operation}")
+
+    assert resp.status_code == 409
+    assert "does not run a daemon" in resp.json()["detail"]
+    assert "not applicable" in resp.json()["detail"]
+
+
 def test_fleet_endpoint_returns_tier1_model(isolated_config: Path):
     """End-to-end: `/api/fleet` JSON carries the tier-1 model (#790).
 

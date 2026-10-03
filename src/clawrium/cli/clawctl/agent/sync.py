@@ -44,6 +44,11 @@ from clawrium.cli.output import (
     emit_error,
     stream_action,
 )
+from clawrium.core.agent_lifecycle import (
+    has_completed_install,
+    has_daemon_lifecycle,
+    incomplete_install_message,
+)
 
 
 _PHASES = (
@@ -314,6 +319,18 @@ def sync(
     host, _agent_type, claw_record = safe_resolve_agent(name)
     agent_key = resolve_agent_key(host, name)
     agent_type = claw_record.get("type", _agent_type)
+
+    if not has_daemon_lifecycle(agent_type):
+        if not has_completed_install(claw_record):
+            emit_error(incomplete_install_message(agent_type, "sync"))
+        stream_action(
+            resource=f"agent/{name}",
+            message=(
+                f"{agent_type} is an installed CLI; no daemon configuration is "
+                "managed yet"
+            ),
+        )
+        return
 
     # F8 (parent #555): `--diff` implies `--dry-run`. Promote here so
     # the phase-emission and short-circuit logic below sees the
