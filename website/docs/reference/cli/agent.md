@@ -1,12 +1,12 @@
 ---
 sidebar_position: 2
-description: Command reference for managing agent lifecycle - install, configure, start, stop, and monitor agents
+description: Command reference for agent install/configuration and daemon lifecycle operations where available
 keywords: [cli, agent, command reference, configure, install, start, stop]
 ---
 
 # clawctl agent
 
-Manage agent lifecycle: install, configure, start, stop, and monitor agents.
+Manage agent installation and configuration, plus lifecycle operations for types that provide a managed daemon. Claude Code is install-only; see [Claude Code: install-only command environment](#claude-code-install-only-command-environment) before using daemon commands.
 
 ## Synopsis
 
@@ -28,7 +28,7 @@ clawctl agent create <agent-name> --type <agent-type> --host <host> [options]
 - `agent-name` - Name for the new agent instance (positional, required)
 
 **Options:**
-- `--type`, `-t <agent-type>` - Agent type, e.g. `openclaw`, `zeroclaw`, `hermes` (required)
+- `--type`, `-t <agent-type>` - Agent type, e.g. `openclaw`, `zeroclaw`, `hermes`, `claude` (required)
 - `--host`, `-H <hostname>` - Target host, name or alias (required)
 - `--provider`, `-P <name>` - Initial provider to attach (required for `openclaw` since v26.7.3; see below)
 - `--yes`, `-y` - Skip confirmation prompts
@@ -46,6 +46,9 @@ clawctl agent create opc-work --type openclaw --host lab1 --provider clm-openrou
 
 # Install zeroclaw
 clawctl agent create zc-edge --type zeroclaw --host pi4
+
+# Install Claude Code as an isolated, no-daemon command environment
+clawctl agent create claude-work --type claude --host lab1
 
 # Retry after a failed install
 clawctl agent create opc-work --type openclaw --host lab1 --provider clm-openrouter --cleanup-failed
@@ -72,6 +75,31 @@ Next step: clawctl agent configure opc-work
 **Related:**
 - [clawctl agent registry describe](#related-commands) - Check agent requirements before install
 - [clawctl agent configure](#configure) - Configure the installed agent
+
+---
+
+### Claude Code: install-only command environment
+
+`claude` is an installed, per-agent Claude Code environment, not a daemon.
+`clawctl agent create <name> --type claude --host <host>` creates its dedicated
+account and owned install prefix but never invokes Claude Code, logs in,
+starts a service, allocates a port, creates a gateway or tunnel, or enables
+chat or a web UI.
+
+`clawctl agent configure <name>` and `clawctl agent sync <name>` manage only
+the dedicated account's bounded global `~/.claude/settings.json` and selected
+credential environment; project `.claude/settings.json` and
+`.claude/settings.local.json` are untouched. Use a finite command with:
+
+```bash
+clawctl agent shell <name> -- 'claude --version'
+```
+
+There is no interactive shell or PTY. `agent exec`, `agent chat`, `agent
+open`, `start`, `stop`, `restart`, and `logs` are not Claude Code operations;
+use the `agent shell` path for a terminating command. See [Claude Code
+Support](../../agent-support/claude.md) for credential safety and removal
+ownership.
 
 ---
 

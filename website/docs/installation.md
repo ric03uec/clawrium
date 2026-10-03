@@ -192,8 +192,8 @@ the host.
 
 ### Install an agent
 
-Both `hermes` and `openclaw` agent types are supported on macOS
-(Apple Silicon, macOS 14+). They can coexist on the same host.
+`hermes`, `openclaw`, and install-only `claude` agent types are supported on
+macOS (Apple Silicon, macOS 14+). They can coexist on the same host.
 
 ```bash
 # hermes
@@ -201,6 +201,9 @@ clawctl agent create <name> --type hermes --host <alias>
 
 # openclaw (--provider is mandatory since v26.7.3)
 clawctl agent create <name> --type openclaw --host <alias> --provider <provider-name>
+
+# Claude Code (install-only; no service is started)
+clawctl agent create <name> --type claude --host <alias>
 ```
 
 Behind the scenes, clawrium installs Homebrew (if missing) and the
@@ -214,8 +217,14 @@ macOS user (`/Users/<agent_name>/`), and runs the upstream installer:
   at `/Library/LaunchDaemons/ai.clawrium.openclaw.<agent>.plist` and
   performs the loopback pairing handshake to populate `gateway.auth`
   + `gateway.device_*` in `hosts.json`.
+- **claude** requires Node.js 20 or later. Install creates an isolated
+  per-agent Claude Code prefix only: it does not invoke Claude Code, log in,
+  start a service, allocate a port, create a gateway, pair a device, or expose
+  a UI. See [Claude Code Support](agent-support/claude.md) for credential,
+  settings, finite-command, and removal boundaries.
 
-Configure, start, chat — same commands as Linux:
+Configure, start, chat — same commands as Linux for daemon-backed Hermes and
+OpenClaw agents:
 
 ```bash
 # On hermes, --role is required (use `primary` for the first attachment;
