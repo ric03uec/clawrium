@@ -6,7 +6,6 @@ import hashlib
 import json
 import secrets
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
@@ -276,8 +275,8 @@ def test_oauth_import_refuses_unknown_local_sources_without_scraping(
     with pytest.raises(ClaudeOAuthSourceError) as error:
         import_claude_oauth_from_environment("claude-code", environment={})
 
-    message = str(error.value).lower()
-    assert "supplied environment" in message
+    assert error.value.category == "supplied_environment_token_absent"
+    assert "category=supplied_environment_token_absent" in str(error.value)
     assert get_claude_credential_state("claude-code").mode is None
 
 
@@ -317,60 +316,103 @@ def test_claude_per_instance_credentials_do_not_mutate_provider_credentials(
     assert agent_entries[ANTHROPIC_API_KEY]["value"] == "agent-api-test-key"
 
 
-def test_setup_token_reader_uses_fake_subprocess_without_environment_credentials(
-    monkeypatch: pytest.MonkeyPatch,
+def _write_local_credentials_artifact(path: Path, access_token: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"claudeAiOauth": {"accessToken": access_token}}))
+    path.chmod(0o600)
+
+
+def test_credentials_artifact_reader_uses_exact_access_token_not_environment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
-    """The supported adapter captures a fake CLI export without local reads."""
-    local_token = "oauth-" + secrets.token_urlsafe(24)
-    inherited_token = "oauth-" + secrets.token_urlsafe(24)
-    captured: dict[str, object] = {}
+    artifact_token = "oauth-" + secrets.token_urlsafe(24)
+    artifact = tmp_path / ".claude" / ".credentials.json"
+    _write_local_credentials_artifact(artifact, artifact_token)
     monkeypatch.setattr(claude_credentials.sys, "platform", "linux")
-    monkeypatch.setattr(claude_credentials.shutil, "which", lambda _cmd: "/fake/claude")
-    monkeypatch.setenv(CLAUDE_CODE_OAUTH_TOKEN, inherited_token)
+    monkeypatch.setattr(claude_credentials, "_CLAUDE_CREDENTIALS_PATH", artifact)
+    monkeypatch.setenv(
+        CLAUDE_CODE_OAUTH_TOKEN, "environment-" + secrets.token_urlsafe(24)
+    )
     monkeypatch.setenv(ANTHROPIC_API_KEY, "api-" + secrets.token_urlsafe(24))
-
-    def fake_run(command, **kwargs):
-        captured["command"] = command
-        captured.update(kwargs)
-        return SimpleNamespace(
-            returncode=0,
-            stdout=f"CLAUDE_CODE_OAUTH_TOKEN={local_token}\n",
-            stderr="",
-        )
-
-    monkeypatch.setattr(claude_credentials.subprocess, "run", fake_run)
 
     value = read_local_claude_oauth_token()
 
     assert (
         hashlib.sha256(value.encode()).hexdigest()
-        == hashlib.sha256(local_token.encode()).hexdigest()
+        == hashlib.sha256(artifact_token.encode()).hexdigest()
     )
-    assert captured["command"] == ["/fake/claude", "setup-token"]
-    assert captured["check"] is False
-    assert captured["stdin"] is claude_credentials.subprocess.DEVNULL
-    assert captured["stdout"] is claude_credentials.subprocess.PIPE
-    assert captured["stderr"] is claude_credentials.subprocess.PIPE
-    assert CLAUDE_CODE_OAUTH_TOKEN not in captured["env"]
-    assert ANTHROPIC_API_KEY not in captured["env"]
 
 
-def test_setup_token_reader_fails_closed_on_unsupported_platform(
+def test_credentials_artifact_reader_rejects_insecure_file_without_leaking(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    sensitive_token = "oauth-" + secrets.token_urlsafe(24)
+    artifact = tmp_path / ".claude" / ".credentials.json"
+    _write_local_credentials_artifact(artifact, sensitive_token)
+    artifact.chmod(0o644)
+    monkeypatch.setattr(claude_credentials.sys, "platform", "linux")
+    monkeypatch.setattr(claude_credentials, "_CLAUDE_CREDENTIALS_PATH", artifact)
+
+    with pytest.raises(ClaudeOAuthSourceError) as error:
+        read_local_claude_oauth_token()
+
+    assert error.value.category == "credentials_artifact_insecure"
+    assert sensitive_token not in str(error.value)
+
+
+def test_credentials_artifact_reader_rejects_missing_access_token_without_leaking(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    sensitive_value = "oauth-" + secrets.token_urlsafe(24)
+    artifact = tmp_path / ".claude" / ".credentials.json"
+    _write_local_credentials_artifact(artifact, sensitive_value)
+    artifact.write_text(
+        json.dumps({"claudeAiOauth": {"refreshToken": sensitive_value}})
+    )
+    artifact.chmod(0o600)
+    monkeypatch.setattr(claude_credentials.sys, "platform", "linux")
+    monkeypatch.setattr(claude_credentials, "_CLAUDE_CREDENTIALS_PATH", artifact)
+
+    with pytest.raises(ClaudeOAuthSourceError) as error:
+        read_local_claude_oauth_token()
+
+    assert error.value.category == "credentials_access_token_missing"
+    assert sensitive_value not in str(error.value)
+
+
+def test_credentials_artifact_reader_rejects_oversized_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    artifact = tmp_path / ".claude" / ".credentials.json"
+    artifact.parent.mkdir(parents=True)
+    artifact.write_bytes(b"x" * (claude_credentials._CLAUDE_CREDENTIALS_MAX_BYTES + 1))
+    artifact.chmod(0o600)
+    monkeypatch.setattr(claude_credentials.sys, "platform", "linux")
+    monkeypatch.setattr(claude_credentials, "_CLAUDE_CREDENTIALS_PATH", artifact)
+
+    with pytest.raises(ClaudeOAuthSourceError) as error:
+        read_local_claude_oauth_token()
+
+    assert error.value.category == "credentials_artifact_too_large"
+
+
+def test_credentials_artifact_reader_fails_closed_on_unsupported_platform(
     monkeypatch: pytest.MonkeyPatch,
 ):
     monkeypatch.setattr(claude_credentials.sys, "platform", "darwin")
     monkeypatch.setattr(
-        claude_credentials.subprocess,
-        "run",
+        claude_credentials.os,
+        "open",
         lambda *_args, **_kwargs: pytest.fail(
-            "unsupported reader must not run a subprocess"
+            "unsupported reader must not open a credential artifact"
         ),
     )
 
     with pytest.raises(ClaudeOAuthSourceError) as error:
         read_local_claude_oauth_token()
 
-    assert "only on Linux" in str(error.value)
+    assert error.value.category == "unsupported_controller_platform"
+    assert "category=unsupported_controller_platform" in str(error.value)
 
 
 def test_non_claude_agent_cannot_use_claude_credential_modes(isolated_config: Path):
