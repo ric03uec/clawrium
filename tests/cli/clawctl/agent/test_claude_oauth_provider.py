@@ -170,12 +170,47 @@ def test_claude_oauth_reader_error_is_redacted_and_restores_attachment(
 
     assert result.exit_code != 0
     assert "could not import the local Claude OAuth credential" in result.output
+    assert "category=unknown_reader_failure" in result.output
     assert sensitive_detail not in result.output
     hosts_text = (fleet_dir / "hosts.json").read_text()
     providers_text = (fleet_dir / "providers.json").read_text()
     assert sensitive_detail not in hosts_text
     assert sensitive_detail not in providers_text
     hosts = json.loads(hosts_text)
+    assert "providers" not in hosts[0]["agents"]["claude-code"]
+    assert get_instance_secrets(_instance_key()) == {}
+
+
+def test_claude_oauth_reader_category_reaches_cli_without_output(
+    fleet_dir, stdin_not_tty, monkeypatch
+) -> None:
+    """The E2E can classify an artifact failure without exposing its contents."""
+    _add_claude_agent(fleet_dir)
+    _create_claude_oauth_provider()
+
+    def unavailable_reader() -> str:
+        # The concrete reader never reflects artifact contents through this
+        # boundary; a fixed category is the only safe detail.
+        raise ClaudeOAuthSourceError("credentials_artifact_unavailable")
+
+    monkeypatch.setattr(
+        claude_credentials, "read_local_claude_oauth_token", unavailable_reader
+    )
+    result = runner.invoke(
+        app,
+        [
+            "agent",
+            "provider",
+            "attach",
+            "local-claude-oauth",
+            "--agent",
+            "claude-code",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "category=credentials_artifact_unavailable" in result.output
+    hosts = json.loads((fleet_dir / "hosts.json").read_text())
     assert "providers" not in hosts[0]["agents"]["claude-code"]
     assert get_instance_secrets(_instance_key()) == {}
 
@@ -243,9 +278,7 @@ def test_claude_oauth_failure_does_not_overwrite_concurrent_attachment(
     assert result.exit_code != 0
     assert "rollback could not be confirmed" in result.output
     hosts = json.loads((fleet_dir / "hosts.json").read_text())
-    assert hosts[0]["agents"]["claude-code"]["providers"] == [
-        "concurrent-provider"
-    ]
+    assert hosts[0]["agents"]["claude-code"]["providers"] == ["concurrent-provider"]
     assert get_instance_secrets(_instance_key()) == {}
 
 

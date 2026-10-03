@@ -1,0 +1,50 @@
+{
+  "issue": 1015,
+  "base_branch": "issue-1013-claude-oauth-provider",
+  "transport": "cli",
+  "commit_sha": "pending-commit",
+  "iteration": 3,
+  "last_rating": 3.5,
+  "last_blockers": [],
+  "started_at": "2026-10-03T17:49:30Z",
+  "updated_at": "2026-10-03T18:02:08Z",
+  "review_command": "atx review request --worktree issue-1015-claude-oauth-e2e --prompt <iteration-specific scoped prompt> --format json --timeout 15m",
+  "reviews": [
+    {
+      "iteration": 1,
+      "revision_id": "434a4403-7013-4d8b-874a-2a6794afdfb4",
+      "review_id": "rev-4d83db64-17a0-4e97-8147-c1132883f84a",
+      "rating": 2,
+      "cost_usd": 0.495947,
+      "duration_ms": 181310,
+      "status": "completed",
+      "blocking_findings": [
+        "Inherited ordinary provider attach output did not use the shared sanitization boundary."
+      ],
+      "resolution": "Not changed: it is inherited from the stacked parent and outside #1015's real OAuth E2E scope."
+    },
+    {
+      "iteration": 2,
+      "revision_id": "aeb118f1-f770-4642-889c-d69f43694efa",
+      "review_id": "rev-4d83db64-17a0-4e97-8147-c1132883f84a",
+      "rating": 3,
+      "cost_usd": 0.319146,
+      "duration_ms": 101369,
+      "status": "completed",
+      "blocking_findings": [],
+      "note": "Scoped to the issue-only working-tree diff; no blocking findings."
+    },
+    {
+      "iteration": 3,
+      "revision_id": "783f0b52-f5b4-4d6f-a5bb-bd4c6991528c",
+      "review_id": "rev-4d83db64-17a0-4e97-8147-c1132883f84a",
+      "rating": 3.5,
+      "normalized_rating": 4,
+      "cost_usd": 0.319676,
+      "duration_ms": 95277,
+      "status": "completed",
+      "blocking_findings": [],
+      "note": "Final scoped review cleared the >3/5 threshold with no blockers. It recommended broader synthetic output-pattern coverage only; no real OAuth-token exposure was observed."
+    }
+  ]
+}
