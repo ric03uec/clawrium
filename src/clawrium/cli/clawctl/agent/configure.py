@@ -201,9 +201,46 @@ def configure(
     if not has_daemon_lifecycle(agent_type):
         if not has_completed_install(claw_record):
             emit_error(incomplete_install_message(agent_type, "configure"))
+        if agent_type != "claude":
+            stream_action(
+                resource=f"agent/{name}",
+                message=f"{agent_type} is an installed CLI; no daemon configuration is managed yet",
+            )
+            return
+
+        config_data = claw_record.get("config", {})
+        if not isinstance(config_data, dict):
+            emit_error(
+                f"agent {name!r} on host {hostname!r}: Claude configuration must be an object"
+            )
+
+        def on_event(stage_evt: str, message: str) -> None:
+            stream_action(resource=f"agent/{name}", message=f"[{stage_evt}] {message}")
+
+        try:
+            configure_fn = resolve_lifecycle_backend(
+                host.get("os_family", "linux")
+            ).configure_agent
+            success, error = configure_fn(
+                hostname=hostname,
+                claw_name="claude",
+                config_data=dict(config_data),
+                agent_name=agent_key,
+                on_event=on_event,
+            )
+        except LifecycleError as exc:
+            emit_error(
+                f"agent {name!r} on host {hostname!r}: "
+                f"Claude settings configure failed: {exc}"
+            )
+        if not success:
+            emit_error(
+                f"agent {name!r} on host {hostname!r}: Claude settings configure failed: "
+                f"{error or 'unknown error'}"
+            )
         stream_action(
             resource=f"agent/{name}",
-            message=f"{agent_type} is an installed CLI; no daemon configuration is managed yet",
+            message="Claude global settings configured; no daemon restart",
         )
         return
 

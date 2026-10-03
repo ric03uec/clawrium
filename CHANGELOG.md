@@ -39,6 +39,7 @@ cut. The `itx-release` skill archives this section into a new
 
 ### Added
 
+- Add bounded global Claude Code settings management for the dedicated agent account. `clawctl agent configure` and `sync` now render only `~/.claude/settings.json` with the approved model, effort, and permission settings — never credentials, project settings, or a daemon restart (#997).
 - Add no-daemon lifecycle handling for the install-only `claude` agent type: lifecycle and log commands report as not applicable, while fleet views show the installed CLI as ready without probing a process, gateway, or port (#996).
 - Add the install-only `claude` agent registry type. It installs the pinned Claude Code npm package into a dedicated agent account and owned prefix without starting Claude Code, a service, authentication, chat, or a web UI (#995).
 - Make all thirteen `/itx-*` workflow skills available from Claude Code,

@@ -1801,6 +1801,32 @@ def sync_agent(
     if not has_daemon_lifecycle(agent_type):
         if not has_completed_install(claw_record):
             raise LifecycleError(incomplete_install_message(agent_type, "sync"))
+        if agent_type == "claude":
+            from clawrium.core.lifecycle_canonical import (
+                CanonicalSyncError,
+                sync_agent_canonical,
+            )
+
+            try:
+                result = sync_agent_canonical(
+                    claw_record.get("agent_name") or agent_key,
+                    restart=False,
+                    verify=False,
+                    push_workspace=False,
+                    workspace_only=workspace_only,
+                    on_event=on_event,
+                )
+            except CanonicalSyncError as exc:
+                raise LifecycleError(str(exc)) from exc
+            return {
+                "success": result.success,
+                "agent": result.agent,
+                "host": result.host,
+                "operation": "sync",
+                "pid": None,
+                "started_at": None,
+                "error": result.error,
+            }
         emit(
             "sync",
             f"{agent_type} is an installed CLI; no daemon configuration is managed yet",
@@ -2295,6 +2321,133 @@ def _hydrate_channels_from_canonical(
     return True, None
 
 
+def _configure_claude_settings(
+    *,
+    hostname: str,
+    host: dict,
+    agent_key: str,
+    unix_agent_name: str,
+    agent_record: dict,
+    config_data: dict,
+    extra_vars: dict | None,
+) -> tuple[bool, str | None]:
+    """Apply the bounded, global-only Claude settings desired state.
+
+    Claude Code has no service lifecycle, provider plumbing, or credential
+    activation in this phase. Keep its configure transport narrow: the only
+    extravar is pre-rendered ``~/.claude/settings.json`` bytes, and its entire
+    persisted config is the validated non-secret settings object.
+    """
+    from clawrium.core.playbook_resolver import (
+        normalize_os_family,
+        resolve_agent_playbook,
+    )
+    from clawrium.core.render import (
+        AgentConfigError,
+        parse_claude_settings,
+        render_claude_settings,
+    )
+
+    if not isinstance(config_data, dict):
+        return False, "Claude configuration must be an object"
+    if not re.match(r"^[a-z][a-z0-9_-]{0,31}$", unix_agent_name):
+        return False, f"Invalid Claude agent_name format: {unix_agent_name!r}"
+    if extra_vars:
+        return False, "Claude configuration does not accept extra variables"
+    try:
+        settings = parse_claude_settings(config_data)
+        rendered = render_claude_settings(settings)
+    except AgentConfigError as exc:
+        return False, f"Claude settings render failed: {exc}"
+
+    try:
+        os_family = normalize_os_family(host)
+        playbook_path = resolve_agent_playbook("claude", "configure", os_family)
+    except (FileNotFoundError, ValueError) as exc:
+        return False, f"Claude configure playbook unavailable: {exc}"
+
+    key_id = host.get("key_id") or hostname
+    ssh_key = get_host_private_key(key_id)
+    if not ssh_key:
+        return False, "SSH key not found"
+
+    inventory = {
+        "all": {
+            "hosts": {
+                host["hostname"]: {
+                    "ansible_host": host["hostname"],
+                    "ansible_user": host.get("user", "xclm"),
+                    "ansible_port": host.get("port", 22),
+                    "ansible_ssh_private_key_file": str(ssh_key),
+                    "ansible_become_timeout": 120,
+                    "ansible_pipelining": True,
+                    "ansible_ssh_extra_args": "-o ServerAliveInterval=30 -o ServerAliveCountMax=10 -o ConnectTimeout=60",
+                }
+            },
+            "vars": {
+                "agent_name": unix_agent_name,
+                "agent_type": "claude",
+                "prerendered_claude_settings_json": rendered.files[
+                    ".claude/settings.json"
+                ],
+            },
+        }
+    }
+
+    logs_dir = _get_logs_dir()
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    operation_log_dir = logs_dir / (
+        f"configure-claude-{_safe_host_display(host, hostname)}-{timestamp}"
+    )
+    operation_log_dir.mkdir(parents=True, exist_ok=True)
+    os.chmod(operation_log_dir, 0o700)
+
+    try:
+        result = ansible_runner.run(
+            private_data_dir=str(operation_log_dir),
+            inventory=inventory,
+            playbook=str(playbook_path),
+            envvars={
+                "ANSIBLE_HOST_KEY_CHECKING": "False",
+                "ANSIBLE_PIPELINING": "True",
+            },
+            quiet=True,
+            timeout=60,
+        )
+        if result.status == "timeout":
+            return False, "Claude settings configure operation timed out"
+        if result.status != "successful":
+            return False, _summarize_ansible_configure_failure(
+                result, str(operation_log_dir)
+            )
+
+        # Never merge arbitrary caller or legacy config into this record.
+        # The bounded parser already made a fresh dict containing only the
+        # five approved settings paths, so hosts.json cannot acquire auth,
+        # session, API-key, OAuth, or other pass-through fields here.
+        persisted_settings = settings.as_dict()
+
+        def updater(current_host: dict) -> dict:
+            agents = current_host.get("agents") or {}
+            record = agents.get(agent_key)
+            if not isinstance(record, dict):
+                raise LifecycleError(
+                    f"agent record for {agent_key!r} disappeared during configure"
+                )
+            record["config"] = persisted_settings
+            return current_host
+
+        if not update_host(hostname, updater):
+            return False, f"Host '{hostname}' not found while saving Claude settings"
+        return True, None
+    except LifecycleError as exc:
+        return False, str(exc)
+    except Exception as exc:
+        return False, f"Claude settings configure failed: {exc}"
+    finally:
+        _cleanup_ansible_artifacts(operation_log_dir)
+
+
 def configure_agent(
     hostname: str,
     claw_name: str,
@@ -2364,6 +2517,16 @@ def configure_agent(
     if not has_daemon_lifecycle(resolved_type):
         if not has_completed_install(agent_record):
             return False, incomplete_install_message(resolved_type, "configure")
+        if resolved_type == "claude":
+            return _configure_claude_settings(
+                hostname=hostname,
+                host=host,
+                agent_key=agent_key,
+                unix_agent_name=unix_agent_name,
+                agent_record=agent_record,
+                config_data=config_data,
+                extra_vars=extra_vars,
+            )
         emit(
             "configure",
             f"{resolved_type} is an installed CLI; no daemon configuration is managed yet",

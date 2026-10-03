@@ -1,0 +1,62 @@
+{
+  "issue": 997,
+  "base_branch": "issue-996-no-daemon-lifecycle",
+  "review_command": "atx review request --worktree issue-997-claude-settings --prompt \"Review the full diff against issue-996-no-daemon-lifecycle. Focus on bounded Claude settings rendering, secret isolation, no-daemon behavior, regressions, and tests.\" --format json --timeout 15m",
+  "reviews": [
+    {
+      "iteration": 1,
+      "revision_id": "f4abbb86-40a9-4d5a-9cd6-23e400b81d38",
+      "review_id": "rev-8fa01e16-9953-4d93-b22f-7b777b4a19ab",
+      "rating": 2,
+      "cost_usd": 0.3021446,
+      "duration_ms": 116884,
+      "status": "completed",
+      "blocking_findings": [
+        {
+          "id": "B1/B2",
+          "status": "fixed",
+          "summary": "Strengthened the CLI test to assert exact configure/sync adapter arguments and added nonstandard sync-mode coverage."
+        },
+        {
+          "id": "B3",
+          "status": "resolved",
+          "summary": "The follow-up review inspected the complete uncommitted implementation diff."
+        }
+      ],
+      "review_render_status": "error",
+      "review_render_error_code": "ATX_REVIEW_MALFORMED_JSON"
+    },
+    {
+      "iteration": 2,
+      "revision_id": "61d03538-e092-49ea-aec5-bff6a29a855c",
+      "review_id": "rev-8fa01e16-9953-4d93-b22f-7b777b4a19ab",
+      "rating": 3.5,
+      "cost_usd": 0.7294655,
+      "duration_ms": 368231,
+      "status": "completed",
+      "blocking_findings": [],
+      "warnings_fixed": [
+        "Added agent-and-host context to configure/sync errors.",
+        "Covered malformed config plus raised and returned configure/sync failures.",
+        "Covered --workspace-only, --dry-run, and --diff no-restart forwarding."
+      ],
+      "review_render_status": "rendered"
+    },
+    {
+      "iteration": 3,
+      "revision_id": "0b5bed38-2f4e-4f56-9995-a5463c92940c",
+      "review_id": "rev-8fa01e16-9953-4d93-b22f-7b777b4a19ab",
+      "rating": 3,
+      "cost_usd": 0.358413,
+      "duration_ms": 146011,
+      "status": "completed",
+      "blocking_findings": [],
+      "warnings_fixed_post_review": [
+        "Moved the CanonicalSyncResult success check before the dry-run completion message.",
+        "Added returned and raised failure cases for --dry-run and --diff."
+      ],
+      "review_render_status": "rendered",
+      "note": "No fourth review was requested because the issue prompt caps stateless ATX review at three iterations."
+    }
+  ]
+}
