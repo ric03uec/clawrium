@@ -61,7 +61,7 @@ def shell(
         callback=_reject_negative_timeout,
     ),
 ) -> None:
-    """Run a supplied command in the agent user's finite login shell.
+    """Run a supplied command in the agent user's finite login shell (Claude Code path).
 
     The command runs as the agent's unix user via non-interactive
     `bash -lc`. Clawrium explicitly loads the supported login and

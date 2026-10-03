@@ -53,6 +53,58 @@ def test_claude_open_remains_manifest_capability_unavailable(fleet_dir) -> None:
     assert "no web ui" in result.output.lower()
 
 
+def test_claude_help_and_exec_error_point_to_the_supported_shell_path(
+    fleet_dir, monkeypatch
+) -> None:
+    _add_claude_agent(fleet_dir)
+
+    def _unexpected_native_exec(*_args, **_kwargs):
+        raise AssertionError("Claude Code must not reach native exec")
+
+    monkeypatch.setattr(
+        "clawrium.cli.clawctl.agent.exec.run_agent_exec", _unexpected_native_exec
+    )
+
+    help_result = runner.invoke(app, ["agent", "--help"])
+    create_help_result = runner.invoke(app, ["agent", "create", "--help"])
+    shell_help_result = runner.invoke(app, ["agent", "shell", "--help"])
+    exec_help_result = runner.invoke(app, ["agent", "exec", "--help"])
+    exec_result = runner.invoke(
+        app, ["agent", "exec", "claude-code", "--", "--version"]
+    )
+
+    assert help_result.exit_code == 0
+    normalized_help = " ".join(help_result.output.split())
+    for text in (
+        "create Install an agent on a host (Claude Code is install-only).",
+        "start Start a daemon-backed agent (not Claude Code).",
+        "stop Stop a daemon-backed agent (not Claude Code).",
+        "restart Restart a daemon-backed agent (not Claude Code).",
+        "logs Stream logs from a daemon-backed agent (not Claude Code).",
+        "chat Chat with a chat-enabled agent (not Claude Code).",
+        "open Open a native web UI (not available for Claude Code).",
+    ):
+        assert text in normalized_help
+    assert create_help_result.exit_code == 0
+    assert shell_help_result.exit_code == 0
+    assert exec_help_result.exit_code == 0
+    assert (
+        "Agent type (e.g., openclaw, zeroclaw, hermes, claude; Claude is install-only)."
+        in " ".join(create_help_result.output.split())
+    )
+    assert (
+        "Execute a native CLI command; unavailable for Claude Code (use `agent shell`)."
+        in " ".join(exec_help_result.output.split())
+    )
+    assert (
+        "For daemonless Claude Code agents, this is the supported native command path."
+        in " ".join(shell_help_result.output.split())
+    )
+    assert exec_result.exit_code == 2
+    assert "agent type 'claude' does not support exec" in exec_result.output
+    assert "clawctl agent shell <name> -- '<command that exits>'" in exec_result.output
+
+
 @pytest.mark.parametrize("verb", ["start", "stop", "restart", "logs"])
 def test_claude_daemon_operations_are_not_applicable(
     fleet_dir, monkeypatch, verb: str

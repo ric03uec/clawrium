@@ -1,0 +1,150 @@
+# Claude Code Support
+
+Clawrium supports `claude` as an **install-only, per-agent Claude Code environment**. It is not a daemon-backed assistant: Clawrium prepares an isolated account and command environment, while an operator chooses when to run a finite Claude Code command.
+
+**Pinned version:** `2.1.100`
+
+**Supported targets:** Ubuntu 22.04 or 24.04 on x86_64; macOS 14+ on Apple Silicon.
+
+## Install-only contract
+
+Create an isolated environment with the normal agent command:
+
+```bash
+clawctl agent create <name> --type claude --host <host>
+```
+
+`create` creates the dedicated agent account and home, installs the pinned
+package into that account's owned `~/.local/claude` prefix, records the agent,
+and stops. It does **not** invoke `claude`, sign in, create authentication
+state, start a service, gateway, or HTTP listener, allocate a port, establish
+a tunnel, create a native web UI, start a chat backend, or pair a device.
+
+The installed record is shown by `clawctl agent get` and `clawctl agent
+describe`. Its ready state means the installation completed; it is not a
+process-health result.
+
+## Configuration and settings ownership
+
+`clawctl agent configure <name>` and `clawctl agent sync <name>` reconcile the
+same bounded, global settings file for the dedicated account:
+
+- Linux: `/home/<name>/.claude/settings.json`
+- macOS: `/Users/<name>/.claude/settings.json`
+
+Clawrium manages only these settings keys:
+
+- `model`
+- `effortLevel`
+- `permissions.ask`
+- `permissions.deny`
+- `permissions.additionalDirectories`
+
+No arbitrary settings pass-through is supported. In particular, Clawrium never
+writes a repository's `.claude/settings.json` or `.claude/settings.local.json`;
+those project settings remain owned by the repository and its users.
+
+Configure and sync also never invoke Claude Code or restart a process. They
+require one selected credential mode so the next supported shell command can
+receive it.
+
+## Credentials and safe sync
+
+A Claude agent has exactly one active credential mode:
+
+| Mode | Active remote variable |
+|------|------------------------|
+| Claude OAuth | `CLAUDE_CODE_OAUTH_TOKEN` |
+| Anthropic API key | `ANTHROPIC_API_KEY` |
+
+For an API key, prefer stdin rather than a command-line value:
+
+```bash
+printf '%s' "$ANTHROPIC_API_KEY" | \
+  clawctl agent secret create ANTHROPIC_API_KEY --agent <name> --value-stdin --yes
+clawctl agent sync <name>
+```
+
+OAuth import accepts only an explicitly exported `CLAUDE_CODE_OAUTH_TOKEN`
+from the local invoking environment. It does not inspect or copy a keychain,
+browser profile, credential database, OAuth file guessed from disk, or local
+`~/.claude` directory. If that explicit supported source is unavailable,
+OAuth sync cannot proceed; there is no fallback import path.
+
+Do not retain both keys in the agent secret scope. If both are present,
+configure and sync fail rather than choose an undocumented precedence. Check
+key names and metadata without revealing values:
+
+```bash
+clawctl agent secret get --agent <name>
+```
+
+A successful configure or sync atomically writes an agent-owned, mode-`0600`
+credential environment file containing only the selected variable; the other
+variable is explicitly unset. Credential values are not written to
+`hosts.json`, `settings.json`, sync diffs, command output, logs, or events.
+Do not print or copy the remote credential file to diagnose a configuration.
+
+### i-wolf E2E evidence
+
+The `wolf-i` (i-wolf) validation proved install-only behavior, exclusive
+remote API-key environment propagation with a generated **dummy** value, and
+owned-resource cleanup. It did **not** authenticate to Anthropic with that
+dummy value. OAuth activation was not run because the explicit
+`CLAUDE_CODE_OAUTH_TOKEN` source was absent; the test deliberately did not
+inspect local `~/.claude` or any protected credential store. Supplying an
+explicit supported local OAuth token source is required before an OAuth E2E or
+sync can be attempted.
+
+## Run a finite command
+
+Use the normal command-shell path for Claude Code:
+
+```bash
+clawctl agent shell <name> -- 'claude --version'
+```
+
+`agent shell` runs the supplied command as the dedicated agent Unix user in a
+finite, non-interactive login shell. It activates the managed credential hook
+for that command only. Every command must terminate: no TTY, interactive
+shell, prompt, or Claude Code chat session is created.
+
+`clawctl agent exec <name> ...` does not support `claude`; use `agent shell`
+with an explicit command after `--` instead.
+
+## Available and unavailable operations
+
+| Operation | Claude Code behavior |
+|-----------|----------------------|
+| `create`, `get`, `describe`, `delete` | Supported as an installed-agent record. |
+| `configure`, `sync` | Supported for bounded global settings and selected-credential activation; never run Claude or restart a daemon. |
+| `shell <name> -- <command>` | Supported finite, non-interactive command path. |
+| `status` | Use `agent get` or `agent describe`; there is no runtime daemon probe. |
+| `start`, `stop`, `restart`, `logs` | Not applicable: Claude Code has no Clawrium-managed daemon or service. |
+| `open`, native web UI, tunnel, port, pairing | Unavailable: the manifest declares no web UI. |
+| `chat` and GUI chat | Unavailable: there is no Clawrium chat backend for Claude Code. |
+| `exec` | Unavailable for Claude Code; use `agent shell`. |
+
+## Removal ownership
+
+Remove an instance with:
+
+```bash
+clawctl agent delete --yes <name>
+```
+
+After remote cleanup succeeds, Clawrium removes only resources owned by that
+agent: its dedicated account and home, owned install prefix, complete
+agent-home `~/.claude` directory (including the credential environment file),
+managed shell-startup snippet, ownership marker, local per-agent secrets, and
+fleet record. It does not remove an independently installed global Claude Code
+distribution or project `.claude` settings outside that agent home.
+
+If remote cleanup fails, Clawrium keeps the local secret scope and fleet record
+so the operator can retry safely.
+
+## See also
+
+- [CLI reference](../reference/cli/agent.md)
+- [Agent secret commands](../reference/cli/secret.md)
+- [Agent onboarding](../agent-onboarding.md)

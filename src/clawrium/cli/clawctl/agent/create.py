@@ -35,7 +35,10 @@ from clawrium.core.registry import ManifestNotFoundError, get_claw_info
 def create(
     name: str = typer.Argument(..., help="Name for the new agent instance."),
     agent_type: Optional[str] = typer.Option(
-        None, "--type", "-t", help="Agent type (e.g., openclaw, zeroclaw, hermes)."
+        None,
+        "--type",
+        "-t",
+        help="Agent type (e.g., openclaw, zeroclaw, hermes, claude; Claude is install-only).",
     ),
     host: Optional[str] = typer.Option(
         None, "--host", "-H", help="Target host (name or alias)."
