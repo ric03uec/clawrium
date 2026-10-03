@@ -31,3 +31,12 @@
 
 - The OAuth authenticated-command check is intentionally not run when the explicit environment source is unavailable. No fallback source was inspected.
 - Real Anthropic API authentication is deliberately deferred: the API-key assertion validates only exclusive remote environment transport with a generated dummy value.
+
+## Follow-up OAuth propagation validation
+
+**Requested:** 2026-10-03T15:55:06Z
+
+- The fresh `claude-oauth-e2e` identity remains absent locally and on i-wolf after the prior completed cleanup.
+- The current Pi worker process does **not** have an explicitly exported `CLAUDE_CODE_OAUTH_TOKEN` (presence-only check; no value was read or printed).
+- This is the precise blocker: `import_claude_oauth_from_environment` supports only that invoking-process environment variable. It deliberately has no safe fallback for a working local Claude session, `~/.claude`, keychain, browser profile, or credential database.
+- No OAuth agent was created, no remote credential file was written, and no Claude/API command was invoked during this follow-up; doing so without the supported exported source would weaken the credential boundary.

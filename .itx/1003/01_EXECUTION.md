@@ -37,3 +37,16 @@ Scope check: the E2E harness must not carry unrelated installer behavior fixes. 
 - Full suite: `4993 passed, 2 skipped`.
 - GUI suite: `366 passed`.
 - `make lint`: Python Ruff and GUI ESLint passed.
+
+## Follow-up OAuth Propagation Validation
+
+**Stage**: execution
+**Skill**: /itx-execute
+**Timestamp**: 2026-10-03T15:55:06Z
+**Model**: gpt-5.6-terra
+
+```prompt
+Follow-up validation requested by the user: they confirm local Claude OAuth credentials are working and want the real-host OAuth propagation test rerun now. In this existing #1003 worktree/PR context, do not redesign implementation. Safely rerun the OAuth-only i-wolf E2E using only the supported local OAuth credential source. Never print, copy, or inspect credential bytes; never scrape/copy local `~/.claude`, keychain, browser profile, or database. Verify: a fresh `claude-oauth-e2e` receives only `CLAUDE_CODE_OAUTH_TOKEN`, the API key variable is absent, no secret leaks to state/output/evidence, and removal cleans all owned residue while preserving existing agents. If current code has no supported safe way to read the working local credential, state the precise technical blocker rather than weakening the boundary. Update the committed E2E evidence and PR #1011 / issue #1003 comment with the factual result; commit and push only those evidence/log changes if appropriate. Do not merge and do not run a real Claude chat/API invocation unless the current #1003 acceptance contract explicitly requires it.
+```
+
+**Output**: The worker process lacks the only supported source, an explicitly exported `CLAUDE_CODE_OAUTH_TOKEN`. `import_claude_oauth_from_environment` intentionally cannot read a local Claude session or any file/keychain/browser/database source, so the real-host OAuth propagation rerun was safely blocked before agent creation. The previously cleaned `claude-oauth-e2e` identity remains absent; no credential bytes, remote credential file, or Claude/API invocation occurred.
