@@ -22,6 +22,7 @@ from clawrium.core.providers.models import (
     validate_model_id,
 )
 from clawrium.core.providers.storage import (
+    CLAUDE_OAUTH_PROVIDER_TYPE,
     PROVIDER_MODELS,
     PROVIDERS_FILE,
     DuplicateProviderError,
@@ -72,6 +73,7 @@ __all__ = [
     # Storage module exports
     "PROVIDERS_FILE",
     "PROVIDER_MODELS",
+    "CLAUDE_OAUTH_PROVIDER_TYPE",
     "load_providers",
     "save_providers",
     "add_provider",

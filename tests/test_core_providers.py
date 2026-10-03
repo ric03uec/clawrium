@@ -778,6 +778,7 @@ class TestProviderModelsConstant:
             "opencode-go",
             "ollama",
             "litellm",
+            "claude-oauth",
         }
         assert set(PROVIDER_MODELS.keys()) == expected
 

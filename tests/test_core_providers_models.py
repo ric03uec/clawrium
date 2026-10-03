@@ -46,6 +46,7 @@ class TestLoadModelCatalog:
             "vertex",
             "zai",
             "ollama",
+            "claude-oauth",
         ]
         for provider in expected_providers:
             assert provider in catalog["providers"]
@@ -271,6 +272,7 @@ class TestGetCatalogProviders:
         expected = [
             "anthropic",
             "bedrock",
+            "claude-oauth",
             "ollama",
             "openai",
             "opencode",
@@ -305,6 +307,11 @@ class TestGetModelCount:
     def test_get_model_count_ollama_is_zero(self):
         """get_model_count returns 0 for ollama (dynamic discovery)."""
         count = get_model_count("ollama")
+        assert count == 0
+
+    def test_get_model_count_claude_oauth_is_zero(self):
+        """OAuth selection intentionally has no inference-model catalog."""
+        count = get_model_count("claude-oauth")
         assert count == 0
 
 
