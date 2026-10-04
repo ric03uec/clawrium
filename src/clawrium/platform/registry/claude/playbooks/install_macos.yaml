@@ -248,10 +248,22 @@
         group: staff
         mode: "0644"
 
+    # Prepend the managed block at the beginning of ~/.bashrc so a
+    # default early-return guard (``[ -z "$PS1" ] && return`` / ``case $-
+    # in *i*) ... *) return;; esac``) cannot skip the PATH export in a
+    # non-interactive ``agent shell`` session. ``insertbefore: BOF``
+    # places the managed block at BOF the first time the markers are
+    # absent; the ``# BEGIN``/``# END`` marker makes subsequent runs
+    # idempotent (same block content → no change). #1021 is explicitly
+    # scoped to new agents; migrating existing marked blocks installed
+    # at EOF in prior runs is out of scope here. Operators upgrading
+    # from the pre-fix layout should remove the stale block manually or
+    # recreate the agent.
     - name: Expose Claude Code binary on PATH and disable upstream auto-updater
       ansible.builtin.blockinfile:
         path: "{{ claude_home }}/.bashrc"
         marker: "# {mark} CLAWRIUM-CLAUDE-MANAGED"
+        insertbefore: BOF
         block: |
           export PATH="{{ claude_prefix }}/bin:$PATH"
           export DISABLE_AUTOUPDATER=1

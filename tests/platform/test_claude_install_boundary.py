@@ -443,3 +443,125 @@ def test_claude_install_does_not_mint_gateway_state(monkeypatch, tmp_path):
     assert record["type"] == "claude"
     assert record["status"] == "installed"
     assert record.get("config", {}) == {}
+
+
+# ---------------------------------------------------------------------------
+# #1021 Round 5: ~/.bashrc placement regression
+# ---------------------------------------------------------------------------
+
+
+def _blockinfile_task(playbook_name: str) -> dict:
+    return _task(
+        _tasks(playbook_name),
+        "Expose Claude Code binary on PATH and disable upstream auto-updater",
+    )["ansible.builtin.blockinfile"]
+
+
+@pytest.mark.parametrize("name", ("install.yaml", "install_macos.yaml"))
+def test_claude_bashrc_block_is_prepended_before_default_guards(name: str):
+    """The managed shell block MUST land at BOF (verified contract).
+
+    Appending the block to EOF — Ansible's default — places it *below*
+    Ubuntu's distro-shipped early-return guard (``[ -z "$PS1" ] &&
+    return`` / ``case $- in *i*) ... *) return;; esac``). A
+    non-interactive ``clawctl agent shell`` session sources .bashrc but
+    returns before reaching the PATH export, hiding the Claude binary.
+    """
+    task = _blockinfile_task(name)
+    assert task["insertbefore"] == "BOF"
+    assert task["marker"] == "# {mark} CLAWRIUM-CLAUDE-MANAGED"
+    assert 'export PATH="{{ claude_prefix }}/bin:$PATH"' in task["block"]
+    assert "export DISABLE_AUTOUPDATER=1" in task["block"]
+
+
+@pytest.mark.parametrize(
+    "guard",
+    [
+        # Ubuntu's distro-shipped non-interactive early return.
+        '[ -z "$PS1" ] && return\n',
+        # Alternative form shipped on some Debian/Ubuntu images.
+        'case $- in\n    *i*) ;;\n      *) return;;\nesac\n',
+    ],
+)
+def test_bashrc_prepend_survives_noninteractive_early_return(
+    tmp_path: Path, guard: str
+):
+    """Source a guarded .bashrc non-interactively; PATH MUST contain Claude.
+
+    The playbook writes the Ansible-managed block at BOF. This test
+    reproduces that layout against two real-world non-interactive
+    early-return guards and sources the file through plain ``bash -c``
+    (no ``-i``) exactly as ``clawctl agent shell`` does on the host.
+    """
+    claude_bin = tmp_path / "prefix" / "bin"
+    claude_bin.mkdir(parents=True)
+    bashrc = tmp_path / ".bashrc"
+    managed_block = (
+        "# BEGIN CLAWRIUM-CLAUDE-MANAGED\n"
+        f'export PATH="{claude_bin}:$PATH"\n'
+        "export DISABLE_AUTOUPDATER=1\n"
+        "# END CLAWRIUM-CLAUDE-MANAGED\n"
+    )
+    # BOF prepend: managed block comes BEFORE the distro guard.
+    bashrc.write_text(managed_block + guard + 'echo "post-guard reached"\n')
+
+    import os
+    import subprocess
+
+    result = subprocess.run(
+        ["bash", "-c", f'. "{bashrc}"; printf "%s" "$PATH"'],
+        # No -i: deliberately non-interactive, matching ``agent shell``.
+        env={**os.environ, "HOME": str(tmp_path), "PS1": ""},
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    # Claude bin dir MUST appear on PATH even though the guard would
+    # have early-returned if the block were at EOF.
+    assert str(claude_bin) in result.stdout
+    assert result.stdout.startswith(str(claude_bin) + ":")
+
+
+@pytest.mark.parametrize(
+    "guard",
+    [
+        '[ -z "$PS1" ] && return\n',
+        'case $- in\n    *i*) ;;\n      *) return;;\nesac\n',
+    ],
+)
+def test_bashrc_append_would_fail_without_prepend(tmp_path: Path, guard: str):
+    """Negative control: EOF append (the pre-fix behavior) hides Claude.
+
+    This asserts the exact regression the Round-5 UAT caught: when the
+    managed block is appended to EOF (Ansible's default), a
+    non-interactive source hits the early-return guard first and never
+    exports PATH. Keeping this test in-tree prevents a silent regression
+    if the ``insertbefore: BOF`` option is ever dropped.
+    """
+    claude_bin = tmp_path / "prefix" / "bin"
+    claude_bin.mkdir(parents=True)
+    bashrc = tmp_path / ".bashrc"
+    managed_block = (
+        "# BEGIN CLAWRIUM-CLAUDE-MANAGED\n"
+        f'export PATH="{claude_bin}:$PATH"\n'
+        "export DISABLE_AUTOUPDATER=1\n"
+        "# END CLAWRIUM-CLAUDE-MANAGED\n"
+    )
+    # EOF append (the buggy pre-fix layout).
+    bashrc.write_text(guard + managed_block)
+
+    import os
+    import subprocess
+
+    result = subprocess.run(
+        ["bash", "-c", f'. "{bashrc}"; printf "%s" "$PATH"'],
+        env={**os.environ, "HOME": str(tmp_path), "PS1": ""},
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert str(claude_bin) not in result.stdout

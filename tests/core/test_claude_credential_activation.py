@@ -796,3 +796,61 @@ def test_configure_routes_playbook_whose_cleanup_follows_credential_write(
     )
     assert credential_task["no_log"] is True
     assert credential_task["diff"] is False
+
+
+def test_configure_forwards_full_oauth_document_to_playbook(
+    isolated_config: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+):
+    """Configure must pass the full native document to the playbook extravar.
+
+    Regression guard for the UAT finding: when the local credentials
+    artifact contains the full native document (refreshToken /
+    expiresAt / scopes / subscriptionType / rateLimitTier +
+    trustedDeviceToken at root), those fields MUST round-trip into the
+    rendered `claude_oauth_credentials` extravar body so Claude Code on
+    the host does not report "Not logged in".
+    """
+    from clawrium.core.claude_credentials import import_claude_oauth_from_local_reader
+
+    _seed_host(isolated_config)
+    document = {
+        "claudeAiOauth": {
+            "accessToken": "oauth-full-" + _SECRET,
+            "refreshToken": "refresh-" + _SECRET,
+            "expiresAt": 1759600000000,
+            "scopes": ["user:inference", "user:profile"],
+            "subscriptionType": "max",
+            "rateLimitTier": "max_20x",
+        },
+        "trustedDeviceToken": "trust-" + _SECRET,
+    }
+
+    def fake_reader() -> str:
+        return json.dumps(document, separators=(",", ":"), sort_keys=True)
+
+    import_claude_oauth_from_local_reader("claude-code", reader=fake_reader)
+
+    captured: dict[str, object] = {}
+    monkeypatch.setattr(lifecycle, "get_host", lambda _: _host())
+    monkeypatch.setattr(lifecycle, "get_host_private_key", lambda _: tmp_path / "key")
+    monkeypatch.setattr(lifecycle, "_get_logs_dir", lambda: tmp_path / "logs")
+    monkeypatch.setattr(
+        lifecycle, "update_host", lambda _hostname, updater: updater(_host())
+    )
+    monkeypatch.setattr(
+        lifecycle.ansible_runner,
+        "run",
+        lambda **kwargs: captured.update(kwargs) or SimpleNamespace(status="successful"),
+    )
+
+    assert lifecycle.configure_agent(
+        "claude-host", "claude", {}, agent_name="claude-code"
+    ) == (True, None)
+
+    forwarded = json.loads(
+        captured["inventory"]["all"]["vars"]["claude_oauth_credentials"]
+    )
+    # Every known native field round-trips.
+    assert forwarded == document
