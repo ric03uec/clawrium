@@ -89,15 +89,15 @@
         - (claude_agent_uid_existing.stdout | trim) == ""
         - not (claude_ownership_marker_stat.stat.exists | bool)
 
-    - name: Remove managed Claude Code startup snippet
+    - name: Remove managed Claude Code onboarding marker
       ansible.builtin.file:
-        path: "{{ claude_home }}/.profile.d/clawrium-claude.sh"
+        path: "{{ claude_home }}/.claude.json"
         state: absent
       when: claude_ownership_marker_stat.stat.exists
 
-    - name: Remove managed Claude Code credential file
+    - name: Remove native Claude Code credentials
       ansible.builtin.file:
-        path: "{{ claude_home }}/.claude/clawrium-credentials.env"
+        path: "{{ claude_home }}/.claude/.credentials.json"
         state: absent
       when: claude_ownership_marker_stat.stat.exists
 

@@ -40,8 +40,31 @@ __all__ = [
     "get_claude_credential_state",
     "import_claude_oauth_from_environment",
     "import_claude_oauth_from_local_reader",
+    "read_local_claude_oauth_document",
     "read_local_claude_oauth_token",
 ]
+
+
+# Native Claude Code OAuth document schema. These field names are the
+# ones observed in the pinned Claude Code version's own
+# ``~/.claude/.credentials.json``; the renderer passes through only
+# these fields (no inference, no invention) and rejects any other
+# root-level or inner key as malformed. Keeping the allowlist here
+# gives the on-wire renderer, the local reader, and the storage path a
+# single source of truth.
+_CLAUDE_OAUTH_INNER_FIELDS: dict[str, type | tuple[type, ...]] = {
+    "accessToken": str,
+    "refreshToken": str,
+    "expiresAt": int,
+    "scopes": list,
+    "subscriptionType": str,
+    "rateLimitTier": str,
+}
+_CLAUDE_OAUTH_INNER_REQUIRED = frozenset({"accessToken"})
+_CLAUDE_OAUTH_ROOT_FIELDS: dict[str, type | tuple[type, ...]] = {
+    "claudeAiOauth": dict,
+    "trustedDeviceToken": str,
+}
 
 
 CLAUDE_CODE_OAUTH_TOKEN = "CLAUDE_CODE_OAUTH_TOKEN"
@@ -260,14 +283,92 @@ def configure_claude_credentials(
     return ClaudeCredentialState(mode=mode)
 
 
-def _read_private_claude_credentials_artifact() -> str:
-    """Return the one accepted Claude OAuth field from its local artifact.
+def _validate_native_claude_oauth_document(raw: object) -> dict:
+    """Validate the parsed ``~/.claude/.credentials.json`` document.
 
-    The file descriptor is opened with ``O_NOFOLLOW`` and checked before use:
-    it must be a small, current-user-owned regular file with no group or world
-    permissions. The complete JSON document is necessarily decoded in memory
-    by Python's JSON parser, but no value other than ``accessToken`` escapes
-    this function and no parsed content is logged, returned, or persisted.
+    Accepts only the fields observed in the pinned Claude Code upstream
+    document and nothing else. Unknown root-level or inner keys fail
+    closed as ``credentials_artifact_malformed`` so Clawrium never
+    forwards an undocumented upstream field to the host. The accepted
+    output is a fresh dict containing only validated fields in a stable
+    shape — the renderer and storage path both re-emit from this dict.
+    """
+    if not isinstance(raw, dict):
+        raise ClaudeOAuthSourceError("credentials_artifact_malformed")
+    unknown_root = set(raw) - set(_CLAUDE_OAUTH_ROOT_FIELDS)
+    if unknown_root:
+        raise ClaudeOAuthSourceError("credentials_artifact_malformed")
+
+    for key, expected_type in _CLAUDE_OAUTH_ROOT_FIELDS.items():
+        if key in raw and not isinstance(raw[key], expected_type):
+            raise ClaudeOAuthSourceError("credentials_artifact_malformed")
+
+    inner = raw.get("claudeAiOauth")
+    if not isinstance(inner, dict):
+        raise ClaudeOAuthSourceError("credentials_access_token_missing")
+    unknown_inner = set(inner) - set(_CLAUDE_OAUTH_INNER_FIELDS)
+    if unknown_inner:
+        raise ClaudeOAuthSourceError("credentials_artifact_malformed")
+    for required in _CLAUDE_OAUTH_INNER_REQUIRED:
+        if required not in inner:
+            raise ClaudeOAuthSourceError("credentials_access_token_missing")
+    for key, expected_type in _CLAUDE_OAUTH_INNER_FIELDS.items():
+        if key not in inner:
+            continue
+        value = inner[key]
+        if key == "expiresAt":
+            # bool is a subclass of int in Python; reject it explicitly so a
+            # legitimate upstream numeric timestamp can never be confused
+            # with a sentinel boolean.
+            if isinstance(value, bool) or not isinstance(value, int):
+                raise ClaudeOAuthSourceError("credentials_artifact_malformed")
+        elif key == "scopes":
+            if not isinstance(value, list) or any(
+                not isinstance(item, str) for item in value
+            ):
+                raise ClaudeOAuthSourceError("credentials_artifact_malformed")
+        elif not isinstance(value, expected_type):
+            raise ClaudeOAuthSourceError("credentials_artifact_malformed")
+
+    try:
+        access_token_normalized = _normalize_oauth_token(inner["accessToken"])
+    except ClaudeCredentialError:
+        raise ClaudeOAuthSourceError("credentials_artifact_malformed") from None
+
+    cleaned_inner: dict[str, object] = {"accessToken": access_token_normalized}
+    for optional in (
+        "refreshToken",
+        "expiresAt",
+        "scopes",
+        "subscriptionType",
+        "rateLimitTier",
+    ):
+        if optional in inner:
+            cleaned_inner[optional] = (
+                list(inner[optional]) if optional == "scopes" else inner[optional]
+            )
+
+    cleaned: dict[str, object] = {"claudeAiOauth": cleaned_inner}
+    if "trustedDeviceToken" in raw:
+        cleaned["trustedDeviceToken"] = raw["trustedDeviceToken"]
+    return cleaned
+
+
+def _serialize_oauth_document_for_storage(document: dict) -> str:
+    """Return a compact, deterministic storage form for a validated doc."""
+    return json.dumps(document, separators=(",", ":"), sort_keys=True)
+
+
+def _read_private_claude_credentials_artifact() -> str:
+    """Return the full validated Claude OAuth document from its local artifact.
+
+    The file descriptor is opened with ``O_NOFOLLOW`` and checked before
+    use: it must be a small, current-user-owned regular file with no
+    group or world permissions. The complete JSON document is
+    necessarily decoded in memory by Python's JSON parser; only
+    allowlisted fields escape this function (never the raw parsed
+    content) and no parsed content is logged or persisted outside the
+    encrypted secrets store.
     """
     flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
     try:
@@ -303,31 +404,38 @@ def _read_private_claude_credentials_artifact() -> str:
         os.close(descriptor)
 
     try:
-        document = json.loads(payload.decode("utf-8"))
-        oauth = document.get("claudeAiOauth") if isinstance(document, dict) else None
-        value = oauth.get("accessToken") if isinstance(oauth, dict) else None
-        if value is None:
-            raise ClaudeOAuthSourceError("credentials_access_token_missing")
-        return _normalize_oauth_token(value)
-    except ClaudeOAuthSourceError:
-        raise
-    except (ClaudeCredentialError, TypeError, UnicodeDecodeError, json.JSONDecodeError):
+        parsed = json.loads(payload.decode("utf-8"))
+    except (TypeError, UnicodeDecodeError, json.JSONDecodeError):
+        payload.clear()
         raise ClaudeOAuthSourceError("credentials_artifact_malformed") from None
     finally:
-        # Keep the exact artifact's credential material scoped to this reader.
+        # Keep the artifact's byte buffer scoped to this reader; the
+        # validator only sees the parsed structure.
         payload.clear()
 
+    document = _validate_native_claude_oauth_document(parsed)
+    return _serialize_oauth_document_for_storage(document)
 
-def read_local_claude_oauth_token() -> str:
-    """Read the current user's validated Claude Code OAuth access token.
 
-    The specific Linux ``~/.claude/.credentials.json`` contract was validated
-    against Claude Code 2.1.139. This is intentionally a narrow artifact
-    reader, not a filesystem scan or export of Claude's credential directory.
+def read_local_claude_oauth_document() -> str:
+    """Read the full validated Claude Code OAuth document.
+
+    Returns the compact serialized form of the native
+    ``~/.claude/.credentials.json`` document, filtered to the fields
+    the pinned Claude Code version is known to emit. This is the
+    primary import path — ``read_local_claude_oauth_token`` remains as
+    a thin accessor for callers that only need the bearer.
     """
     if sys.platform != _CLAUDE_CREDENTIALS_PLATFORM:
         raise ClaudeOAuthSourceError("unsupported_controller_platform")
     return _read_private_claude_credentials_artifact()
+
+
+def read_local_claude_oauth_token() -> str:
+    """Read the current user's Claude Code OAuth access token (back-compat)."""
+    serialized = read_local_claude_oauth_document()
+    inner = json.loads(serialized).get("claudeAiOauth", {})
+    return inner["accessToken"]
 
 
 def import_claude_oauth_from_local_reader(
@@ -337,11 +445,12 @@ def import_claude_oauth_from_local_reader(
 ) -> ClaudeCredentialState:
     """Read and store OAuth through the selected safe local-reader seam.
 
-    Tests inject ``reader`` so ordinary test runs never access local Claude
-    credentials. Reader failures are normalized to fixed, secret-free errors;
-    only the normalized token reaches the encrypted per-instance secret store.
+    Tests inject ``reader`` so ordinary test runs never access local
+    Claude credentials. Reader failures are normalized to fixed,
+    secret-free errors; only the validated document reaches the
+    encrypted per-instance secret store.
     """
-    source = read_local_claude_oauth_token if reader is None else reader
+    source = read_local_claude_oauth_document if reader is None else reader
     try:
         value = source()
     except ClaudeOAuthSourceError as exc:
@@ -358,10 +467,11 @@ def import_claude_oauth_from_environment(
 ) -> ClaudeCredentialState:
     """Import a caller-supplied OAuth value for backwards-compatible APIs.
 
-    This helper remains available to code that already supplies a value, but
-    the normal Claude provider workflow uses
-    ``import_claude_oauth_from_local_reader`` instead. It never probes local
-    credential stores itself.
+    This helper remains available to code that already supplies a value,
+    but the normal Claude provider workflow uses
+    ``import_claude_oauth_from_local_reader`` instead. It never probes
+    local credential stores itself. The supplied value may be either a
+    bare bearer token (legacy) or a serialized native document.
     """
     source = os.environ if environment is None else environment
     value = source.get(OAUTH_TOKEN_ENVIRONMENT_VARIABLE)

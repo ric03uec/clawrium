@@ -45,6 +45,8 @@ __all__ = [
     "ClaudeSettings",
     "parse_claude_settings",
     "render_claude_settings",
+    "render_claude_native_files",
+    "render_claude_oauth_credentials",
     "build_render_inputs",
     "render_hermes",
     "render_zeroclaw",
@@ -439,6 +441,141 @@ def render_claude_settings(settings: ClaudeSettings) -> RenderedFiles:
             + "\n"
         }
     )
+
+
+# Native Claude Code first-run state. ``~/.claude.json`` holds the
+# onboarding flag Claude Code reads at startup; shipping it with
+# ``hasCompletedOnboarding: true`` is the upstream state field (verified
+# against the pinned Claude Code version in the registry manifest, not an
+# Anthropic-published API) that lets a non-interactive agent account
+# bypass the login-method chooser.
+_CLAUDE_ONBOARDING_FILE = ".claude.json"
+
+
+def render_claude_native_files(settings: ClaudeSettings) -> RenderedFiles:
+    """Render every non-secret native Claude Code file for the agent account.
+
+    The result is byte-deterministic and contains:
+
+    - ``.claude/settings.json`` — the bounded global settings file.
+    - ``.claude.json`` — the first-run onboarding marker. Writing
+      ``hasCompletedOnboarding: true`` matches the pinned Claude Code
+      upstream state field (not an Anthropic-published API) so a fresh
+      OAuth agent bypasses the interactive login-method chooser.
+
+    The private OAuth credential file is deliberately out of scope here;
+    its contents move through the dedicated no-log credential path and
+    never appear in a diff.
+    """
+    if not isinstance(settings, ClaudeSettings):
+        raise AgentConfigError("render_claude_native_files requires ClaudeSettings")
+    settings_body = (
+        json.dumps(settings.as_dict(), indent=2, sort_keys=True) + "\n"
+    )
+    onboarding_body = (
+        json.dumps({"hasCompletedOnboarding": True}, indent=2, sort_keys=True) + "\n"
+    )
+    return RenderedFiles(
+        files={
+            ".claude/settings.json": settings_body,
+            _CLAUDE_ONBOARDING_FILE: onboarding_body,
+        }
+    )
+
+
+# Known-good keys inside the native Claude Code OAuth document, in the
+# shape observed on the pinned Claude Code version. These are mirrored
+# in ``claude_credentials._CLAUDE_OAUTH_INNER_FIELDS`` /
+# ``_CLAUDE_OAUTH_ROOT_FIELDS`` — the two allowlists MUST stay in sync.
+# Keeping a copy here avoids the renderer depending on the credential
+# module (which already depends on render helpers in the opposite
+# direction via ``configure`` tests).
+_CLAUDE_OAUTH_INNER_ALLOWED = (
+    "accessToken",
+    "refreshToken",
+    "expiresAt",
+    "scopes",
+    "subscriptionType",
+    "rateLimitTier",
+)
+_CLAUDE_OAUTH_ROOT_ALLOWED = ("claudeAiOauth", "trustedDeviceToken")
+
+
+def _coerce_claude_oauth_document(stored: str) -> dict:
+    """Return a validated native OAuth document from a stored value.
+
+    Accepts either a serialized native document (produced by the local
+    reader / provider import path) or a bare bearer string (legacy
+    callers that supplied only an access token). Any other shape is
+    rejected. Unknown root-level or inner keys are stripped — the
+    renderer never forwards an undocumented upstream field.
+    """
+    if not isinstance(stored, str) or not stored:
+        raise AgentConfigError(
+            "render_claude_oauth_credentials requires a non-empty OAuth value"
+        )
+    stripped = stored.strip()
+    if stripped.startswith("{"):
+        try:
+            parsed = json.loads(stripped)
+        except json.JSONDecodeError as exc:
+            raise AgentConfigError(
+                f"Claude OAuth document is not valid JSON: {exc.msg}"
+            ) from None
+        if not isinstance(parsed, dict):
+            raise AgentConfigError("Claude OAuth document must be a JSON object")
+        inner_raw = parsed.get("claudeAiOauth")
+        if not isinstance(inner_raw, dict):
+            raise AgentConfigError(
+                "Claude OAuth document missing required claudeAiOauth object"
+            )
+        access_token = inner_raw.get("accessToken")
+        if not isinstance(access_token, str) or not access_token:
+            raise AgentConfigError(
+                "Claude OAuth document missing required accessToken string"
+            )
+        inner_out: dict[str, object] = {}
+        for key in _CLAUDE_OAUTH_INNER_ALLOWED:
+            if key in inner_raw:
+                inner_out[key] = (
+                    list(inner_raw[key]) if key == "scopes" else inner_raw[key]
+                )
+        document: dict[str, object] = {"claudeAiOauth": inner_out}
+        for key in _CLAUDE_OAUTH_ROOT_ALLOWED:
+            if key == "claudeAiOauth":
+                continue
+            if key in parsed:
+                document[key] = parsed[key]
+        return document
+    # Legacy bearer-only path: wrap in the degenerate shape so the
+    # renderer always emits a valid native envelope. Pre-#1021 agents
+    # that imported a plain access token still render correctly, but
+    # a real authenticated request from Claude Code (e.g. ``claude -p
+    # "hello"`` or any subscription-scoped call) will fail with "Not
+    # logged in" until the operator re-imports via the native document
+    # reader; ``claude --version`` and other unauthenticated commands
+    # still succeed because they never touch the OAuth document.
+    return {"claudeAiOauth": {"accessToken": stored}}
+
+
+def render_claude_oauth_credentials(stored_oauth: str) -> str:
+    """Return the native Claude Code ``~/.claude/.credentials.json`` body.
+
+    ``stored_oauth`` is the value held in the encrypted per-instance
+    secret store under ``CLAUDE_CODE_OAUTH_TOKEN``. The reader
+    (``claude_credentials.read_local_claude_oauth_document``) persists
+    the full validated native document; legacy callers may still have
+    stored a bare access token, which this function wraps for
+    back-compat. In both cases the on-wire body is a JSON object whose
+    only root keys are from the Claude Code upstream allowlist and
+    whose ``claudeAiOauth`` sub-object contains only allowlisted inner
+    fields (verified against the pinned Claude Code version, not an
+    Anthropic-published API). The value is never echoed, logged, or
+    placed in a diff — callers write it only through the hardened
+    no-log transport.
+    """
+    document = _coerce_claude_oauth_document(stored_oauth)
+    return json.dumps(document, indent=2, sort_keys=True) + "\n"
 
 
 # ---------------------------------------------------------------------------

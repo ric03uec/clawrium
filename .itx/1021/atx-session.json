@@ -1,0 +1,60 @@
+{
+  "session_id": "rev-c54ade63-af3e-42f3-99db-ad6719ea0f38",
+  "transport": "cli",
+  "commit_sha": "8f6128518753bf92c71ac08bffdc1fe72dc99d20",
+  "iteration": 6,
+  "last_rating": 3,
+  "last_blockers": [],
+  "started_at": "2026-10-04T17:53:17Z",
+  "updated_at": "2026-10-04T19:03:04Z",
+  "revision_id": "8c2f1906-91b5-491d-b9a4-6a2adcfb2b66",
+  "last_warnings": [
+    "src/clawrium/platform/registry/claude/playbooks/install.yaml:229",
+    "src/clawrium/platform/registry/claude/playbooks/install_macos.yaml:261"
+  ],
+  "last_suggestions": [],
+  "history": [
+    {
+      "iteration": 1,
+      "rating": 2,
+      "blockers": 1
+    },
+    {
+      "iteration": 2,
+      "rating": 3,
+      "blockers": 0,
+      "warnings": 1
+    },
+    {
+      "iteration": 3,
+      "rating": 4,
+      "blockers": 0,
+      "warnings": 1,
+      "suggestions": 1
+    },
+    {
+      "iteration": 4,
+      "rating": 5,
+      "blockers": 0,
+      "warnings": 0,
+      "suggestions": 0
+    },
+    {
+      "iteration": 5,
+      "rating": 4,
+      "blockers": 0,
+      "warnings": 0,
+      "suggestions": 0,
+      "note": "Round-5 UAT regression fix (bashrc BOF prepend); 2 recommendations skipped (hallucinated/env-issue)"
+    },
+    {
+      "iteration": 6,
+      "rating": 3,
+      "blockers": 0,
+      "warnings": 2,
+      "disposition": "out-of-scope",
+      "note": "Round 6 recommended migrating existing marked .bashrc blocks installed below the guard. #1021 is explicitly scoped to new agents (plan: \"Migrate or repair existing Claude agents\" is a Non-Goal). Both playbooks were updated with an inline comment pointing operators at the manual recovery (strip the stale block, then rerun install) or agent recreation. CHANGELOG and renderer comment corrected to say a real authenticated request (not `claude --version`) fails Not logged in, provider-attach syntax updated to `<oauth-provider> --agent <agent>`, and unknown-key handling clarified (rejected at import, filtered at render)."
+    }
+  ],
+  "round_6_disposition": "out-of-scope"
+}

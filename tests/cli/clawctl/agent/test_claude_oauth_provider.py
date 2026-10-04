@@ -75,7 +75,7 @@ def test_claude_oauth_provider_is_selected_with_fake_reader_and_available_to_syn
     # its local-reader seam. No test invokes Claude Code or reads a credential
     # from the development machine.
     monkeypatch.setattr(
-        claude_credentials, "read_local_claude_oauth_token", fake_local_reader
+        claude_credentials, "read_local_claude_oauth_document", fake_local_reader
     )
 
     # Start in API-key mode to pin that selecting OAuth atomically removes the
@@ -153,7 +153,7 @@ def test_claude_oauth_reader_error_is_redacted_and_restores_attachment(
         raise ClaudeOAuthSourceError(sensitive_detail)
 
     monkeypatch.setattr(
-        claude_credentials, "read_local_claude_oauth_token", failing_reader
+        claude_credentials, "read_local_claude_oauth_document", failing_reader
     )
 
     result = runner.invoke(
@@ -194,7 +194,7 @@ def test_claude_oauth_reader_category_reaches_cli_without_output(
         raise ClaudeOAuthSourceError("credentials_artifact_unavailable")
 
     monkeypatch.setattr(
-        claude_credentials, "read_local_claude_oauth_token", unavailable_reader
+        claude_credentials, "read_local_claude_oauth_document", unavailable_reader
     )
     result = runner.invoke(
         app,
@@ -226,7 +226,7 @@ def test_claude_oauth_cancellation_restores_new_attachment(
         raise KeyboardInterrupt
 
     monkeypatch.setattr(
-        claude_credentials, "read_local_claude_oauth_token", interrupted_reader
+        claude_credentials, "read_local_claude_oauth_document", interrupted_reader
     )
     result = runner.invoke(
         app,
@@ -261,7 +261,7 @@ def test_claude_oauth_failure_does_not_overwrite_concurrent_attachment(
         raise ClaudeOAuthSourceError("reader failure")
 
     monkeypatch.setattr(
-        claude_credentials, "read_local_claude_oauth_token", concurrent_then_fail
+        claude_credentials, "read_local_claude_oauth_document", concurrent_then_fail
     )
     result = runner.invoke(
         app,
@@ -308,7 +308,7 @@ def test_claude_rejects_non_oauth_provider_without_invoking_reader(
         )
 
     monkeypatch.setattr(
-        claude_credentials, "read_local_claude_oauth_token", unexpected_reader
+        claude_credentials, "read_local_claude_oauth_document", unexpected_reader
     )
     result = runner.invoke(
         app,

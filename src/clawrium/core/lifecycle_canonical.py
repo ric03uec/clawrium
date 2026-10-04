@@ -715,65 +715,64 @@ def _ensure_claude_settings_directory(
         )
 
 
-_CLAUDE_CREDENTIAL_KEYS = "CLAUDE_CODE_OAUTH_TOKEN ANTHROPIC_API_KEY"
+def _remove_retired_claude_artifacts(
+    client: paramiko.SSHClient,
+    *,
+    agent_name: str,
+    retired_paths: tuple[str, ...],
+    timeout: int = 30,
+) -> None:
+    """Remove the pre-#1021 Claude credential env file and profile hook.
 
-
-_CLAUDE_SHELL_STARTUP_SNIPPET = (
-    'if [ -r "$HOME/.claude/clawrium-credentials.env" ]; then\n'
-    '  . "$HOME/.claude/clawrium-credentials.env"\n'
-    "fi\n"
-)
+    The removal is best-effort by design: ``rm -f`` returns 0 when the
+    path is already absent, so a fresh install (no prior artifacts) and
+    a successful migration both exit cleanly. A failure to remove
+    (filesystem error, revoked sudo, etc.) raises so the operator
+    notices — the native credentials file is already in place, so the
+    agent is never left without an active credential.
+    """
+    quoted_agent = shlex.quote(agent_name)
+    for path in retired_paths:
+        command = (
+            f"sudo -n -H -u {quoted_agent} rm -f {shlex.quote(path)}"
+        )
+        _, stdout, stderr = client.exec_command(command, timeout=timeout)
+        rc = stdout.channel.recv_exit_status()
+        if rc != 0:
+            detail = (
+                stderr.read().decode("utf-8", errors="replace").strip()
+                or stdout.read().decode("utf-8", errors="replace").strip()
+            )
+            raise CanonicalSyncError(
+                f"could not remove retired Claude artifact {path!r} "
+                f"(exit {rc}): {detail}"
+            )
 
 
 def _validate_claude_credential_activation(agent_name: str) -> tuple[str, str]:
-    """Resolve one selected credential without placing it in sync output."""
+    """Resolve one selected credential without placing it in sync output.
+
+    Only OAuth is accepted. The sync path renders the native
+    ``~/.claude/.credentials.json`` file, which Claude Code reads only for
+    subscription OAuth; an active Anthropic API key is rejected before any
+    remote I/O so a half-applied config is never written.
+    """
     from clawrium.core.claude_credentials import (
+        CLAUDE_CODE_OAUTH_TOKEN,
         ClaudeCredentialError,
         get_active_claude_credential,
     )
 
     try:
-        return get_active_claude_credential(agent_name)
+        key, value = get_active_claude_credential(agent_name)
     except ClaudeCredentialError as exc:
         raise CanonicalSyncError(f"Claude credential activation failed: {exc}") from exc
-
-
-def _claude_credential_env_body(key: str, value: str) -> str:
-    """Build one shell-safe env export from the already-selected secret.
-
-    The body is deliberately kept out of the renderer and diff pipeline. It
-    moves only through Paramiko's SFTP write in ``_atomic_write``; no remote
-    command argument, event, log message, or rendered file carries its value.
-    """
-    return f"unset {_CLAUDE_CREDENTIAL_KEYS}\nexport {key}={shlex.quote(value)}\n"
-
-
-def _ensure_claude_activation_directories(
-    client: paramiko.SSHClient,
-    *,
-    agent_name: str,
-    os_family: str,
-    timeout: int = 30,
-) -> None:
-    """Create the two private directories that hold Claude activation state."""
-    _ensure_claude_settings_directory(
-        client, agent_name=agent_name, os_family=os_family, timeout=timeout
-    )
-    startup_dir = f"{home_root_for(os_family)}/{agent_name}/.profile.d"
-    command = (
-        "sudo -n install -d -m 0700 -o "
-        f"{shlex.quote(agent_name)} {shlex.quote(startup_dir)}"
-    )
-    _, stdout, stderr = client.exec_command(command, timeout=timeout)
-    stdout_text = stdout.read().decode("utf-8", errors="replace")
-    stderr_text = stderr.read().decode("utf-8", errors="replace")
-    rc = stdout.channel.recv_exit_status()
-    if rc != 0:
-        detail = stderr_text.strip() or stdout_text.strip()
+    if key != CLAUDE_CODE_OAUTH_TOKEN:
         raise CanonicalSyncError(
-            f"could not create Claude startup directory {startup_dir!r} "
-            f"(exit {rc}): {detail}"
+            "Claude native configuration supports OAuth only; "
+            f"found {key} active instead of {CLAUDE_CODE_OAUTH_TOKEN}"
         )
+    return key, value
 
 
 def _sync_claude_settings(
@@ -785,24 +784,28 @@ def _sync_claude_settings(
     dry_run: bool,
     on_event: Callable[[str, str], None] | None,
 ) -> CanonicalSyncResult:
-    """Sync Claude settings and credential activation without a daemon lifecycle.
+    """Sync native Claude Code files without a daemon lifecycle.
 
-    This bypasses provider assembly, install probes, restart, and health checks:
-    Claude is an installed CLI. Its settings use the canonical diff path, while
-    the selected credential bypasses rendering and diff output entirely.
+    This bypasses provider assembly, install probes, restart, and health
+    checks: Claude is an installed CLI. The non-secret files
+    (``~/.claude/settings.json`` and ``~/.claude.json``) use the canonical
+    diff path. The OAuth credential body bypasses rendering and diff
+    output entirely and lands at the native
+    ``~/.claude/.credentials.json`` path.
     """
     from clawrium.core.playbook_resolver import normalize_os_family
     from clawrium.core.render import (
         AgentConfigError,
         parse_claude_settings,
-        render_claude_settings,
+        render_claude_native_files,
+        render_claude_oauth_credentials,
     )
 
     hostname = host.get("hostname", "")
     raw_config = claw_record.get("config", {})
     try:
         settings = parse_claude_settings(raw_config)
-        rendered = render_claude_settings(settings)
+        rendered = render_claude_native_files(settings)
     except AgentConfigError as exc:
         raise CanonicalSyncError(f"Claude settings render failed: {exc}") from exc
 
@@ -824,9 +827,7 @@ def _sync_claude_settings(
     # Resolve exactly once before diff_files opens SSH. This makes dry-run
     # reject a bad credential without remote I/O and prevents a concurrent
     # local mode switch from validating one secret then writing another.
-    credential_key, credential_value = _validate_claude_credential_activation(
-        agent_name
-    )
+    _, credential_value = _validate_claude_credential_activation(agent_name)
 
     os_family = normalize_os_family(host)
     # `diff_files` owns remote-path construction. Feed it the normalized family
@@ -849,20 +850,31 @@ def _sync_claude_settings(
             diffs=tuple(diffs),
         )
 
-    # Do not put the selected credential into `rendered.files` or a FileDiff:
+    # Do not put the credential into `rendered.files` or a FileDiff:
     # dry-run output must remain safe to display. The body moves directly to a
     # private SFTP temp file and is never interpolated into a remote command.
-    credential_body = _claude_credential_env_body(credential_key, credential_value)
+    try:
+        credential_body = render_claude_oauth_credentials(credential_value)
+    except AgentConfigError as exc:
+        raise CanonicalSyncError(
+            f"Claude credential activation failed: {exc}"
+        ) from exc
     home = f"{home_root_for(os_family)}/{agent_name}"
-    credential_path = f"{home}/.claude/clawrium-credentials.env"
-    startup_path = f"{home}/.profile.d/clawrium-claude.sh"
+    credential_path = f"{home}/.claude/.credentials.json"
+    # Retired artifacts from the pre-#1021 env-file flow. These are
+    # removed ONLY after the native credentials file is in place so a
+    # host is never left without an active credential.
+    retired_paths = (
+        f"{home}/.claude/clawrium-credentials.env",
+        f"{home}/.profile.d/clawrium-claude.sh",
+    )
 
     files_written: list[str] = []
     files_unchanged: list[str] = []
     client = _open_ssh(host)
     try:
         try:
-            _ensure_claude_activation_directories(
+            _ensure_claude_settings_directory(
                 client,
                 agent_name=agent_name,
                 os_family=os_family,
@@ -885,17 +897,7 @@ def _sync_claude_settings(
             )
             files_written.append(diff.path)
 
-        # Install the non-secret hook before rotating the credential. If hook
-        # creation fails, the old active credential remains untouched; once it
-        # succeeds, the final atomic replacement changes exactly one export.
         try:
-            _atomic_write(
-                client,
-                agent_name=agent_name,
-                remote_path=startup_path,
-                body=_CLAUDE_SHELL_STARTUP_SNIPPET,
-                host=diff_host,
-            )
             _atomic_write(
                 client,
                 agent_name=agent_name,
@@ -905,14 +907,18 @@ def _sync_claude_settings(
             )
         except Exception:
             raise CanonicalSyncError("Claude credential activation failed") from None
+
+        _remove_retired_claude_artifacts(
+            client, agent_name=agent_name, retired_paths=retired_paths
+        )
     finally:
         client.close()
 
     if on_event is not None:
         on_event(
             "sync",
-            f"synced Claude global settings: {len(files_written)} written, "
-            f"{len(files_unchanged)} unchanged; credential activation updated; "
+            f"synced native Claude files: {len(files_written)} written, "
+            f"{len(files_unchanged)} unchanged; OAuth credentials refreshed; "
             "no daemon restart",
         )
     return CanonicalSyncResult(

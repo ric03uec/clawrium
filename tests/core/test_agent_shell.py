@@ -85,21 +85,21 @@ def test_K1_event_parsing_and_isolation_from_exec_events(monkeypatch, patched_en
     assert (stdout, stderr, rc) == ("hi", "", 0)
 
 
-def test_claude_activation_is_bound_to_the_resolved_agent_type(
-    monkeypatch, patched_env
-):
-    """A malformed duplicate Unix user cannot activate Claude credentials.
+def test_agent_shell_has_no_claude_specific_prelude(monkeypatch, patched_env):
+    """Native Claude Code configuration removed the Claude-only prelude.
 
-    The CLI passes the resolved record type to the core runner. A legacy
-    type-keyed Claude record still activates its managed hook, while an
-    openclaw command for the same damaged Unix user cannot inherit it.
+    PATH + auto-update policy are in the dedicated agent user's own
+    ``~/.bashrc`` and OAuth state lives in native
+    ``~/.claude/.credentials.json``. ``agent shell`` therefore builds the
+    same command for a Claude agent as for any other agent — no
+    credential unset, no managed-snippet source, no fail-closed check.
     """
     from clawrium.core import hosts as hosts_module
 
     host = {
         **HOST_FIXTURE,
         "agents": {
-            "other": {"type": "openclaw", "agent_name": "shared-user"},
+            "claude": {"type": "claude", "agent_name": "claude-code"},
         },
     }
     commands: list[str] = []
@@ -116,68 +116,15 @@ def test_claude_activation_is_bound_to_the_resolved_agent_type(
     )
 
     assert agent_shell.run_agent_shell(
-        "wolf-i", "shared-user", ["echo", "done"], agent_type="openclaw"
-    ) == ("", "", 0)
-    assert agent_shell.run_agent_shell(
-        "wolf-i", "shared-user", ["echo", "done"], agent_type="claude"
+        "wolf-i", "claude-code", ["echo", "done"], agent_type="claude"
     ) == ("", "", 0)
 
-    assert "clawrium-claude.sh" not in commands[0]
-    assert "clawrium-claude.sh" in commands[1]
-    assert commands[1].index("clawrium-claude.sh") < commands[1].index("echo done")
-    assert "&& echo done" in commands[1]
-
-    legacy_host = {"agents": {"claude": {"name": "shared-user"}}}
-    assert "clawrium-claude.sh" in agent_shell._claude_activation_prepend(
-        legacy_host, "shared-user"
-    )
-
-
-def test_claude_activation_prelude_clears_stale_credentials_and_fails_closed(
-    tmp_path: Path,
-):
-    home = tmp_path / "home"
-    profile_dir = home / ".profile.d"
-    profile_dir.mkdir(parents=True)
-    hook = profile_dir / "clawrium-claude.sh"
-    prelude = agent_shell._claude_activation_prepend(
-        {}, "claude-code", agent_type="claude"
-    )
-
-    missing = subprocess.run(
-        ["bash", "-c", f'{prelude} && printf "must-not-run"'],
-        env={**os.environ, "HOME": str(home), "ANTHROPIC_API_KEY": "stale-value"},
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    assert missing.returncode != 0
-    assert "must-not-run" not in missing.stdout
-    assert "activation unavailable" in missing.stderr
-    assert "stale-value" not in missing.stderr
-
-    hook.write_text("false\n")
-    failed_hook = subprocess.run(
-        ["bash", "-c", f'{prelude} && printf "must-not-run"'],
-        env={**os.environ, "HOME": str(home), "ANTHROPIC_API_KEY": "stale-value"},
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    assert failed_hook.returncode != 0
-    assert "must-not-run" not in failed_hook.stdout
-    assert "activation unavailable" in failed_hook.stderr
-
-    hook.write_text('test -z "${ANTHROPIC_API_KEY:-}"\n')
-    cleared = subprocess.run(
-        ["bash", "-c", f'{prelude} && printf "activated"'],
-        env={**os.environ, "HOME": str(home), "ANTHROPIC_API_KEY": "stale-value"},
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    assert cleared.returncode == 0
-    assert cleared.stdout == "activated"
+    command = commands[0]
+    assert "clawrium-claude.sh" not in command
+    assert "clawrium-credentials.env" not in command
+    assert "CLAUDE_CODE_OAUTH_TOKEN" not in command
+    assert "ANTHROPIC_API_KEY" not in command
+    assert command.endswith("echo done")
 
 
 # ----- K2 / K3: base64 decode failures --------------------------------

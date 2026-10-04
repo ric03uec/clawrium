@@ -422,3 +422,208 @@ def test_non_claude_agent_cannot_use_claude_credential_modes(isolated_config: Pa
         configure_claude_credentials(
             "claude-code", anthropic_api_key="anthropic-api-test-key"
         )
+
+
+# ---------------------------------------------------------------------------
+# #1021 Round 6: Native OAuth document capture, storage, and passthrough
+# ---------------------------------------------------------------------------
+
+
+def _write_full_credentials_artifact(path: Path, document: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(document))
+    path.chmod(0o600)
+
+
+def _full_native_document(access_token: str) -> dict:
+    """A realistic document matching the pinned Claude Code shape.
+
+    Fields and types match the shape observed on the controller's own
+    ``~/.claude/.credentials.json`` for the pinned Claude Code version.
+    """
+    return {
+        "claudeAiOauth": {
+            "accessToken": access_token,
+            "refreshToken": "refresh-" + secrets.token_urlsafe(24),
+            "expiresAt": 1759600000000,
+            "scopes": ["user:inference", "user:profile"],
+            "subscriptionType": "max",
+            "rateLimitTier": "max_20x",
+        },
+        "trustedDeviceToken": "trust-" + secrets.token_urlsafe(24),
+    }
+
+
+def test_read_local_claude_oauth_document_captures_full_native_shape(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """The reader returns the full validated document, not just accessToken."""
+    from clawrium.core.claude_credentials import read_local_claude_oauth_document
+
+    access_token = "oauth-" + secrets.token_urlsafe(24)
+    document = _full_native_document(access_token)
+    artifact = tmp_path / ".claude" / ".credentials.json"
+    _write_full_credentials_artifact(artifact, document)
+    monkeypatch.setattr(claude_credentials.sys, "platform", "linux")
+    monkeypatch.setattr(claude_credentials, "_CLAUDE_CREDENTIALS_PATH", artifact)
+
+    serialized = read_local_claude_oauth_document()
+    parsed = json.loads(serialized)
+
+    assert parsed == document
+    # Back-compat accessor still returns just the token.
+    assert read_local_claude_oauth_token() == access_token
+
+
+def test_read_local_claude_oauth_document_rejects_unknown_root_field(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    document = _full_native_document("oauth-" + secrets.token_urlsafe(24))
+    document["unknownRootKey"] = "ignored-value"
+    artifact = tmp_path / ".claude" / ".credentials.json"
+    _write_full_credentials_artifact(artifact, document)
+    monkeypatch.setattr(claude_credentials.sys, "platform", "linux")
+    monkeypatch.setattr(claude_credentials, "_CLAUDE_CREDENTIALS_PATH", artifact)
+
+    with pytest.raises(ClaudeOAuthSourceError) as error:
+        claude_credentials.read_local_claude_oauth_document()
+    assert error.value.category == "credentials_artifact_malformed"
+    assert "ignored-value" not in str(error.value)
+
+
+def test_read_local_claude_oauth_document_rejects_unknown_inner_field(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    document = _full_native_document("oauth-" + secrets.token_urlsafe(24))
+    document["claudeAiOauth"]["unknownInnerKey"] = "sensitive-ignore"
+    artifact = tmp_path / ".claude" / ".credentials.json"
+    _write_full_credentials_artifact(artifact, document)
+    monkeypatch.setattr(claude_credentials.sys, "platform", "linux")
+    monkeypatch.setattr(claude_credentials, "_CLAUDE_CREDENTIALS_PATH", artifact)
+
+    with pytest.raises(ClaudeOAuthSourceError) as error:
+        claude_credentials.read_local_claude_oauth_document()
+    assert error.value.category == "credentials_artifact_malformed"
+    assert "sensitive-ignore" not in str(error.value)
+
+
+@pytest.mark.parametrize(
+    "field,bad_value",
+    [
+        ("expiresAt", "not-an-int"),
+        ("expiresAt", True),  # bool masquerading as int MUST be rejected
+        ("scopes", "scope-string-not-list"),
+        ("scopes", [1, 2, 3]),
+        ("refreshToken", 12345),
+        ("subscriptionType", False),
+        ("rateLimitTier", None),
+    ],
+)
+def test_read_local_claude_oauth_document_rejects_wrong_inner_type(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    field: str,
+    bad_value: object,
+):
+    document = _full_native_document("oauth-" + secrets.token_urlsafe(24))
+    document["claudeAiOauth"][field] = bad_value  # type: ignore[assignment]
+    artifact = tmp_path / ".claude" / ".credentials.json"
+    _write_full_credentials_artifact(artifact, document)
+    monkeypatch.setattr(claude_credentials.sys, "platform", "linux")
+    monkeypatch.setattr(claude_credentials, "_CLAUDE_CREDENTIALS_PATH", artifact)
+
+    with pytest.raises(ClaudeOAuthSourceError) as error:
+        claude_credentials.read_local_claude_oauth_document()
+    assert error.value.category == "credentials_artifact_malformed"
+
+
+def test_import_from_local_reader_stores_full_document(
+    isolated_config: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    _seed_claude_agent(isolated_config)
+    access_token = "oauth-" + secrets.token_urlsafe(24)
+    document = _full_native_document(access_token)
+    artifact = tmp_path / ".claude" / ".credentials.json"
+    _write_full_credentials_artifact(artifact, document)
+    monkeypatch.setattr(claude_credentials.sys, "platform", "linux")
+    monkeypatch.setattr(claude_credentials, "_CLAUDE_CREDENTIALS_PATH", artifact)
+
+    from clawrium.core.claude_credentials import import_claude_oauth_from_local_reader
+
+    state = import_claude_oauth_from_local_reader("claude-code")
+    assert state.mode.value == "oauth"
+
+    stored = get_instance_secrets(_claude_instance_key())[CLAUDE_CODE_OAUTH_TOKEN][
+        "value"
+    ]
+    parsed = json.loads(stored)
+    # The stored value is the compact serialization of the full doc.
+    assert parsed == document
+    assert " " not in stored  # compact serialization, no padding
+
+
+def test_renderer_passes_full_document_through(tmp_path: Path):
+    from clawrium.core.render import render_claude_oauth_credentials
+
+    document = _full_native_document("oauth-" + secrets.token_urlsafe(24))
+    stored = json.dumps(document, separators=(",", ":"), sort_keys=True)
+
+    body = render_claude_oauth_credentials(stored)
+    parsed = json.loads(body)
+
+    # All known fields round-trip verbatim; the renderer never invents.
+    assert parsed["claudeAiOauth"]["accessToken"] == document["claudeAiOauth"]["accessToken"]
+    assert (
+        parsed["claudeAiOauth"]["refreshToken"]
+        == document["claudeAiOauth"]["refreshToken"]
+    )
+    assert parsed["claudeAiOauth"]["expiresAt"] == document["claudeAiOauth"]["expiresAt"]
+    assert parsed["claudeAiOauth"]["scopes"] == document["claudeAiOauth"]["scopes"]
+    assert (
+        parsed["claudeAiOauth"]["subscriptionType"]
+        == document["claudeAiOauth"]["subscriptionType"]
+    )
+    assert (
+        parsed["claudeAiOauth"]["rateLimitTier"]
+        == document["claudeAiOauth"]["rateLimitTier"]
+    )
+    assert parsed["trustedDeviceToken"] == document["trustedDeviceToken"]
+    assert body.endswith("\n")
+
+
+def test_renderer_strips_unknown_fields_from_stored_document():
+    from clawrium.core.render import render_claude_oauth_credentials
+
+    document = _full_native_document("oauth-" + secrets.token_urlsafe(24))
+    document["claudeAiOauth"]["unknownInner"] = "must-not-emit"
+    document["unknownRoot"] = "must-not-emit"
+    stored = json.dumps(document, separators=(",", ":"), sort_keys=True)
+
+    body = render_claude_oauth_credentials(stored)
+    parsed = json.loads(body)
+
+    assert "unknownInner" not in parsed["claudeAiOauth"]
+    assert "unknownRoot" not in parsed
+    assert "must-not-emit" not in body
+
+
+def test_renderer_bearer_only_back_compat_still_works():
+    """Legacy stored bearer tokens produce a valid (though degenerate) body."""
+    from clawrium.core.render import render_claude_oauth_credentials
+
+    bearer = "oauth-" + secrets.token_urlsafe(24)
+    body = render_claude_oauth_credentials(bearer)
+    parsed = json.loads(body)
+    assert parsed == {"claudeAiOauth": {"accessToken": bearer}}
+
+
+def test_renderer_rejects_malformed_document():
+    from clawrium.core.render import render_claude_oauth_credentials
+    from clawrium.core.render import AgentConfigError
+
+    with pytest.raises(AgentConfigError):
+        render_claude_oauth_credentials('{"claudeAiOauth":{}}')  # missing accessToken
+    with pytest.raises(AgentConfigError):
+        render_claude_oauth_credentials("{not valid json")
+    with pytest.raises(AgentConfigError):
+        render_claude_oauth_credentials("")

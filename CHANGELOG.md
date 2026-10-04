@@ -14,6 +14,59 @@ cut. The `itx-release` skill archives this section into a new
 
 ### BREAKING
 
+- **Claude Code agents use native configuration files** instead of a
+  Clawrium-specific credential environment hook (#1021). This applies to
+  every Claude agent — pre-existing agents transition on the next
+  `clawctl agent configure` or `clawctl agent sync`. Lifecycle changes:
+  - `clawctl agent configure <claude-agent>` and `clawctl agent sync
+    <claude-agent>` render Claude's standard files directly on the
+    agent user's home: `~/.claude/settings.json`, `~/.claude.json`
+    (`hasCompletedOnboarding: true`), and `~/.claude/.credentials.json`.
+    The `.credentials.json` body is the **full native OAuth document**
+    (not just `accessToken`): `claudeAiOauth` carries whichever of
+    `accessToken` / `refreshToken` / `expiresAt` / `scopes` /
+    `subscriptionType` / `rateLimitTier` the authorized local document
+    actually supplied, plus any root-level `trustedDeviceToken`.
+    `clawctl agent provider attach <oauth-provider> --agent <agent>`
+    captures the full document from the controller's
+    `~/.claude/.credentials.json`; unknown root-level or inner keys
+    are rejected at import time by the credential-store validator, and
+    any that reach the renderer anyway are filtered out of the on-wire
+    body — Clawrium never forwards an undocumented upstream field.
+    Pre-#1021 agents whose stored OAuth is still a bare access-token
+    string continue to render a valid (degenerate) envelope — re-import
+    via `clawctl agent provider attach <oauth-provider> --agent <agent>`
+    to pick up the full native document; without the full document a
+    real authenticated request from Claude Code (`claude -p "hello"`
+    or any subscription-scoped call) will fail with "Not logged in"
+    even though `claude --version` and other unauthenticated commands
+    still work.
+  - Both lifecycle paths **actively remove** the retired
+    `~/.claude/clawrium-credentials.env` and
+    `~/.profile.d/clawrium-claude.sh` after the new native credentials
+    file is in place, so an upgraded host never retains a second
+    credential-bearing copy. Removal is best-effort against a fresh
+    install (no prior artifact to delete) and ordered strictly after
+    the native credentials write (never leaves the host without an
+    active credential).
+  - Creating a Claude agent adds a marker-delimited block to the new
+    agent user's `~/.bashrc` that exposes the agent-owned Claude binary
+    on `PATH` and sets `DISABLE_AUTOUPDATER=1` so the upstream
+    self-updater never fights the pinned npm install.
+  - `clawctl agent shell <claude-agent>` no longer injects a
+    Claude-specific credential prelude; Claude is a plain installed
+    CLI from the shell's point of view.
+  - **Only OAuth is supported** for the native-file flow. An
+    `ANTHROPIC_API_KEY`-mode credential is rejected with
+    `"Claude native configuration supports OAuth only"` before any
+    remote I/O. **Recovery for existing API-key agents**: switch the
+    agent to OAuth before the next configure/sync — either rotate the
+    stored credential to an OAuth token via the Claude provider flow
+    (`clawctl agent provider attach <oauth-provider> --agent <agent>`
+    after importing an OAuth token), or recreate the agent with
+    `clawctl agent delete --yes <name>` followed by `clawctl agent create
+    <name> --type claude --host <host>` and configure OAuth. There is no
+    automated API-key migration path.
 - **zeroclaw upstream pin bumped to v0.8.5** (previously v0.8.2). Three config sections were retired upstream between v0.8.3 and v0.8.5; the clawrium renderer no longer emits any of them, and operators MUST NOT hand-add the retired root-level forms to `~/.zeroclaw/config.toml`:
   - **`[node_transport]`** — removed in v0.8.5 (upstream #10289). Retired legacy HMAC node transport. `[nodes]` remains the supported peer-discovery surface.
   - **`[providers]` root with inline `fallback = "..."`** — no longer accepted. The daemon silently resets the entire `[providers]` section to defaults when the malformed inline key is present, **which wipes the LLM provider binding and breaks chat**. Provider selection now lives entirely on `[agents.<alias>].model_provider = "<type>.<alias>"`.
