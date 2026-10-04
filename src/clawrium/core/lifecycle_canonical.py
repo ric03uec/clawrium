@@ -2900,13 +2900,15 @@ def sync_agent_canonical(
             )
             if verify:
                 emit("verify", "checking unit is active")
-                agent_config = (
-                    ((host.get("agents") or {}).get(agent_name) or {}).get("config", {})
+                agent_config = ((host.get("agents") or {}).get(agent_name) or {}).get(
+                    "config", {}
                 )
                 # Hermes exposes its managed listener through api_server;
                 # gateway.port is only the canonical health endpoint for
                 # gateway-backed agent types.
-                port_config_key = "api_server" if inputs.agent_type == "hermes" else "gateway"
+                port_config_key = (
+                    "api_server" if inputs.agent_type == "hermes" else "gateway"
+                )
                 gateway_port = (agent_config.get(port_config_key) or {}).get("port")
                 _verify_health(
                     client,
