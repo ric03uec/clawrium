@@ -100,6 +100,12 @@ def test_claude_install_runbooks_are_state_based_and_never_invoke_claude():
         "ansible.builtin.uri",
     }
     forbidden_words = ("gateway", "launchctl", "login", "auth", "port")
+    # Word-boundary match so a shell literal like ``export`` cannot
+    # masquerade as the ``port`` network concept the installer refuses.
+    forbidden_patterns = tuple(
+        re.compile(rf"(?<![A-Za-z0-9_]){word}(?![A-Za-z0-9_])")
+        for word in forbidden_words
+    )
 
     for name, home in (
         ("install.yaml", "/home/{{ agent_name }}"),
@@ -109,7 +115,7 @@ def test_claude_install_runbooks_are_state_based_and_never_invoke_claude():
         serialized = yaml.safe_dump(tasks).lower()
         module_names = {key for task in tasks for key in task}
         assert forbidden_modules.isdisjoint(module_names)
-        assert not any(word in serialized for word in forbidden_words)
+        assert not any(pattern.search(serialized) for pattern in forbidden_patterns)
 
         assert (
             _task(tasks, "Check installed Claude Code package metadata")[
@@ -238,8 +244,8 @@ def test_claude_install_skip_marker_uses_the_generic_idempotency_contract():
 
 def test_claude_remove_runbooks_only_target_dedicated_resources():
     expected_paths = {
-        "{{ claude_home }}/.profile.d/clawrium-claude.sh",
-        "{{ claude_home }}/.claude/clawrium-credentials.env",
+        "{{ claude_home }}/.claude.json",
+        "{{ claude_home }}/.claude/.credentials.json",
         "{{ claude_home }}/.claude",
         "{{ claude_prefix }}",
     }
@@ -302,16 +308,16 @@ def test_claude_remove_runbooks_allowlist_dedicated_cleanup_only():
     )
     cleanup_tasks = {
         "remove.yaml": [
-            "Remove managed Claude Code startup snippet",
-            "Remove managed Claude Code credential file",
+            "Remove managed Claude Code onboarding marker",
+            "Remove native Claude Code credentials",
             "Remove full dedicated Claude Code state directory",
             "Remove owned Claude Code install prefix",
             "Remove dedicated Claude Code agent account and home",
             "Remove Claude Code account ownership marker",
         ],
         "remove_macos.yaml": [
-            "Remove managed Claude Code startup snippet",
-            "Remove managed Claude Code credential file",
+            "Remove managed Claude Code onboarding marker",
+            "Remove native Claude Code credentials",
             "Remove full dedicated Claude Code state directory",
             "Remove owned Claude Code install prefix",
             "Delete dedicated Claude Code account via dscl",
@@ -328,8 +334,8 @@ def test_claude_remove_runbooks_allowlist_dedicated_cleanup_only():
             if "ansible.builtin.file" in task
         }
         allowed_file_paths = {
-            "{{ claude_home }}/.profile.d/clawrium-claude.sh",
-            "{{ claude_home }}/.claude/clawrium-credentials.env",
+            "{{ claude_home }}/.claude.json",
+            "{{ claude_home }}/.claude/.credentials.json",
             "{{ claude_home }}/.claude",
             "{{ claude_prefix }}",
             "{{ claude_ownership_marker }}",

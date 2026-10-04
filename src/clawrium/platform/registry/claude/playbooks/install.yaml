@@ -206,3 +206,23 @@
         owner: "{{ agent_name }}"
         group: "{{ agent_name }}"
         mode: "0600"
+
+    - name: Ensure dedicated Claude Code agent .bashrc exists
+      ansible.builtin.copy:
+        dest: "{{ claude_home }}/.bashrc"
+        content: ""
+        force: false
+        owner: "{{ agent_name }}"
+        group: "{{ agent_name }}"
+        mode: "0644"
+
+    - name: Expose Claude Code binary on PATH and disable upstream auto-updater
+      ansible.builtin.blockinfile:
+        path: "{{ claude_home }}/.bashrc"
+        marker: "# {mark} CLAWRIUM-CLAUDE-MANAGED"
+        block: |
+          export PATH="{{ claude_prefix }}/bin:$PATH"
+          export DISABLE_AUTOUPDATER=1
+        owner: "{{ agent_name }}"
+        group: "{{ agent_name }}"
+        mode: "0644"

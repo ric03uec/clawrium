@@ -1,0 +1,40 @@
+{
+  "session_id": "rev-c54ade63-af3e-42f3-99db-ad6719ea0f38",
+  "transport": "cli",
+  "commit_sha": "354823a52b51a318752e8558ca0abe15a5a63b33",
+  "iteration": 4,
+  "last_rating": 5,
+  "last_blockers": [],
+  "started_at": "2026-10-04T17:53:17Z",
+  "updated_at": "2026-10-04T18:11:30Z",
+  "revision_id": "0a430cf1-5cf1-4ead-8bb1-4beb497fa496",
+  "last_warnings": [],
+  "last_suggestions": [],
+  "history": [
+    {
+      "iteration": 1,
+      "rating": 2,
+      "blockers": 1
+    },
+    {
+      "iteration": 2,
+      "rating": 3,
+      "blockers": 0,
+      "warnings": 1
+    },
+    {
+      "iteration": 3,
+      "rating": 4,
+      "blockers": 0,
+      "warnings": 1,
+      "suggestions": 1
+    },
+    {
+      "iteration": 4,
+      "rating": 5,
+      "blockers": 0,
+      "warnings": 0,
+      "suggestions": 0
+    }
+  ]
+}

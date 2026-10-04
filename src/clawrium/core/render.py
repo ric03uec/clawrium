@@ -45,6 +45,8 @@ __all__ = [
     "ClaudeSettings",
     "parse_claude_settings",
     "render_claude_settings",
+    "render_claude_native_files",
+    "render_claude_oauth_credentials",
     "build_render_inputs",
     "render_hermes",
     "render_zeroclaw",
@@ -438,6 +440,69 @@ def render_claude_settings(settings: ClaudeSettings) -> RenderedFiles:
             )
             + "\n"
         }
+    )
+
+
+# Native Claude Code first-run state. ``~/.claude.json`` holds the
+# onboarding flag Claude Code reads at startup; shipping it with
+# ``hasCompletedOnboarding: true`` is the upstream state field (verified
+# against the pinned Claude Code version in the registry manifest, not an
+# Anthropic-published API) that lets a non-interactive agent account
+# bypass the login-method chooser.
+_CLAUDE_ONBOARDING_FILE = ".claude.json"
+
+
+def render_claude_native_files(settings: ClaudeSettings) -> RenderedFiles:
+    """Render every non-secret native Claude Code file for the agent account.
+
+    The result is byte-deterministic and contains:
+
+    - ``.claude/settings.json`` — the bounded global settings file.
+    - ``.claude.json`` — the first-run onboarding marker. Writing
+      ``hasCompletedOnboarding: true`` matches the pinned Claude Code
+      upstream state field (not an Anthropic-published API) so a fresh
+      OAuth agent bypasses the interactive login-method chooser.
+
+    The private OAuth credential file is deliberately out of scope here;
+    its contents move through the dedicated no-log credential path and
+    never appear in a diff.
+    """
+    if not isinstance(settings, ClaudeSettings):
+        raise AgentConfigError("render_claude_native_files requires ClaudeSettings")
+    settings_body = (
+        json.dumps(settings.as_dict(), indent=2, sort_keys=True) + "\n"
+    )
+    onboarding_body = (
+        json.dumps({"hasCompletedOnboarding": True}, indent=2, sort_keys=True) + "\n"
+    )
+    return RenderedFiles(
+        files={
+            ".claude/settings.json": settings_body,
+            _CLAUDE_ONBOARDING_FILE: onboarding_body,
+        }
+    )
+
+
+def render_claude_oauth_credentials(oauth_token: str) -> str:
+    """Return the native Claude Code OAuth credentials.json body.
+
+    The body is the JSON shape the pinned Claude Code version reads from
+    ``~/.claude/.credentials.json`` for subscription OAuth (verified
+    against the pinned upstream build; not an Anthropic-published API).
+    The token value is never echoed, logged, or placed in a diff —
+    callers write it only through the already-hardened no-log transport.
+    """
+    if not isinstance(oauth_token, str) or not oauth_token:
+        raise AgentConfigError(
+            "render_claude_oauth_credentials requires a non-empty OAuth token"
+        )
+    return (
+        json.dumps(
+            {"claudeAiOauth": {"accessToken": oauth_token}},
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n"
     )
 
 

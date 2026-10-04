@@ -1,38 +1,27 @@
 ---
-# Bounded global Claude Code settings only. This playbook never invokes
-# Claude Code, creates a service, or touches project-local .claude files.
+# Render the dedicated Claude Code account's native global files. This
+# playbook never invokes Claude Code, creates a service, or touches
+# project-local .claude files. Platform dispatch is owned by
+# ``core.playbook_resolver`` — this runbook never branches on
+# ``ansible_os_family`` (parallels the sibling install.yaml precedent).
 - hosts: all
   become: yes
   tasks:
-    - name: Refuse to run on Darwin hosts (dispatcher contract)
-      ansible.builtin.fail:
-        msg: configure.yaml invoked against a Darwin host
-      when: ansible_os_family == "Darwin"
-
     - name: Validate agent_name (defense-in-depth)
       ansible.builtin.fail:
         msg: "Invalid agent_name"
       when: agent_name is not match('^[a-z][a-z0-9_-]{0,31}$')
 
-    - name: Validate selected Claude credential transport
+    - name: Validate rendered Claude OAuth credential body
       ansible.builtin.assert:
         that:
-          - claude_credential_key in ['CLAUDE_CODE_OAUTH_TOKEN', 'ANTHROPIC_API_KEY']
-          - claude_credential_value is string
-          - claude_credential_value | length > 0
+          - claude_oauth_credentials is string
+          - claude_oauth_credentials | length > 0
       no_log: true
 
     - name: Create dedicated Claude global settings directory
       ansible.builtin.file:
         path: "/home/{{ agent_name }}/.claude"
-        state: directory
-        owner: "{{ agent_name }}"
-        group: "{{ agent_name }}"
-        mode: "0700"
-
-    - name: Create managed Claude shell startup directory
-      ansible.builtin.file:
-        path: "/home/{{ agent_name }}/.profile.d"
         state: directory
         owner: "{{ agent_name }}"
         group: "{{ agent_name }}"
@@ -46,26 +35,34 @@
         group: "{{ agent_name }}"
         mode: "0600"
 
-    - name: Write managed Claude shell startup snippet
+    - name: Write Claude first-run onboarding marker
       ansible.builtin.copy:
-        content: |
-          if [ -r "$HOME/.claude/clawrium-credentials.env" ]; then
-            . "$HOME/.claude/clawrium-credentials.env"
-          fi
-        dest: "/home/{{ agent_name }}/.profile.d/clawrium-claude.sh"
+        content: "{{ prerendered_claude_onboarding_json }}"
+        dest: "/home/{{ agent_name }}/.claude.json"
         owner: "{{ agent_name }}"
         group: "{{ agent_name }}"
         mode: "0600"
-        unsafe_writes: false
 
-    - name: Atomically replace active Claude credential environment
+    - name: Atomically replace native Claude OAuth credentials
       ansible.builtin.copy:
-        content: |
-          unset CLAUDE_CODE_OAUTH_TOKEN ANTHROPIC_API_KEY
-          export {{ claude_credential_key }}={{ claude_credential_value | quote }}
-        dest: "/home/{{ agent_name }}/.claude/clawrium-credentials.env"
+        content: "{{ claude_oauth_credentials }}"
+        dest: "/home/{{ agent_name }}/.claude/.credentials.json"
         owner: "{{ agent_name }}"
         group: "{{ agent_name }}"
         mode: "0600"
         unsafe_writes: false
       no_log: true
+      diff: false
+
+    # Retired env/profile hook cleanup. Removal runs ONLY after the native
+    # credentials file is in place so the host is never left without an
+    # active credential.
+    - name: Remove retired Claude credential env file
+      ansible.builtin.file:
+        path: "/home/{{ agent_name }}/.claude/clawrium-credentials.env"
+        state: absent
+
+    - name: Remove retired Claude profile hook
+      ansible.builtin.file:
+        path: "/home/{{ agent_name }}/.profile.d/clawrium-claude.sh"
+        state: absent

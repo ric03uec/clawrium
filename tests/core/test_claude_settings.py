@@ -1,4 +1,4 @@
-"""Bounded, global-only Claude Code settings contracts (#997)."""
+"""Native Claude Code configuration contracts (#1021)."""
 
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ from clawrium.core.lifecycle_canonical import CanonicalSyncError
 from clawrium.core.render import (
     AgentConfigError,
     parse_claude_settings,
+    render_claude_native_files,
     render_claude_settings,
 )
 from clawrium.core.render_diff import FileDiff
@@ -75,6 +76,22 @@ def test_render_claude_settings_is_typed_deterministic_and_global_only():
     assert ".claude/settings.local.json" not in rendered.files
 
 
+def test_render_claude_native_files_emits_onboarding_marker_and_settings():
+    settings = parse_claude_settings({"model": "claude-opus-4-6"})
+
+    rendered = render_claude_native_files(settings)
+
+    assert set(rendered.files) == {".claude/settings.json", ".claude.json"}
+    assert json.loads(rendered.files[".claude.json"]) == {
+        "hasCompletedOnboarding": True
+    }
+    assert json.loads(rendered.files[".claude/settings.json"]) == {
+        "model": "claude-opus-4-6"
+    }
+    assert rendered == render_claude_native_files(settings)
+    assert ".claude/.credentials.json" not in rendered.files
+
+
 @pytest.mark.parametrize(
     ("raw", "error"),
     [
@@ -97,7 +114,7 @@ def test_claude_settings_rejects_passthrough_secrets_and_invalid_types(raw, erro
         parse_claude_settings(raw)
 
 
-def test_configure_renders_only_validated_settings_without_daemon_or_secrets(
+def test_configure_renders_native_files_without_daemon_or_secrets(
     monkeypatch, tmp_path: Path
 ):
     host = _claude_host(settings={"model": "old-model"})
@@ -124,7 +141,7 @@ def test_configure_renders_only_validated_settings_without_daemon_or_secrets(
     monkeypatch.setattr(lifecycle, "_run_lifecycle_playbook", _unexpected)
     monkeypatch.setattr(
         "clawrium.core.claude_credentials.get_active_claude_credential",
-        lambda _: ("ANTHROPIC_API_KEY", "api-test-value"),
+        lambda _: ("CLAUDE_CODE_OAUTH_TOKEN", "oauth-test-value"),
     )
 
     ok, error = lifecycle.configure_agent(
@@ -139,27 +156,56 @@ def test_configure_renders_only_validated_settings_without_daemon_or_secrets(
 
     assert (ok, error) == (True, None)
     assert str(captured["playbook"]).endswith("claude/playbooks/configure.yaml")
-    inventory = captured["inventory"]
-    assert inventory["all"]["vars"] == {
-        "agent_name": "claude-code",
-        "agent_type": "claude",
-        "prerendered_claude_settings_json": (
-            "{\n"
-            '  "model": "claude-opus-4-6",\n'
-            '  "permissions": {\n'
-            '    "deny": [\n'
-            '      "Read(.env)"\n'
-            "    ]\n"
-            "  }\n"
-            "}\n"
-        ),
-        "claude_credential_key": "ANTHROPIC_API_KEY",
-        "claude_credential_value": "api-test-value",
+    variables = captured["inventory"]["all"]["vars"]
+    assert variables["agent_name"] == "claude-code"
+    assert variables["agent_type"] == "claude"
+    assert variables["prerendered_claude_settings_json"] == (
+        "{\n"
+        '  "model": "claude-opus-4-6",\n'
+        '  "permissions": {\n'
+        '    "deny": [\n'
+        '      "Read(.env)"\n'
+        "    ]\n"
+        "  }\n"
+        "}\n"
+    )
+    assert variables["prerendered_claude_onboarding_json"] == (
+        "{\n"
+        '  "hasCompletedOnboarding": true\n'
+        "}\n"
+    )
+    assert json.loads(variables["claude_oauth_credentials"]) == {
+        "claudeAiOauth": {"accessToken": "oauth-test-value"}
     }
+    assert "claude_credential_key" not in variables
+    assert "claude_credential_value" not in variables
     assert host["agents"]["claude-code"]["config"] == {
         "model": "claude-opus-4-6",
         "permissions": {"deny": ["Read(.env)"]},
     }
+
+
+def test_configure_rejects_api_key_credential_before_remote_io(
+    monkeypatch, tmp_path: Path
+):
+    host = _claude_host()
+    monkeypatch.setattr(lifecycle, "get_host", lambda _: host)
+    monkeypatch.setattr(lifecycle, "get_host_private_key", lambda _: tmp_path / "key")
+    monkeypatch.setattr(lifecycle, "_get_logs_dir", lambda: tmp_path / "logs")
+    monkeypatch.setattr(lifecycle.ansible_runner, "run", _unexpected)
+    monkeypatch.setattr(lifecycle, "update_host", _unexpected)
+    monkeypatch.setattr(
+        "clawrium.core.claude_credentials.get_active_claude_credential",
+        lambda _: ("ANTHROPIC_API_KEY", "api-value"),
+    )
+
+    ok, error = lifecycle.configure_agent(
+        "claude-host", "claude", {}, agent_name="claude-code"
+    )
+
+    assert ok is False
+    assert "OAuth only" in (error or "")
+    assert "api-value" not in (error or "")
 
 
 def test_configure_rejects_unknown_claude_settings_before_ansible(monkeypatch):
@@ -179,9 +225,7 @@ def test_configure_rejects_unknown_claude_settings_before_ansible(monkeypatch):
     assert "unsupported key" in (error or "")
 
 
-def test_canonical_sync_writes_only_claude_global_settings_without_restart(
-    monkeypatch,
-):
+def test_canonical_sync_writes_native_files_and_oauth_credentials(monkeypatch):
     host = _claude_host(
         os_family="darwin",
         settings={"permissions": {"additionalDirectories": ["/Users/shared"]}},
@@ -201,17 +245,28 @@ def test_canonical_sync_writes_only_claude_global_settings_without_restart(
 
     def fake_diff_files(**kwargs):
         captured["diff_host"] = kwargs["host"]
-        assert kwargs["rendered_files"].keys() == {".claude/settings.json"}
-        body = kwargs["rendered_files"][".claude/settings.json"]
+        assert set(kwargs["rendered_files"]) == {
+            ".claude/settings.json",
+            ".claude.json",
+        }
+        bodies = kwargs["rendered_files"]
         return [
             FileDiff(
                 path=".claude/settings.json",
                 remote_path="/Users/claude-code/.claude/settings.json",
                 remote_present=False,
                 remote_body="",
-                rendered_body=body,
+                rendered_body=bodies[".claude/settings.json"],
                 unified_diff="--- host\n+++ rendered\n",
-            )
+            ),
+            FileDiff(
+                path=".claude.json",
+                remote_path="/Users/claude-code/.claude.json",
+                remote_present=False,
+                remote_body="",
+                rendered_body=bodies[".claude.json"],
+                unified_diff="--- host\n+++ rendered\n",
+            ),
         ]
 
     monkeypatch.setattr(lifecycle_canonical, "diff_files", fake_diff_files)
@@ -219,16 +274,11 @@ def test_canonical_sync_writes_only_claude_global_settings_without_restart(
     monkeypatch.setattr(
         lifecycle_canonical,
         "_validate_claude_credential_activation",
-        lambda _: ("ANTHROPIC_API_KEY", "api-test-value"),
+        lambda _: ("CLAUDE_CODE_OAUTH_TOKEN", "oauth-test-value"),
     )
     monkeypatch.setattr(
         lifecycle_canonical,
-        "_claude_credential_env_body",
-        lambda *_: "export ANTHROPIC_API_KEY='api-test-value'\n",
-    )
-    monkeypatch.setattr(
-        lifecycle_canonical,
-        "_ensure_claude_activation_directories",
+        "_ensure_claude_settings_directory",
         lambda _client, **kwargs: captured.setdefault("directory", kwargs),
     )
 
@@ -236,21 +286,42 @@ def test_canonical_sync_writes_only_claude_global_settings_without_restart(
         captured.setdefault("writes", []).append(kwargs)
 
     monkeypatch.setattr(lifecycle_canonical, "_atomic_write", fake_atomic_write)
+    monkeypatch.setattr(
+        lifecycle_canonical,
+        "_remove_retired_claude_artifacts",
+        lambda *_args, **kwargs: captured.setdefault(
+            "retired_cleanup", []
+        ).append(kwargs),
+    )
 
     result = lifecycle_canonical.sync_agent_canonical("claude-code")
 
     assert result.success is True
-    # Credential activation is deliberately not reported in result files,
-    # diffs, or events; only the non-secret settings write is observable.
-    assert result.files_written == (".claude/settings.json",)
-    assert all("clawrium-credentials.env" not in diff.path for diff in result.diffs)
+    # Credentials write is deliberately not reported in result files or diffs;
+    # only the non-secret native files are observable.
+    assert set(result.files_written) == {".claude/settings.json", ".claude.json"}
+    assert all(".credentials.json" not in diff.path for diff in result.diffs)
     assert captured["diff_host"]["os_family"] == "darwin"
     assert captured["directory"]["os_family"] == "darwin"
     assert [write["remote_path"] for write in captured["writes"]] == [
         "/Users/claude-code/.claude/settings.json",
-        "/Users/claude-code/.profile.d/clawrium-claude.sh",
-        "/Users/claude-code/.claude/clawrium-credentials.env",
+        "/Users/claude-code/.claude.json",
+        "/Users/claude-code/.claude/.credentials.json",
     ]
+    # Retired env/profile hook cleanup runs after the native credentials
+    # write — exactly once per sync, with both legacy paths listed.
+    assert captured["retired_cleanup"] == [
+        {
+            "agent_name": "claude-code",
+            "retired_paths": (
+                "/Users/claude-code/.claude/clawrium-credentials.env",
+                "/Users/claude-code/.profile.d/clawrium-claude.sh",
+            ),
+        }
+    ]
+    assert json.loads(captured["writes"][-1]["body"]) == {
+        "claudeAiOauth": {"accessToken": "oauth-test-value"}
+    }
     assert client.close.call_count == 1
 
 
@@ -276,7 +347,7 @@ def test_canonical_sync_rejects_secret_passthrough_before_remote_io(monkeypatch)
             "configure.yaml",
             "/home/{{ agent_name }}/.claude",
             "{{ agent_name }}",
-            'ansible_os_family == "Darwin"',
+            None,
         ),
         (
             "configure_macos.yaml",
@@ -286,7 +357,7 @@ def test_canonical_sync_rejects_secret_passthrough_before_remote_io(monkeypatch)
         ),
     ],
 )
-def test_claude_settings_playbooks_only_write_global_settings(
+def test_claude_settings_playbooks_only_write_native_files(
     filename, expected_home, expected_group, guard
 ):
     path = Path("src/clawrium/platform/registry/claude/playbooks") / filename
@@ -294,13 +365,25 @@ def test_claude_settings_playbooks_only_write_global_settings(
     tasks = playbook[0]["tasks"]
     serialized = json.dumps(playbook)
 
-    assert tasks[0]["when"] == guard
+    # Dispatcher-only OS fork invariant: the Linux configure playbook
+    # relies entirely on ``core.playbook_resolver`` for OS selection and
+    # carries no ``ansible_os_family`` branch. The macOS sibling keeps
+    # the task-0 non-Darwin fail-fast guard, mirroring the
+    # install_macos.yaml precedent.
+    if guard is None:
+        assert "ansible_os_family" not in serialized
+    else:
+        assert tasks[0]["when"] == guard
     directory = _playbook_task(
         playbook, "Create dedicated Claude global settings directory"
     )["ansible.builtin.file"]
     settings = _playbook_task(playbook, "Write bounded global Claude settings")[
         "ansible.builtin.copy"
     ]
+    onboarding = _playbook_task(
+        playbook, "Write Claude first-run onboarding marker"
+    )["ansible.builtin.copy"]
+    home_root = expected_home.rsplit("/", 1)[0]
     assert directory == {
         "path": expected_home,
         "state": "directory",
@@ -315,9 +398,20 @@ def test_claude_settings_playbooks_only_write_global_settings(
         "group": expected_group,
         "mode": "0600",
     }
+    assert onboarding == {
+        "content": "{{ prerendered_claude_onboarding_json }}",
+        "dest": f"{home_root}/.claude.json",
+        "owner": "{{ agent_name }}",
+        "group": expected_group,
+        "mode": "0600",
+    }
     assert "ansible_user_dir" not in serialized
     assert "settings.local.json" not in serialized
     assert "ansible.builtin.command" not in serialized
     assert "ansible.builtin.shell" not in serialized
     assert "systemctl" not in serialized
     assert "launchctl" not in serialized
+    # Retired artifacts appear only in explicit ``state: absent`` cleanup
+    # tasks; nothing else in the playbook references the legacy env hook.
+    assert "clawrium-credentials.env" in serialized
+    assert "clawrium-claude.sh" in serialized
