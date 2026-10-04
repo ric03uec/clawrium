@@ -222,6 +222,7 @@ def _stub_sync_environment(monkeypatch, *, agent_type: str = "hermes"):
     monkeypatch.setattr(lc, "_atomic_write", lambda *a, **kw: None)
     monkeypatch.setattr(lc, "_restart_unit", lambda *a, **kw: None)
     monkeypatch.setattr(lc, "_verify_health", lambda *a, **kw: None)
+    monkeypatch.setattr(lc, "_hermes_reconcile_herdr", lambda *a, **kw: None)
     # #811: stub the validate-phase host probe to "install intact" so
     # the new validate-phase short-circuit doesn't fire on tests that
     # exercise downstream sync behavior. Tests that want to exercise
@@ -860,6 +861,7 @@ def test_sync_force_bypass_writes_through_secret_removal(monkeypatch):
         "_atomic_write",
         lambda *a, **kw: written.append(kw["remote_path"]),
     )
+    monkeypatch.setattr(lc, "_hermes_reconcile_herdr", lambda *a, **kw: None)
     # Stub onboarding transition so we don't write hosts.json.
     monkeypatch.setattr(
         "clawrium.core.onboarding.transition_state",
@@ -4454,6 +4456,7 @@ class TestHermesSlackInstallRunsBeforeRestart:
         def spy_restart(*_a, **_kw):
             order.append("restart_unit")
 
+        monkeypatch.setattr(lc, "_hermes_reconcile_herdr", lambda *a, **kw: None)
         monkeypatch.setattr(lc, "_hermes_install_slack_mcp", spy_install)
         monkeypatch.setattr(lc, "_restart_unit", spy_restart)
 
@@ -4481,6 +4484,7 @@ class TestHermesSlackInstallRunsBeforeRestart:
         def spy_restart(*_a, **_kw):
             restart_called.append(True)
 
+        monkeypatch.setattr(lc, "_hermes_reconcile_herdr", lambda *a, **kw: None)
         monkeypatch.setattr(lc, "_hermes_install_slack_mcp", boom_install)
         monkeypatch.setattr(lc, "_restart_unit", spy_restart)
 
