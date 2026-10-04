@@ -159,7 +159,7 @@ class HerdrE2E:
 
         self._create(CLAUDE_AGENT, "claude")
         self._remote(
-            f"su -s /bin/bash - {CLAUDE_AGENT} -c 'claude --version >/dev/null && herdr --version >/dev/null' && "
+            f"su -s /bin/bash - {CLAUDE_AGENT} -c '/home/{CLAUDE_AGENT}/.local/claude/bin/claude --version >/dev/null && herdr --version >/dev/null' && "
             f"test ! -e /home/{CLAUDE_AGENT}/.hermes/plugins/herdr-agent-state"
         )
         evidence.claude_binary_only = True
