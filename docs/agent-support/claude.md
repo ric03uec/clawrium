@@ -24,6 +24,15 @@ The installed record is shown by `clawctl agent get` and `clawctl agent
 describe`. Its ready state means the installation completed; it is not a
 process-health result.
 
+## Herdr runtime
+
+Claude installs the pinned, host-shared [Herdr](https://herdr.dev/) binary at
+`/usr/local/bin/herdr` on Linux and macOS. The verified runtime is shared with
+Hermes agents on that host and remains after this Claude agent is removed.
+Claude receives **no** Herdr plugin or configuration integration.
+
+Herdr is not provisioned for OpenClaw, ZeroClaw, or Ethos agents.
+
 ## Configuration and settings ownership
 
 `clawctl agent configure <name>` and `clawctl agent sync <name>` reconcile the

@@ -240,6 +240,15 @@ clawctl agent chat <name>
 For the full hermes multi-provider model (1 primary + up to 9 auxiliary
 slots), see [Hermes Support Matrix → Multi-provider attachments](agent-support/hermes.md#multi-provider-attachments).
 
+### Herdr support
+
+Installing a `hermes` or install-only `claude` agent also provisions the
+pinned, checksum-verified, root-owned Herdr binary at `/usr/local/bin/herdr`.
+It is shared by those supported agent accounts on the host and is not removed
+when either account is deleted. Hermes alone receives Herdr's native
+`herdr-agent-state` plugin; Claude is binary-only. OpenClaw, ZeroClaw, and
+Ethos do not provision or integrate Herdr.
+
 ### Lifecycle differences
 
 On macOS the lifecycle backend uses `launchctl` in the **system** domain

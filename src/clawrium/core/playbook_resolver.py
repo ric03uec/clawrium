@@ -130,6 +130,22 @@ def resolve_base_playbook(os_family: str) -> Path:
     return path
 
 
+def resolve_herdr_playbook(os_family: str) -> Path:
+    """Return the OS-specific shared Herdr provisioning playbook.
+
+    Eligibility is deliberately enforced by ``core.install``: only Hermes and
+    Claude select this playbook, so excluded agent types cannot accidentally
+    gain a host-level Herdr mutation through a generic base playbook.
+    """
+    suffix = _suffix_for(os_family)
+    path = _PLATFORM_ROOT / "playbooks" / f"herdr{suffix}.yaml"
+    if not path.exists():
+        raise FileNotFoundError(
+            f"Herdr playbook for os_family={os_family!r} not found at {path}."
+        )
+    return path
+
+
 def resolve_agent_playbook(agent_type: str, op: str, os_family: str) -> Path:
     """Return the path to an agent-specific playbook (install/configure/...)
     for this OS family.

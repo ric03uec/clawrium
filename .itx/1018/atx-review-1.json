@@ -1,0 +1,269 @@
+{
+  "atx_review": {
+    "version": "3",
+    "status": "reviewed",
+    "blocking": true,
+    "revision_id": "2615947e-7868-4121-8c2d-7cb28d15c5f9",
+    "review_id": "rev-14445f49-aaea-4073-b90a-c69a9affc5ef",
+    "review_title": "Review full branch diff",
+    "summary": "{\"response_type\":\"text\",\"content\":\"\u003coutput\u003e\\n{\\\"rating\\\":2,\\\"summary\\\":\\\"The new host-shared Herdr installation flow is not complete in the supplied diff and can break all Hermes and Claude installs. ...",
+    "rating": 3,
+    "agents": [
+      "leader",
+      "cli-ux",
+      "gui-routes",
+      "render-engine",
+      "test-coverage",
+      "security-reviewer",
+      "lifecycle-core",
+      "platform-playbooks"
+    ],
+    "agent_contributions": [
+      {
+        "name": "leader",
+        "status": "completed",
+        "cost_usd": 0.12409,
+        "delegated_to": [
+          "e5323802-3973-44c7-a934-53da9bea7eae",
+          "49fbebd6-8745-4b35-81b4-0bb0bf680f37",
+          "2b6bb653-42cd-4aa5-aac5-6edc8b274fd0",
+          "96cf24db-1fca-48da-8f6f-2d799acb293a",
+          "e8462619-249e-41f6-8cb0-a7169ae20d74",
+          "d79463ac-884b-4e03-b34f-fb6017c83027",
+          "2f559a42-9fca-4be1-a67d-1601b2edbe8b"
+        ]
+      },
+      {
+        "name": "cli-ux",
+        "status": "skipped"
+      },
+      {
+        "name": "gui-routes",
+        "status": "skipped"
+      },
+      {
+        "name": "render-engine",
+        "status": "skipped"
+      },
+      {
+        "name": "test-coverage",
+        "status": "completed",
+        "rating": 2,
+        "cost_usd": 0.23548200000000002
+      },
+      {
+        "name": "security-reviewer",
+        "status": "completed",
+        "rating": 4,
+        "cost_usd": 0.14018799999999998
+      },
+      {
+        "name": "lifecycle-core",
+        "status": "completed",
+        "rating": 2,
+        "cost_usd": 0.036938
+      },
+      {
+        "name": "platform-playbooks",
+        "status": "completed",
+        "rating": 5,
+        "cost_usd": 0.042164
+      }
+    ],
+    "models": [
+      "gpt-5.6-terra",
+      "gpt-5.6-luna",
+      "gpt-5.6-sol"
+    ],
+    "review_cost_usd": 0.578862,
+    "duration_ms": 148558,
+    "findings": {
+      "parse_coverage": "complete",
+      "blocking": [
+        {
+          "severity": "blocking",
+          "location": "src/clawrium/core/install.py:1329",
+          "issue": "Eligible installs now unconditionally resolve Herdr playbooks, but the referenced platform playbooks (`src/clawrium/platform/playbooks/herdr.yaml` and `herdr_macos.yaml`) are not included in the supplied diff. A clean checkout or package without those files raises `FileNotFoundError` before the agent installer runs.",
+          "suggestion": "Commit both OS-specific Herdr playbooks, ensure package-data includes them, and test resolution/install from a clean checkout or built distribution.",
+          "source_agent": "leader"
+        },
+        {
+          "severity": "blocking",
+          "location": "src/clawrium/core/install.py:1327",
+          "issue": "There is no behavioral test proving Herdr dispatch is correctly scoped and ordered for each supported and excluded agent. tests/platform/test_herdr_install.py:51 merely searches install.py source text for the eligibility conditional; it does not invoke run_installation, capture Ansible calls, or prove that Hermes and Claude run base -\u003e OS-specific Herdr -\u003e agent playbook while OpenClaw, ZeroClaw, and Ethos never run Herdr. The modified Hermes test only checks a total call count and the third call's Hermes path, while the Claude test only changes a count from two to three. A regression selecting the wrong Herdr playbook, invoking it for excluded types, or placing it after the agent installer can pass these tests.",
+          "suggestion": "Add parameterized run_installation tests with a mocked Ansible boundary for Hermes and Claude on Linux and Darwin, asserting all three playbook paths in exact order. Add excluded-agent cases asserting exactly base plus agent playbooks and asserting no captured playbook contains herdr.",
+          "source_agent": "test-coverage"
+        },
+        {
+          "severity": "blocking",
+          "location": "src/clawrium/core/install.py:1329",
+          "issue": "run_installation now unconditionally resolves and runs a Herdr playbook for Hermes and Claude, but src/clawrium/platform/playbooks/herdr.yaml and herdr_macos.yaml are not part of the supplied branch diff or tracked files. The resolver at src/clawrium/core/playbook_resolver.py:136 points into that directory, so a clean checkout/package will raise FileNotFoundError before the agent installer runs and all eligible installations will fail.",
+          "suggestion": "Add both herdr.yaml and herdr_macos.yaml to the branch/package manifest, verify they are included in the built distribution, and add a clean-checkout test that resolves both playbooks and exercises the Hermes/Claude installation path.",
+          "source_agent": "lifecycle-core"
+        }
+      ],
+      "warnings": [
+        {
+          "severity": "warning",
+          "location": "src/clawrium/core/install.py:1327",
+          "issue": "Tests do not behaviorally prove Herdr is invoked only for Hermes and Claude, in base → Herdr → agent order, with the correct OS-specific playbook. Current coverage relies largely on source assertions and runner call counts.",
+          "suggestion": "Add parameterized mocked `run_installation` tests for Linux and macOS supported agents, plus excluded-agent cases asserting no Herdr playbook is invoked.",
+          "source_agent": "leader"
+        },
+        {
+          "severity": "warning",
+          "location": "src/clawrium/core/install.py:1330-1351",
+          "issue": "The new resolver-missing and unsuccessful-Herdr-runner paths lack tests verifying an `InstallationError` is raised and the agent playbook is not subsequently executed.",
+          "suggestion": "Add tests for resolver `FileNotFoundError` translation and failed second runner result, including exact ordering and failure-log assertions.",
+          "source_agent": "leader"
+        },
+        {
+          "severity": "warning",
+          "location": "src/clawrium/platform/registry/hermes/playbooks/install.yaml:239",
+          "issue": "The Linux Herdr integration runs with the agent-writable `~/.local/bin` first in `PATH`. Although Herdr itself is invoked absolutely and unprivileged, any helper it resolves by name can be shadowed by a compromised agent account.",
+          "suggestion": "Use a trusted system-only PATH for the integration, or provide any required agent-local executable by a supported absolute-path mechanism; add a shadowed-helper regression test.",
+          "source_agent": "leader"
+        },
+        {
+          "severity": "warning",
+          "location": "src/clawrium/platform/registry/hermes/playbooks/install_macos.yaml:253",
+          "issue": "The macOS integration PATH retains Homebrew and `/usr/local/bin` directories without validating ownership or writability, allowing PATH-resolved helpers to be substituted on some host configurations.",
+          "suggestion": "Minimize PATH to trusted directories and invoke needed dependencies with ownership-validated absolute paths.",
+          "source_agent": "leader"
+        },
+        {
+          "severity": "warning",
+          "location": "src/clawrium/core/install.py:1330-1351",
+          "issue": "Neither new Herdr failure path is exercised. There is no test for _get_herdr_playbook_path(host_os_family) raising FileNotFoundError and being translated to InstallationError, nor for an unsuccessful Herdr runner result raising InstallationError before the agent playbook runs. The existing test_hermes_install_checksum_failure_raises supplies a successful dummy result for Herdr and still tests only the later agent-playbook failure.",
+          "suggestion": "Add tests that monkeypatch the resolver to raise FileNotFoundError, and that make the second runner response unsuccessful. Assert the precise InstallationError message, that the agent playbook was not called after a Herdr failure, and that the failure log path identifies the Herdr artifact directory.",
+          "source_agent": "test-coverage"
+        },
+        {
+          "severity": "warning",
+          "location": "src/clawrium/core/playbook_resolver.py:133-146",
+          "issue": "Resolver coverage only verifies the happy-path filenames for linux and darwin. It does not cover unsupported OS input or a missing platform file, despite resolve_herdr_playbook exposing a new public failure contract. Consequently, the newly added FileNotFoundError behavior can silently regress.",
+          "suggestion": "Test an unsupported OS family and a missing resolved file, by monkeypatching _PLATFORM_ROOT or Path.exists, and assert the raised FileNotFoundError includes both the requested OS family and expected path.",
+          "source_agent": "test-coverage"
+        },
+        {
+          "severity": "warning",
+          "location": "src/clawrium/platform/registry/hermes/playbooks/install.yaml:218-257",
+          "issue": "The Linux and macOS Hermes integration logic has no test for its actual idempotency branches. tests/platform/test_herdr_install.py only searches YAML text for task fragments. It does not verify behavior when the plugin directory exists but the config entry is absent, when the config entry exists but the directory is absent, or when both are present and the integration command must be skipped. Those are the exact branches introduced by the when condition.",
+          "suggestion": "Load both playbooks as YAML and assert the task's when expression and command argv structurally. Preferably add an Ansible playbook or task-evaluator fixture covering all four directory/config result combinations, asserting installation occurs for either missing state and is skipped only when both pieces are healthy.",
+          "source_agent": "test-coverage"
+        },
+        {
+          "severity": "warning",
+          "location": "src/clawrium/platform/registry/hermes/playbooks/install.yaml:239",
+          "issue": "The Linux integration process runs with the agent-writable directory `/home/{{ agent_name }}/.local/bin` first in PATH. Although `/usr/local/bin/herdr` itself is selected by absolute path and execution is unprivileged, any subprocess that Herdr resolves by name can be shadowed by a compromised or pre-populated agent account. This weakens the trust boundary around installation of executable plugin code.",
+          "suggestion": "Use a trusted system-only PATH while running the installer, such as `/usr/local/bin:/usr/bin:/bin`. If Herdr specifically needs the agent-local Hermes executable, pass its absolute path through a supported option/environment variable, or document and test that Herdr does not execute PATH-resolved helper programs.",
+          "source_agent": "security-reviewer"
+        },
+        {
+          "severity": "warning",
+          "location": "src/clawrium/platform/registry/hermes/playbooks/install_macos.yaml:253",
+          "issue": "The macOS integration process includes `/opt/homebrew/bin` and `/usr/local/bin` in PATH without checking their ownership or writability. On systems where Homebrew is owned by an interactive administrator rather than root, a PATH-resolved helper can be substituted and executed as the Hermes agent during plugin installation.",
+          "suggestion": "Minimize PATH to immutable Apple/system directories where possible and invoke every required non-system dependency by an ownership-validated absolute path. Add a preflight assertion that any retained PATH directory and required executable are not writable by the agent user.",
+          "source_agent": "security-reviewer"
+        }
+      ],
+      "suggestions": [
+        {
+          "severity": "suggestion",
+          "location": "src/clawrium/platform/playbooks/herdr.yaml:32",
+          "issue": "The binary is pinned by release version and SHA-256 and installed root-owned, which is appropriate, but the checksums are duplicated independently between platform playbooks and there is no runtime provenance/version verification after installation. A mistaken checksum update would still authorize arbitrary release content as a host-wide executable.",
+          "suggestion": "Maintain version, asset names, and checksums in one reviewed manifest, and after download execute `/usr/local/bin/herdr --version` as an unprivileged account and assert the expected version. Keep checksum updates tied to independently verified upstream release metadata.",
+          "source_agent": "security-reviewer"
+        }
+      ]
+    },
+    "raw_markdown": "{\"response_type\":\"text\",\"content\":\"\u003coutput\u003e\\n{\\\"rating\\\":2,\\\"summary\\\":\\\"The new host-shared Herdr installation flow is not complete in the supplied diff and can break all Hermes and Claude installs. The implementation also needs behavioral coverage for dispatch, ordering, and failure handling; platform integration structure otherwise appears sound.\\\",\\\"findings\\\":[{\\\"severity\\\":\\\"blocking\\\",\\\"location\\\":\\\"src/clawrium/core/install.py:1329\\\",\\\"issue\\\":\\\"Eligible installs now unconditionally resolve Herdr playbooks, but the referenced platform playbooks (`src/clawrium/platform/playbooks/herdr.yaml` and `herdr_macos.yaml`) are not included in the supplied diff. A clean checkout or package without those files raises `FileNotFoundError` before the agent installer runs.\\\",\\\"suggestion\\\":\\\"Commit both OS-specific Herdr playbooks, ensure package-data includes them, and test resolution/install from a clean checkout or built distribution.\\\"},{\\\"severity\\\":\\\"warning\\\",\\\"location\\\":\\\"src/clawrium/core/install.py:1327\\\",\\\"issue\\\":\\\"Tests do not behaviorally prove Herdr is invoked only for Hermes and Claude, in base → Herdr → agent order, with the correct OS-specific playbook. Current coverage relies largely on source assertions and runner call counts.\\\",\\\"suggestion\\\":\\\"Add parameterized mocked `run_installation` tests for Linux and macOS supported agents, plus excluded-agent cases asserting no Herdr playbook is invoked.\\\"},{\\\"severity\\\":\\\"warning\\\",\\\"location\\\":\\\"src/clawrium/core/install.py:1330-1351\\\",\\\"issue\\\":\\\"The new resolver-missing and unsuccessful-Herdr-runner paths lack tests verifying an `InstallationError` is raised and the agent playbook is not subsequently executed.\\\",\\\"suggestion\\\":\\\"Add tests for resolver `FileNotFoundError` translation and failed second runner result, including exact ordering and failure-log assertions.\\\"},{\\\"severity\\\":\\\"warning\\\",\\\"location\\\":\\\"src/clawrium/platform/registry/hermes/playbooks/install.yaml:239\\\",\\\"issue\\\":\\\"The Linux Herdr integration runs with the agent-writable `~/.local/bin` first in `PATH`. Although Herdr itself is invoked absolutely and unprivileged, any helper it resolves by name can be shadowed by a compromised agent account.\\\",\\\"suggestion\\\":\\\"Use a trusted system-only PATH for the integration, or provide any required agent-local executable by a supported absolute-path mechanism; add a shadowed-helper regression test.\\\"},{\\\"severity\\\":\\\"warning\\\",\\\"location\\\":\\\"src/clawrium/platform/registry/hermes/playbooks/install_macos.yaml:253\\\",\\\"issue\\\":\\\"The macOS integration PATH retains Homebrew and `/usr/local/bin` directories without validating ownership or writability, allowing PATH-resolved helpers to be substituted on some host configurations.\\\",\\\"suggestion\\\":\\\"Minimize PATH to trusted directories and invoke needed dependencies with ownership-validated absolute paths.\\\"}],\\\"recommendations\\\":[\\\"Add and package the missing OS-specific Herdr provisioning playbooks before merge.\\\",\\\"Replace call-count/source-text coverage with boundary-level provisioning, exclusion, OS-routing, and failure-path tests.\\\",\\\"Harden integration-task PATH handling on Linux and macOS.\\\"],\\\"metadata\\\":{\\\"files_reviewed\\\":14,\\\"domain\\\":\\\"core installation orchestration, platform playbooks, security, and test coverage\\\"}}\\n\u003c/output\u003e\"}",
+    "pr_body": "\u003c!-- atx:pr-review-summary v3 --\u003e\n## ATX Review Summary\n\n**Current Revision Rating: 3/5** | **Cost: $0.58** | **Time: 2m 28s**\n**Agents: leader, cli-ux, gui-routes, render-engine, test-coverage, security-reviewer, lifecycle-core, platform-playbooks** | **Finding Parse Coverage: complete**\n\n## Blocking Issues\n\n| # | Source | Location | Issue | Suggested Fix |\n|---|--------|----------|-------|---------------|\n| B1 | leader | src/clawrium/core/install.py:1329 | Eligible installs now unconditionally resolve Herdr playbooks, but the referenced platform playbooks (\\`src/clawrium/platform/playbooks/herdr.yaml\\` and \\`herdr_macos.yaml\\`) are not included in the supplied diff. A clean checkout or package without those files raises \\`FileNotFoundError\\` before the agent installer runs. | Commit both OS-specific Herdr playbooks, ensure package-data includes them, and test resolution/install from a clean checkout or built distribution. |\n| B2 | test-coverage | src/clawrium/core/install.py:1327 | There is no behavioral test proving Herdr dispatch is correctly scoped and ordered for each supported and excluded agent. tests/platform/test_herdr_install.py:51 merely searches install.py source text for the eligibility conditional; it does not invoke run_installation, capture Ansible calls, or prove that Hermes and Claude run base -\\\u003e OS-specific Herdr -\\\u003e agent playbook while OpenClaw, ZeroClaw, and Ethos never run Herdr. The modified Hermes test only checks a total call count and the third call's Hermes path, while the Claude test only changes a count from two to three. A regression selecting the wrong Herdr playbook, invoking it for excluded types, or placing it after the agent installer can pass these tests. | Add parameterized run_installation tests with a mocked Ansible boundary for Hermes and Claude on Linux and Darwin, asserting all three playbook paths in exact order. Add excluded-agent cases asserting exactly base plus agent playbooks and asserting no captured playbook contains herdr. |\n| B3 | lifecycle-core | src/clawrium/core/install.py:1329 | run_installation now unconditionally resolves and runs a Herdr playbook for Hermes and Claude, but src/clawrium/platform/playbooks/herdr.yaml and herdr_macos.yaml are not part of the supplied branch diff or tracked files. The resolver at src/clawrium/core/playbook_resolver.py:136 points into that directory, so a clean checkout/package will raise FileNotFoundError before the agent installer runs and all eligible installations will fail. | Add both herdr.yaml and herdr_macos.yaml to the branch/package manifest, verify they are included in the built distribution, and add a clean-checkout test that resolves both playbooks and exercises the Hermes/Claude installation path. |\n\n## Warnings\n\n| # | Source | Location | Issue | Suggested Fix |\n|---|--------|----------|-------|---------------|\n| W1 | leader | src/clawrium/core/install.py:1327 | Tests do not behaviorally prove Herdr is invoked only for Hermes and Claude, in base → Herdr → agent order, with the correct OS-specific playbook. Current coverage relies largely on source assertions and runner call counts. | Add parameterized mocked \\`run_installation\\` tests for Linux and macOS supported agents, plus excluded-agent cases asserting no Herdr playbook is invoked. |\n| W2 | leader | src/clawrium/core/install.py:1330-1351 | The new resolver-missing and unsuccessful-Herdr-runner paths lack tests verifying an \\`InstallationError\\` is raised and the agent playbook is not subsequently executed. | Add tests for resolver \\`FileNotFoundError\\` translation and failed second runner result, including exact ordering and failure-log assertions. |\n| W3 | leader | src/clawrium/platform/registry/hermes/playbooks/install.yaml:239 | The Linux Herdr integration runs with the agent-writable \\`~/.local/bin\\` first in \\`PATH\\`. Although Herdr itself is invoked absolutely and unprivileged, any helper it resolves by name can be shadowed by a compromised agent account. | Use a trusted system-only PATH for the integration, or provide any required agent-local executable by a supported absolute-path mechanism; add a shadowed-helper regression test. |\n| W4 | leader | src/clawrium/platform/registry/hermes/playbooks/install_macos.yaml:253 | The macOS integration PATH retains Homebrew and \\`/usr/local/bin\\` directories without validating ownership or writability, allowing PATH-resolved helpers to be substituted on some host configurations. | Minimize PATH to trusted directories and invoke needed dependencies with ownership-validated absolute paths. |\n| W5 | test-coverage | src/clawrium/core/install.py:1330-1351 | Neither new Herdr failure path is exercised. There is no test for _get_herdr_playbook_path(host_os_family) raising FileNotFoundError and being translated to InstallationError, nor for an unsuccessful Herdr runner result raising InstallationError before the agent playbook runs. The existing test_hermes_install_checksum_failure_raises supplies a successful dummy result for Herdr and still tests only the later agent-playbook failure. | Add tests that monkeypatch the resolver to raise FileNotFoundError, and that make the second runner response unsuccessful. Assert the precise InstallationError message, that the agent playbook was not called after a Herdr failure, and that the failure log path identifies the Herdr artifact directory. |\n| W6 | test-coverage | src/clawrium/core/playbook_resolver.py:133-146 | Resolver coverage only verifies the happy-path filenames for linux and darwin. It does not cover unsupported OS input or a missing platform file, despite resolve_herdr_playbook exposing a new public failure contract. Consequently, the newly added FileNotFoundError behavior can silently regress. | Test an unsupported OS family and a missing resolved file, by monkeypatching _PLATFORM_ROOT or Path.exists, and assert the raised FileNotFoundError includes both the requested OS family and expected path. |\n| W7 | test-coverage | src/clawrium/platform/registry/hermes/playbooks/install.yaml:218-257 | The Linux and macOS Hermes integration logic has no test for its actual idempotency branches. tests/platform/test_herdr_install.py only searches YAML text for task fragments. It does not verify behavior when the plugin directory exists but the config entry is absent, when the config entry exists but the directory is absent, or when both are present and the integration command must be skipped. Those are the exact branches introduced by the when condition. | Load both playbooks as YAML and assert the task's when expression and command argv structurally. Preferably add an Ansible playbook or task-evaluator fixture covering all four directory/config result combinations, asserting installation occurs for either missing state and is skipped only when both pieces are healthy. |\n| W8 | security-reviewer | src/clawrium/platform/registry/hermes/playbooks/install.yaml:239 | The Linux integration process runs with the agent-writable directory \\`/home/{{ agent_name }}/.local/bin\\` first in PATH. Although \\`/usr/local/bin/herdr\\` itself is selected by absolute path and execution is unprivileged, any subprocess that Herdr resolves by name can be shadowed by a compromised or pre-populated agent account. This weakens the trust boundary around installation of executable plugin code. | Use a trusted system-only PATH while running the installer, such as \\`/usr/local/bin:/usr/bin:/bin\\`. If Herdr specifically needs the agent-local Hermes executable, pass its absolute path through a supported option/environment variable, or document and test that Herdr does not execute PATH-resolved helper programs. |\n| W9 | security-reviewer | src/clawrium/platform/registry/hermes/playbooks/install_macos.yaml:253 | The macOS integration process includes \\`/opt/homebrew/bin\\` and \\`/usr/local/bin\\` in PATH without checking their ownership or writability. On systems where Homebrew is owned by an interactive administrator rather than root, a PATH-resolved helper can be substituted and executed as the Hermes agent during plugin installation. | Minimize PATH to immutable Apple/system directories where possible and invoke every required non-system dependency by an ownership-validated absolute path. Add a preflight assertion that any retained PATH directory and required executable are not writable by the agent user. |\n\n## Suggestions\n\n| # | Source | Location | Issue | Suggested Fix |\n|---|--------|----------|-------|---------------|\n| S1 | security-reviewer | src/clawrium/platform/playbooks/herdr.yaml:32 | The binary is pinned by release version and SHA-256 and installed root-owned, which is appropriate, but the checksums are duplicated independently between platform playbooks and there is no runtime provenance/version verification after installation. A mistaken checksum update would still authorize arbitrary release content as a host-wide executable. | Maintain version, asset names, and checksums in one reviewed manifest, and after download execute \\`/usr/local/bin/herdr --version\\` as an unprivileged account and assert the expected version. Keep checksum updates tied to independently verified upstream release metadata. |\n\nCo-Authored-By: @atx-ci \u003c269048218+atx-ci@users.noreply.github.com\u003e\n",
+    "pr_body_template": {
+      "name": "pr-review-summary",
+      "version": "3"
+    },
+    "review_render_status": "rendered",
+    "rendered_review_markdown": "# ATX Review\n\n**Rating: 2/5** | **Agents: lifecycle-core, platform-playbooks, security-reviewer, test-coverage, cli-ux, gui-routes, render-engine**\n\n## Summary\n\nThe new host-shared Herdr installation flow is not complete in the supplied diff and can break all Hermes and Claude installs. The implementation also needs behavioral coverage for dispatch, ordering, and failure handling; platform integration structure otherwise appears sound.\n\n## Blocking Issues\n\n| # | Source | Category | Location | Issue | Suggested Fix |\n|---|--------|----------|----------|-------|---------------|\n| B1 | - | - | src/clawrium/core/install.py:1329 | Eligible installs now unconditionally resolve Herdr playbooks, but the referenced platform playbooks (\\`src/clawrium/platform/playbooks/herdr.yaml\\` and \\`herdr_macos.yaml\\`) are not included in the supplied diff. A clean checkout or package without those files raises \\`FileNotFoundError\\` before the agent installer runs. | Commit both OS-specific Herdr playbooks, ensure package-data includes them, and test resolution/install from a clean checkout or built distribution. |\n\n## Warnings\n\n| # | Source | Category | Location | Issue | Suggested Fix |\n|---|--------|----------|----------|-------|---------------|\n| W1 | - | - | src/clawrium/core/install.py:1327 | Tests do not behaviorally prove Herdr is invoked only for Hermes and Claude, in base → Herdr → agent order, with the correct OS-specific playbook. Current coverage relies largely on source assertions and runner call counts. | Add parameterized mocked \\`run_installation\\` tests for Linux and macOS supported agents, plus excluded-agent cases asserting no Herdr playbook is invoked. |\n| W2 | - | - | src/clawrium/core/install.py:1330-1351 | The new resolver-missing and unsuccessful-Herdr-runner paths lack tests verifying an \\`InstallationError\\` is raised and the agent playbook is not subsequently executed. | Add tests for resolver \\`FileNotFoundError\\` translation and failed second runner result, including exact ordering and failure-log assertions. |\n| W3 | - | - | src/clawrium/platform/registry/hermes/playbooks/install.yaml:239 | The Linux Herdr integration runs with the agent-writable \\`~/.local/bin\\` first in \\`PATH\\`. Although Herdr itself is invoked absolutely and unprivileged, any helper it resolves by name can be shadowed by a compromised agent account. | Use a trusted system-only PATH for the integration, or provide any required agent-local executable by a supported absolute-path mechanism; add a shadowed-helper regression test. |\n| W4 | - | - | src/clawrium/platform/registry/hermes/playbooks/install_macos.yaml:253 | The macOS integration PATH retains Homebrew and \\`/usr/local/bin\\` directories without validating ownership or writability, allowing PATH-resolved helpers to be substituted on some host configurations. | Minimize PATH to trusted directories and invoke needed dependencies with ownership-validated absolute paths. |\n\n## Suggestions\n\n| # | Source | Category | Location | Issue | Suggested Fix |\n|---|--------|----------|----------|-------|---------------|\n| - | - | - | - | None | - |\n\n## Recommendations\n\n- Add and package the missing OS-specific Herdr provisioning playbooks before merge.\n- Replace call-count/source-text coverage with boundary-level provisioning, exclusion, OS-routing, and failure-path tests.\n- Harden integration-task PATH handling on Linux and macOS.\n\n## Agent Status\n\n| Agent | Status | Reason |\n|-------|--------|--------|\n| lifecycle-core | completed | - |\n| platform-playbooks | completed | - |\n| security-reviewer | completed | - |\n| test-coverage | completed | - |\n| cli-ux | skipped | skipped:no-matching-files |\n| gui-routes | skipped | skipped:no-matching-files |\n| render-engine | skipped | skipped:budget-prioritized-install-platform-security-tests |\n",
+    "normalized_review": {
+      "rating": 2,
+      "summary": "The new host-shared Herdr installation flow is not complete in the supplied diff and can break all Hermes and Claude installs. The implementation also needs behavioral coverage for dispatch, ordering, and failure handling; platform integration structure otherwise appears sound.",
+      "findings": [
+        {
+          "severity": "blocking",
+          "location": "src/clawrium/core/install.py:1329",
+          "issue": "Eligible installs now unconditionally resolve Herdr playbooks, but the referenced platform playbooks (`src/clawrium/platform/playbooks/herdr.yaml` and `herdr_macos.yaml`) are not included in the supplied diff. A clean checkout or package without those files raises `FileNotFoundError` before the agent installer runs.",
+          "suggestion": "Commit both OS-specific Herdr playbooks, ensure package-data includes them, and test resolution/install from a clean checkout or built distribution."
+        },
+        {
+          "severity": "warning",
+          "location": "src/clawrium/core/install.py:1327",
+          "issue": "Tests do not behaviorally prove Herdr is invoked only for Hermes and Claude, in base → Herdr → agent order, with the correct OS-specific playbook. Current coverage relies largely on source assertions and runner call counts.",
+          "suggestion": "Add parameterized mocked `run_installation` tests for Linux and macOS supported agents, plus excluded-agent cases asserting no Herdr playbook is invoked."
+        },
+        {
+          "severity": "warning",
+          "location": "src/clawrium/core/install.py:1330-1351",
+          "issue": "The new resolver-missing and unsuccessful-Herdr-runner paths lack tests verifying an `InstallationError` is raised and the agent playbook is not subsequently executed.",
+          "suggestion": "Add tests for resolver `FileNotFoundError` translation and failed second runner result, including exact ordering and failure-log assertions."
+        },
+        {
+          "severity": "warning",
+          "location": "src/clawrium/platform/registry/hermes/playbooks/install.yaml:239",
+          "issue": "The Linux Herdr integration runs with the agent-writable `~/.local/bin` first in `PATH`. Although Herdr itself is invoked absolutely and unprivileged, any helper it resolves by name can be shadowed by a compromised agent account.",
+          "suggestion": "Use a trusted system-only PATH for the integration, or provide any required agent-local executable by a supported absolute-path mechanism; add a shadowed-helper regression test."
+        },
+        {
+          "severity": "warning",
+          "location": "src/clawrium/platform/registry/hermes/playbooks/install_macos.yaml:253",
+          "issue": "The macOS integration PATH retains Homebrew and `/usr/local/bin` directories without validating ownership or writability, allowing PATH-resolved helpers to be substituted on some host configurations.",
+          "suggestion": "Minimize PATH to trusted directories and invoke needed dependencies with ownership-validated absolute paths."
+        }
+      ],
+      "recommendations": [
+        "Add and package the missing OS-specific Herdr provisioning playbooks before merge.",
+        "Replace call-count/source-text coverage with boundary-level provisioning, exclusion, OS-routing, and failure-path tests.",
+        "Harden integration-task PATH handling on Linux and macOS."
+      ],
+      "agents": [
+        {
+          "name": "lifecycle-core",
+          "status": "completed"
+        },
+        {
+          "name": "platform-playbooks",
+          "status": "completed"
+        },
+        {
+          "name": "security-reviewer",
+          "status": "completed"
+        },
+        {
+          "name": "test-coverage",
+          "status": "completed"
+        },
+        {
+          "name": "cli-ux",
+          "status": "skipped",
+          "reason": "skipped:no-matching-files"
+        },
+        {
+          "name": "gui-routes",
+          "status": "skipped",
+          "reason": "skipped:no-matching-files"
+        },
+        {
+          "name": "render-engine",
+          "status": "skipped",
+          "reason": "skipped:budget-prioritized-install-platform-security-tests"
+        }
+      ]
+    }
+  },
+  "caller_instructions": {
+    "render_first": "Branch only on `atx_review.review_render_status`: render `atx_review.rendered_review_markdown` verbatim to the user for `rendered` or `legacy`; surface `atx_review.review_render_error_code` and `atx_review.review_render_error_message` for `error`; show no review for `absent`. Never render `atx_review.raw_markdown` — it is retained strictly for trace/debug and may contain unrendered model formatting (#889).",
+    "validate_before_acting": "For each finding, open the referenced file/line and confirm the issue exists in the current code. ATX reviews can hallucinate file paths, line numbers, or behavior. Treat every finding as a hypothesis, not a fact.",
+    "apply_selectively": "Act only on findings you were able to independently verify. Silently skip findings that don't reproduce against current code — do not surface them as work items, do not ask the user about each one, and do not retry the review to 'confirm'. When uncertain whether a finding reproduces, prefer skipping over surfacing it as a task.",
+    "pr_summary_template": "If `atx_review.pr_body` is present, append it verbatim to the PR body. Do not fetch a template, reconstruct the body, or infer review history. When it is absent, no completed review body is available."
+  }
+}

@@ -1,0 +1,36 @@
+---
+# Darwin sibling of herdr.yaml.  Keep version/assets/checksums in lockstep.
+- hosts: all
+  become: yes
+  vars:
+    herdr_version: "v0.9.3"
+    herdr_asset_map:
+      x86_64: "herdr-macos-x86_64"
+      arm64: "herdr-macos-aarch64"
+    herdr_sha256_map:
+      x86_64: "db62d548ff3e832b087a96b1894a08d26be3905f1830309cd556783f215d4054"
+      arm64: "5173a3e0ae42d5d1ab7ebfa5d5e6329f7c3d23f8e1a3677c7ce3231da2884157"
+  tasks:
+    - name: Refuse to run on non-Darwin hosts (dispatcher contract)
+      ansible.builtin.fail:
+        msg: >-
+          herdr_macos.yaml invoked against {{ ansible_os_family }}. The installation
+          dispatcher must select herdr.yaml for Linux hosts.
+      when: ansible_os_family != "Darwin"
+
+    - name: Refuse unsupported Herdr architecture
+      ansible.builtin.fail:
+        msg: >-
+          Herdr {{ herdr_version }} has no supported macOS release asset for
+          {{ ansible_architecture }}. See https://github.com/herdrdev/herdr/releases/tag/{{ herdr_version }}.
+      when: ansible_architecture not in herdr_asset_map
+
+    - name: Install verified shared Herdr binary
+      ansible.builtin.get_url:
+        url: "https://github.com/herdrdev/herdr/releases/download/{{ herdr_version }}/{{ herdr_asset_map[ansible_architecture] }}"
+        dest: /usr/local/bin/herdr
+        owner: root
+        group: wheel
+        mode: "0755"
+        checksum: "sha256:{{ herdr_sha256_map[ansible_architecture] }}"
+        timeout: 60

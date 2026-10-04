@@ -1,0 +1,37 @@
+---
+# Shared Herdr runtime for the only supported agent types (hermes and claude).
+# Selected by core.install; this playbook never decides agent eligibility.
+- hosts: all
+  become: yes
+  vars:
+    herdr_version: "v0.9.3"
+    herdr_asset_map:
+      x86_64: "herdr-linux-x86_64"
+      aarch64: "herdr-linux-aarch64"
+    herdr_sha256_map:
+      x86_64: "18a8dc65f1c2fa485884344356dea1cfd911c6f06cf46fa78e193f4087f4dba7"
+      aarch64: "4de7aa3e25678812e92960de64f7c2aaa1bca1f0f80a3c5e559837e231e1f5c0"
+  tasks:
+    - name: Refuse to run on non-Linux hosts (dispatcher contract)
+      ansible.builtin.fail:
+        msg: >-
+          herdr.yaml invoked against {{ ansible_os_family }}. The installation
+          dispatcher must select herdr_macos.yaml for Darwin hosts.
+      when: ansible_os_family == "Darwin"
+
+    - name: Refuse unsupported Herdr architecture
+      ansible.builtin.fail:
+        msg: >-
+          Herdr {{ herdr_version }} has no supported Linux release asset for
+          {{ ansible_architecture }}. See https://github.com/herdrdev/herdr/releases/tag/{{ herdr_version }}.
+      when: ansible_architecture not in herdr_asset_map
+
+    - name: Install verified shared Herdr binary
+      ansible.builtin.get_url:
+        url: "https://github.com/herdrdev/herdr/releases/download/{{ herdr_version }}/{{ herdr_asset_map[ansible_architecture] }}"
+        dest: /usr/local/bin/herdr
+        owner: root
+        group: root
+        mode: "0755"
+        checksum: "sha256:{{ herdr_sha256_map[ansible_architecture] }}"
+        timeout: 60

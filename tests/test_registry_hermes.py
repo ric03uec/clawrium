@@ -501,9 +501,9 @@ def test_hermes_install_passes_correct_extra_vars(monkeypatch, tmp_path):
     assert result["success"] is True
     assert result["agent"] == "hermes"
     assert result["version"] == "2026.5.7"
-    # base + claw playbook
-    assert len(captured) == 2
-    inv_vars = captured[1]["inventory"]["all"]["vars"]
+    # base + scoped Herdr + Hermes playbooks
+    assert len(captured) == 3
+    inv_vars = captured[2]["inventory"]["all"]["vars"]
     assert inv_vars["agent_name"] == "hermes-test"
     assert inv_vars["agent_type"] == "hermes"
     assert inv_vars["claw_version"] == "v2026.5.7"
@@ -515,7 +515,7 @@ def test_hermes_install_passes_correct_extra_vars(monkeypatch, tmp_path):
 
 
 def test_hermes_install_uses_hermes_playbook(monkeypatch, tmp_path):
-    """The second ansible_runner call must target the hermes install.yaml,
+    """The third ansible_runner call must target the hermes install.yaml,
     not openclaw's or another agent's playbook."""
     from clawrium.core.install import run_installation
 
@@ -538,7 +538,7 @@ def test_hermes_install_uses_hermes_playbook(monkeypatch, tmp_path):
 
     run_installation("hermes", "test-host", name="hermes-test")
 
-    playbook_path = captured[1]["playbook"]
+    playbook_path = captured[2]["playbook"]
     assert "registry/hermes/playbooks/install.yaml" in playbook_path
 
 
@@ -635,7 +635,7 @@ def test_hermes_install_skip_detection_via_fact(monkeypatch, tmp_path):
         ]
     )
     monkeypatch.setattr(
-        ansible_runner, "run", Mock(side_effect=[base_result, claw_result])
+        ansible_runner, "run", Mock(side_effect=[base_result, base_result, claw_result])
     )
 
     result = run_installation("hermes", "test-host")
@@ -722,7 +722,7 @@ def test_hermes_install_checksum_failure_raises(monkeypatch, tmp_path):
         ]
 
     monkeypatch.setattr(
-        ansible_runner, "run", Mock(side_effect=[BaseResult(), FailedResult()])
+        ansible_runner, "run", Mock(side_effect=[BaseResult(), BaseResult(), FailedResult()])
     )
 
     with pytest.raises(InstallationError, match="Agent playbook failed"):
@@ -794,19 +794,19 @@ def test_hermes_install_apt_failure_raises(monkeypatch, tmp_path):
         config = Config()
         events = []
 
-    # run() is called twice: base playbook (success) then claw install.yaml
+    # run() is called three times: base, scoped Herdr, then Hermes install.
     # (apt fails). The match= string below matches every claw-side failure,
     # since the error is status-driven (see core/install.py:677) — this is
     # intentional and matches test_hermes_install_checksum_failure_raises.
-    mock_run = Mock(side_effect=[BaseResult(), AptFailedResult()])
+    mock_run = Mock(side_effect=[BaseResult(), BaseResult(), AptFailedResult()])
     monkeypatch.setattr(ansible_runner, "run", mock_run)
 
     with pytest.raises(InstallationError, match="Agent playbook failed"):
         run_installation("hermes", "test-host", name="hermes-test")
 
-    # Guard against a future short-circuit that skips the claw playbook
-    # entirely — the apt failure can only be reached if both calls fire.
-    assert mock_run.call_count == 2
+    # Guard against a future short-circuit that skips the Hermes playbook
+    # entirely — the apt failure can only be reached after all three calls.
+    assert mock_run.call_count == 3
 
 
 # ---------------------------------------------------------------------------

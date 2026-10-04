@@ -215,6 +215,43 @@
         group: "{{ agent_name }}"
         mode: "0700"
 
+    # Official Herdr integration. The shared binary was installed by the
+    # dedicated Herdr playbook before this runtime playbook. Check both pieces
+    # of upstream-managed state rather than trusting a sentinel: Herdr writes
+    # this plugin directory and enables the plugin in config.yaml.
+    - name: Inspect Herdr Hermes plugin directory
+      ansible.builtin.stat:
+        path: "/home/{{ agent_name }}/.hermes/plugins/herdr-agent-state"
+      register: herdr_hermes_plugin_dir
+
+    - name: Inspect Herdr Hermes plugin configuration
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/grep
+          - -Eq
+          - '^[[:space:]]*-[[:space:]]*herdr-agent-state$'
+          - "/home/{{ agent_name }}/.hermes/config.yaml"
+      register: herdr_hermes_plugin_config
+      changed_when: false
+      failed_when: false
+      become_user: "{{ agent_name }}"
+
+    - name: Install official Herdr Hermes integration when missing
+      ansible.builtin.command:
+        argv:
+          - /usr/local/bin/herdr
+          - integration
+          - install
+          - hermes
+      become_user: "{{ agent_name }}"
+      environment:
+        HOME: "/home/{{ agent_name }}"
+        HERMES_HOME: "/home/{{ agent_name }}/.hermes"
+        PATH: "/home/{{ agent_name }}/.local/bin:/usr/local/bin:/usr/bin:/bin"
+      when: >-
+        not herdr_hermes_plugin_dir.stat.exists
+        or herdr_hermes_plugin_config.rc != 0
+
     # Issue #478 phase 2: native dashboard support.
     #
     # The upstream `hermes` CLI at /home/<agent>/.local/bin/hermes is a
