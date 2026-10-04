@@ -1,10 +1,15 @@
 agent:
   type: claude
-  description: "Anthropic Claude Code (install-only)"
+  description: "Anthropic Claude Code (on-demand CLI chat; no daemon or web UI)"
 
-# Claude Code is a user-scoped npm package. It deliberately declares no chat,
-# web UI, or service capability; bounded settings and private credentials use
-# the no-daemon configure/sync paths rather than manifest feature flags.
+# Claude Code is a user-scoped npm package. Chat launches a finite print-mode
+# CLI process on demand as the dedicated agent user; it never starts a daemon,
+# gateway, listener, or native web UI. Bounded settings and private credentials
+# use the no-daemon configure/sync paths rather than manifest feature flags.
+features:
+  chat:
+    type: claude
+
 platforms:
   - version: "2.1.100"
     os: ubuntu

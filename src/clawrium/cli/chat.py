@@ -7,6 +7,8 @@ Dispatch is driven by `features.chat.type` in the agent manifest:
 - ``zeroclaw``  → ZeroClaw gateway over WebSocket with bearer-token auth
                   (tagged-JSON envelope; distinct from openclaw's frame
                   schema, so it gets a dedicated dispatch value).
+- ``claude``    → finite Claude Code print-mode invocation over the private
+                  Ansible argv/stdin transport (no daemon or gateway).
 """
 
 from __future__ import annotations
@@ -30,6 +32,7 @@ from clawrium.core.chat import (
     OpenClawChatClient,
     SecretStr,
 )
+from clawrium.core.chat_claude import ClaudeCodeChatBackend
 from clawrium.core.chat_hermes import HermesOpenAIBackend
 from clawrium.core.chat_zeroclaw import (
     RECV_TIMEOUT_MSG_PREFIX as ZEROCLAW_RECV_TIMEOUT_MSG_PREFIX,
@@ -89,6 +92,28 @@ _CONTROL_AND_BIDI_RE = re.compile(
     "\ufeff"  # ZWNBSP / BOM
     "]"
 )
+_RESPONSE_CONTROL_AND_BIDI_RE = re.compile(
+    "["
+    "\x00-\x08\x0b-\x1f\x7f-\x9f"
+    "\u061c"
+    "\u200b-\u200f"
+    "\u2028-\u2029"
+    "\u202a-\u202e"
+    "\u2060"
+    "\u2066-\u2069"
+    "\ufeff"
+    "]"
+)
+
+
+def _sanitize_response_text(text: str) -> str:
+    """Remove terminal-control and bidi codepoints from agent output.
+
+    Deliberately retain tabs and newlines so ordinary markdown, code blocks,
+    and multi-paragraph replies remain readable. Rich markup stays disabled at
+    every response output site as a separate rendering safeguard.
+    """
+    return _RESPONSE_CONTROL_AND_BIDI_RE.sub("", text)
 
 
 def _sanitize_agent_label(label: str) -> str:
@@ -111,10 +136,9 @@ def chat(
         "--session",
         "-s",
         help=(
-            "Gateway session key for WebSocket-backed agents "
-            "(for example: main, direct:<channel>, or thread-specific key). "
-            "OpenAI-backed agents (e.g. hermes) accept the flag but it has no "
-            "effect — server-side session isolation is not yet supported."
+            "Conversation key (for example: main, direct:<channel>, or a "
+            "thread-specific key). WebSocket gateways own their named sessions; "
+            "Claude Code resumes a private UUID session for this REPL."
         ),
     ),
     timeout: float = typer.Option(
@@ -157,7 +181,10 @@ def chat(
         raise typer.Exit(code=1)
 
     if not resolved:
-        console.print(f"[red]Error:[/red] Agent '{rich_escape(agent_name)}' not found")
+        console.print(
+            f"[red]Error:[/red] Agent "
+            f"'{rich_escape(_sanitize_agent_label(agent_name))}' not found"
+        )
         console.print("Run 'clawctl agent get' to list installed agents.")
         raise typer.Exit(code=1)
 
@@ -169,8 +196,8 @@ def chat(
         console.print(f"[red]Error:[/red] {rich_escape(str(exc))}")
         raise typer.Exit(code=1)
 
-    display_host = (
-        host_record.get("alias") or host_record.get("hostname") or "unknown-host"
+    display_host = _sanitize_agent_label(
+        str(host_record.get("alias") or host_record.get("hostname") or "unknown-host")
     )
     # `canonical_name` is the Unix-level agent name used in secret instance
     # keys (host:type:name). Must NOT fall back to `agent_type` — that would
@@ -178,12 +205,15 @@ def chat(
     # lookup would silently miss the real entry.
     canonical_name = agent_record.get("agent_name") or agent_name
     # `display_agent` is for printing only; safe to fall back further.
-    display_agent = (
-        agent_record.get("agent_name")
-        or agent_record.get("name")
-        or agent_name
-        or agent_type
+    display_agent = _sanitize_agent_label(
+        str(
+            agent_record.get("agent_name")
+            or agent_record.get("name")
+            or agent_name
+            or agent_type
+        )
     )
+    display_canonical_name = _sanitize_agent_label(str(canonical_name))
 
     try:
         if chat_type == "websocket":
@@ -210,6 +240,13 @@ def chat(
             backend = _build_zeroclaw_backend(
                 agent_record=agent_record,
                 host_record=host_record,
+                response_timeout_seconds=timeout,
+            )
+        elif chat_type == "claude":
+            backend = _build_claude_backend(
+                agent_record=agent_record,
+                host_record=host_record,
+                agent_name=str(canonical_name),
                 response_timeout_seconds=timeout,
             )
         else:
@@ -253,7 +290,7 @@ def chat(
         console.print(
             f"[green]Connected target:[/green] {rich_escape(str(display_agent))} on {rich_escape(str(display_host))}"
         )
-        if chat_type == "openai":
+        if chat_type in {"openai", "claude"}:
             console.print(
                 "Type /exit or press Ctrl+D to end. Use /reset to clear conversation history."
             )
@@ -315,7 +352,12 @@ def chat(
             )
             if chat_type in ("openai", "zeroclaw"):
                 console.print(
-                    f"Token mismatch. Re-run 'clawctl agent configure {rich_escape(str(canonical_name))}'."
+                    f"Token mismatch. Re-run 'clawctl agent configure {rich_escape(display_canonical_name)}'."
+                )
+            elif chat_type == "claude":
+                console.print(
+                    f"Re-run 'clawctl agent sync {rich_escape(display_canonical_name)}' "
+                    "to reapply the selected Claude credential."
                 )
             raise typer.Exit(code=1)
         except ChatConnectionError as exc:
@@ -335,7 +377,7 @@ def chat(
                 else:
                     svc = "ethos" if agent_type == "ethos" else "hermes"
                     console.print(
-                        f"Check 'systemctl --user status {svc}-{rich_escape(str(canonical_name))}' on the agent host."
+                        f"Check 'systemctl --user status {svc}-{rich_escape(display_canonical_name)}' on the agent host."
                     )
                     # Legacy install hint: persisted bind still on loopback means the
                     # opportunistic 127.0.0.1 → 0.0.0.0 migration in lifecycle hasn't
@@ -351,7 +393,7 @@ def chat(
                     ):
                         console.print(
                             f"Legacy bind detected (127.0.0.1). "
-                            f"Re-run 'clawctl agent configure {rich_escape(str(canonical_name))}' "
+                            f"Re-run 'clawctl agent configure {rich_escape(display_canonical_name)}' "
                             f"to bind a reachable interface."
                         )
             elif chat_type == "zeroclaw":
@@ -383,8 +425,18 @@ def chat(
                 else:
                     console.print(
                         f"Verify the agent host is reachable and re-run "
-                        f"'clawctl agent configure {rich_escape(str(canonical_name))}' "
+                        f"'clawctl agent configure {rich_escape(display_canonical_name)}' "
                         f"if the pairing token is stale."
+                    )
+            elif chat_type == "claude":
+                if str(exc).startswith("Timed out"):
+                    console.print(
+                        f"Try a higher --timeout value (current: {timeout}s)."
+                    )
+                else:
+                    console.print(
+                        f"Verify the host is online and re-run 'clawctl agent sync "
+                        f"{rich_escape(display_canonical_name)}' if its credential changed."
                     )
             else:
                 console.print(
@@ -433,7 +485,7 @@ async def _chat_once(
         await backend.close()
 
     if final_text:
-        console.print(final_text, markup=False, highlight=False)
+        console.print(_sanitize_response_text(final_text), markup=False, highlight=False)
     else:
         console.print("[no response]", markup=False, highlight=False)
 
@@ -459,7 +511,7 @@ async def _chat_loop(
     with console.status("Connecting to agent...", spinner="dots"):
         await backend.connect()
 
-    history_capable = chat_type == "openai"
+    history_capable = chat_type in {"openai", "claude"}
     # Parity with `_sanitize_exception_text` (issue #455 ATX W2): strip
     # C0/C1 control bytes + bidi-formatting + zero-width + line/paragraph
     # separators from the agent label before it reaches the terminal.
@@ -533,7 +585,9 @@ async def _chat_loop(
                         markup=False,
                     )
                     shown_prefix = True
-                console.print(delta, end="", markup=False, highlight=False)
+                console.print(
+                    _sanitize_response_text(delta), end="", markup=False, highlight=False
+                )
 
             try:
                 final_text = await backend.send_message(
@@ -586,7 +640,9 @@ async def _chat_loop(
                     highlight=False,
                     markup=False,
                 )
-                console.print(final_text, markup=False, highlight=False)
+                console.print(
+                    _sanitize_response_text(final_text), markup=False, highlight=False
+                )
             else:
                 console.print(
                     agent_prefix_plain,
@@ -802,6 +858,31 @@ def _build_zeroclaw_backend(
         auth_token=SecretStr(gateway["auth"]),
         timeout_seconds=response_timeout_seconds,
         agent_alias=agent_alias,
+    )
+
+
+def _build_claude_backend(
+    agent_record: dict[str, Any],
+    host_record: dict[str, Any],
+    agent_name: str,
+    response_timeout_seconds: float,
+) -> ChatBackend:
+    """Construct an on-demand Claude Code backend for the resolved agent.
+
+    Claude credentials never cross this factory: OAuth remains the agent
+    user's native Claude state and API-key mode is sourced only by the fixed
+    remote command bootstrap from its private mode-0600 artifact.
+    """
+    hostname = host_record.get("hostname")
+    if not isinstance(hostname, str) or not hostname.strip():
+        raise ValueError("Host primary address not found.")
+    unix_name = agent_record.get("agent_name") or agent_record.get("name") or agent_name
+    if not isinstance(unix_name, str) or not unix_name.strip():
+        raise ValueError("Claude agent Unix user is missing.")
+    return ClaudeCodeChatBackend(
+        hostname=hostname,
+        agent_name=unix_name,
+        timeout_seconds=response_timeout_seconds,
     )
 
 

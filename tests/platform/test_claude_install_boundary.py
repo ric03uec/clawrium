@@ -62,15 +62,15 @@ def _successful_runner_result(tmp_path: Path, events: list[dict] | None = None):
     return result
 
 
-def test_claude_manifest_is_first_class_and_install_only():
+def test_claude_manifest_is_first_class_and_no_daemon():
     manifest = load_manifest("claude")
 
     assert "claude" in list_claws()
     assert manifest["agent"] == {
         "type": "claude",
-        "description": "Anthropic Claude Code (install-only)",
+        "description": "Anthropic Claude Code (on-demand CLI chat; no daemon or web UI)",
     }
-    assert "features" not in manifest
+    assert manifest["features"] == {"chat": {"type": "claude"}}
     assert "secrets" not in manifest
     assert {entry["version"] for entry in manifest["platforms"]} == {PINNED_VERSION}
     assert {

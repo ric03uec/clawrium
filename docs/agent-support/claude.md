@@ -1,12 +1,12 @@
 # Claude Code Support
 
-Clawrium supports `claude` as an **install-only, per-agent Claude Code environment**. It is not a daemon-backed assistant: Clawrium prepares an isolated account and command environment, while an operator chooses when to run a finite Claude Code command.
+Clawrium supports `claude` as an **isolated, per-agent Claude Code environment** with on-demand CLI chat. It is not a daemon-backed assistant: Clawrium prepares an isolated account and command environment, then runs a finite Claude Code process only for each `clawctl agent chat` turn.
 
 **Pinned version:** `2.1.100`
 
 **Supported targets:** Ubuntu 22.04 or 24.04 on x86_64; macOS 14+ on Apple Silicon.
 
-## Install-only contract
+## No-daemon install contract
 
 Create an isolated environment with the normal agent command:
 
@@ -18,7 +18,7 @@ clawctl agent create <name> --type claude --host <host>
 package into that account's owned `~/.local/claude` prefix, records the agent,
 and stops. It does **not** invoke `claude`, sign in, create authentication
 state, start a service, gateway, or HTTP listener, allocate a port, establish
-a tunnel, create a native web UI, start a chat backend, or pair a device.
+a tunnel, create a native web UI, start a persistent chat backend, or pair a device.
 
 The installed record is shown by `clawctl agent get` and `clawctl agent
 describe`. Its ready state means the installation completed; it is not a
@@ -54,8 +54,8 @@ writes a repository's `.claude/settings.json` or `.claude/settings.local.json`;
 those project settings remain owned by the repository and its users.
 
 Configure and sync also never invoke Claude Code or restart a process. They
-require one selected credential mode so the next supported shell command can
-receive it.
+require one selected credential mode so the next supported shell command or
+on-demand chat turn can receive it.
 
 ## Credentials and safe sync
 
@@ -125,6 +125,35 @@ Credential values are not written to `hosts.json`, `settings.json`, sync
 diffs, command output, logs, or events. Do not print or copy either remote
 credential artifact to diagnose a configuration.
 
+## Chat on demand
+
+After configuring one credential mode, use the standard chat surface:
+
+```bash
+clawctl agent chat <name>
+clawctl agent chat <name> --once "Summarize the current workspace"
+```
+
+Each turn runs the pinned Claude Code binary as the dedicated agent Unix user
+with `--print --output-format json`; it does not start a daemon, gateway, port,
+tunnel, native UI, or an interactive remote terminal. The prompt is sent on
+stdin, not interpolated into a shell command or added to command argv. Claude's
+native OAuth document remains in the agent home, while API-key mode is sourced
+only from the private mode-`0600` environment artifact on the host. Neither
+credential is copied to controller-side chat state or output.
+
+The pinned `2.1.100` CLI starts a REPL's first turn with a generated
+`--session-id <uuid>` and resumes later turns with `--resume <uuid>`, preserving
+conversation continuity while the REPL is open. `/reset` starts a fresh UUID
+session without deleting Claude's agent-owned session files. `--once` runs one
+fresh finite turn and exits. Clawrium deliberately does **not** use `--bare`:
+that upstream mode ignores native OAuth and accepts only API-key authentication.
+
+A response timeout kills the finite remote command. Authentication failures
+suggest `clawctl agent sync <name>`; malformed Claude CLI JSON and non-auth
+command failures are surfaced as chat errors without echoing credential-bearing
+stderr.
+
 ## Run a finite command
 
 Use the normal command-shell path for Claude Code:
@@ -152,7 +181,8 @@ with an explicit command after `--` instead.
 | `status` | Use `agent get` or `agent describe`; there is no runtime daemon probe. |
 | `start`, `stop`, `restart`, `logs` | Not applicable: Claude Code has no Clawrium-managed daemon or service. |
 | `open`, native web UI, tunnel, port, pairing | Unavailable: the manifest declares no web UI. |
-| `chat` and GUI chat | Unavailable: there is no Clawrium chat backend for Claude Code. |
+| `chat` | Supported on demand through `clawctl agent chat`; every turn is a finite Claude CLI process. |
+| GUI chat | Deferred to the GUI SSE phase; this change does not add a GUI chat transport. |
 | `exec` | Unavailable for Claude Code; use `agent shell`. |
 
 ## Removal ownership

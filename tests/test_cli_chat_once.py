@@ -133,6 +133,30 @@ def test_chat_once_no_repl_prompt(
     assert "Type /exit" not in captured.out
 
 
+def test_chat_once_sanitizes_untrusted_agent_response(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    backend = _FakeBackend(reply="safe\u202ereply\x1b[31m")
+    _run_once(backend)
+
+    output = capsys.readouterr().out
+    assert "\u202e" not in output
+    assert "\x1b" not in output
+    assert "safereply[31m" in output
+
+
+def test_chat_once_preserves_multiline_markdown_and_tabs(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    reply = "Summary:\n\n```python\n\tprint('hello')\n```"
+    assert chat_module._sanitize_response_text(reply) == reply
+    _run_once(_FakeBackend(reply=reply))
+
+    output = capsys.readouterr().out
+    assert "Summary:\n\n```python\n" in output
+    assert "print('hello')\n```" in output
+
+
 def test_chat_once_prints_placeholder_on_empty_reply(
     capsys: pytest.CaptureFixture[str],
 ) -> None:

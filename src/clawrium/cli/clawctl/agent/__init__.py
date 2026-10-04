@@ -95,7 +95,7 @@ agent_app.command(
     name="logs", help="Stream logs from a daemon-backed agent (not Claude Code)."
 )(_logs.logs)
 agent_app.command(
-    name="chat", help="Chat with a chat-enabled agent (not Claude Code)."
+    name="chat", help="Chat with a chat-enabled agent."
 )(_chat.chat)
 agent_app.command(
     name="open", help="Open a native web UI (not available for Claude Code)."
