@@ -1,0 +1,206 @@
+{
+  "atx_review": {
+    "version": "3",
+    "status": "reviewed",
+    "blocking": true,
+    "revision_id": "16554432-b08c-4b7c-8983-2d3fafb32184",
+    "review_id": "rev-bbedce9f-5c18-4e19-bd16-f123d4eeaf62",
+    "review_title": "Review full branch diff against main",
+    "summary": "{\"response_type\":\"text\",\"content\":\"\u003coutput\u003e\\n{\\\"rating\\\":2,\\\"summary\\\":\\\"The branch introduces Herdr provisioning for Hermes and Claude using the established resolver and renderer conventions, with no...",
+    "rating": 4,
+    "agents": [
+      "leader",
+      "gui-routes",
+      "platform-playbooks",
+      "render-engine",
+      "test-coverage",
+      "lifecycle-core",
+      "cli-ux",
+      "security-reviewer"
+    ],
+    "agent_contributions": [
+      {
+        "name": "leader",
+        "status": "completed",
+        "cost_usd": 0.069744,
+        "delegated_to": [
+          "49fbebd6-8745-4b35-81b4-0bb0bf680f37",
+          "2f559a42-9fca-4be1-a67d-1601b2edbe8b",
+          "2b6bb653-42cd-4aa5-aac5-6edc8b274fd0",
+          "96cf24db-1fca-48da-8f6f-2d799acb293a",
+          "d79463ac-884b-4e03-b34f-fb6017c83027",
+          "e5323802-3973-44c7-a934-53da9bea7eae",
+          "e8462619-249e-41f6-8cb0-a7169ae20d74"
+        ]
+      },
+      {
+        "name": "gui-routes",
+        "status": "skipped"
+      },
+      {
+        "name": "platform-playbooks",
+        "status": "skipped"
+      },
+      {
+        "name": "render-engine",
+        "status": "skipped"
+      },
+      {
+        "name": "test-coverage",
+        "status": "completed",
+        "rating": 2,
+        "cost_usd": 0.218326
+      },
+      {
+        "name": "lifecycle-core",
+        "status": "completed",
+        "rating": 4,
+        "cost_usd": 0.028071000000000002
+      },
+      {
+        "name": "cli-ux",
+        "status": "completed",
+        "rating": 4,
+        "cost_usd": 0.0237264
+      },
+      {
+        "name": "security-reviewer",
+        "status": "completed",
+        "rating": 5,
+        "cost_usd": 0.027608
+      }
+    ],
+    "models": [
+      "gpt-5.6-terra",
+      "gpt-5.6-luna",
+      "gpt-5.6-sol"
+    ],
+    "review_cost_usd": 0.3674754,
+    "duration_ms": 112642,
+    "findings": {
+      "parse_coverage": "complete",
+      "blocking": [
+        {
+          "severity": "blocking",
+          "location": "src/clawrium/core/install.py:1318",
+          "issue": "The new Hermes/Claude Herdr dispatch and failure path have no behavioral test. The current test only searches install.py as text, so it cannot verify runner-call order, OS-specific path selection, agent eligibility, abort-on-Herdr-failure behavior, or cleanup before the agent playbook runs.",
+          "suggestion": "Add mocked run_installation tests for Hermes and Claude on Linux and Darwin that assert base → Herdr → agent playbook order and exact paths; cover an excluded agent type, and verify a failed Herdr run raises InstallationError, prevents agent installation, and cleans the Herdr artifact directory.",
+          "source_agent": "leader"
+        },
+        {
+          "severity": "blocking",
+          "location": "src/clawrium/core/install.py:1318",
+          "issue": "The new Hermes/Claude Herdr dispatch and its failure path have no behavioral test. `tests/platform/test_herdr_install.py:51` merely searches `install.py` as text; it does not invoke `run_installation`, inspect the three Ansible runner calls, verify base → Herdr → agent ordering, prove OpenClaw/ZeroClaw/Ethos make only base → agent calls, or assert that a failed Herdr runner result raises `InstallationError` before the agent playbook executes. This is host-mutating install orchestration, and source inspection cannot catch regressions such as a reordered call, wrong selected path/OS, a changed eligibility predicate, or continuing after a failed shared-runtime install.",
+          "suggestion": "Add mocked `run_installation` tests for Hermes and Claude on Linux and Darwin that assert exact `ansible_runner.run` call order and playbook paths, one excluded type asserting no Herdr call, and a Herdr `status != \"successful\"` case asserting `InstallationError`, no agent-playbook invocation, and cleanup of the Herdr artifact directory.",
+          "source_agent": "test-coverage"
+        }
+      ],
+      "warnings": [
+        {
+          "severity": "warning",
+          "location": "src/clawrium/core/install.py:1338",
+          "issue": "Herdr provisioning invokes ansible_runner.run with quiet=False, streaming raw Ansible output rather than using the CLI progress/output abstraction. This can interleave playbook output with the Rich spinner and make its output inconsistent with other installation stages.",
+          "suggestion": "Capture or suppress runner streaming and publish progress through the existing emit/on_event or CLI output helpers; add a CLI-level output test for this stage.",
+          "source_agent": "leader"
+        },
+        {
+          "severity": "warning",
+          "location": "src/clawrium/core/playbook_resolver.py:134",
+          "issue": "The new resolve_herdr_playbook API is covered only for happy-path filenames. Unsupported OS validation and the missing-playbook error contract are not tested.",
+          "suggestion": "Add tests for an unsupported OS family and a missing expected Herdr playbook, asserting the exception types and actionable error messages.",
+          "source_agent": "leader"
+        },
+        {
+          "severity": "warning",
+          "location": "src/clawrium/core/playbook_resolver.py:134",
+          "issue": "The new public `resolve_herdr_playbook` API is tested only for the two happy-path filenames (`tests/platform/test_herdr_install.py:46-48`). Its invalid-OS validation and missing-playbook error contract are untested, despite the implementation deliberately delegating validation through `_suffix_for` and providing an actionable `FileNotFoundError` branch.",
+          "suggestion": "Add tests for an unsupported OS family and monkeypatch the expected Herdr playbook path to appear absent, asserting the exception type and actionable message.",
+          "source_agent": "test-coverage"
+        },
+        {
+          "severity": "warning",
+          "location": "src/clawrium/core/install.py:1338",
+          "issue": "The new Herdr provisioning call uses ansible_runner.run(..., quiet=False), which streams Ansible output directly instead of routing it through the CLI progress/output abstraction. This can interleave raw playbook output with the Rich spinner and makes the Herdr stage inconsistent with structured or centrally formatted CLI output.",
+          "suggestion": "Capture or suppress the Ansible runner stream and surface status through the existing emit/on_event callback, or route runner output through the established CLI output helpers.",
+          "source_agent": "cli-ux"
+        }
+      ],
+      "suggestions": []
+    },
+    "raw_markdown": "{\"response_type\":\"text\",\"content\":\"\u003coutput\u003e\\n{\\\"rating\\\":2,\\\"summary\\\":\\\"The branch introduces Herdr provisioning for Hermes and Claude using the established resolver and renderer conventions, with no lifecycle-core or security findings reported. However, the new host-mutating installation phase lacks behavioral orchestration coverage, and its runner output can bypass the existing CLI output abstraction.\\\",\\\"findings\\\":[{\\\"severity\\\":\\\"blocking\\\",\\\"location\\\":\\\"src/clawrium/core/install.py:1318\\\",\\\"issue\\\":\\\"The new Hermes/Claude Herdr dispatch and failure path have no behavioral test. The current test only searches install.py as text, so it cannot verify runner-call order, OS-specific path selection, agent eligibility, abort-on-Herdr-failure behavior, or cleanup before the agent playbook runs.\\\",\\\"suggestion\\\":\\\"Add mocked run_installation tests for Hermes and Claude on Linux and Darwin that assert base → Herdr → agent playbook order and exact paths; cover an excluded agent type, and verify a failed Herdr run raises InstallationError, prevents agent installation, and cleans the Herdr artifact directory.\\\"},{\\\"severity\\\":\\\"warning\\\",\\\"location\\\":\\\"src/clawrium/core/install.py:1338\\\",\\\"issue\\\":\\\"Herdr provisioning invokes ansible_runner.run with quiet=False, streaming raw Ansible output rather than using the CLI progress/output abstraction. This can interleave playbook output with the Rich spinner and make its output inconsistent with other installation stages.\\\",\\\"suggestion\\\":\\\"Capture or suppress runner streaming and publish progress through the existing emit/on_event or CLI output helpers; add a CLI-level output test for this stage.\\\"},{\\\"severity\\\":\\\"warning\\\",\\\"location\\\":\\\"src/clawrium/core/playbook_resolver.py:134\\\",\\\"issue\\\":\\\"The new resolve_herdr_playbook API is covered only for happy-path filenames. Unsupported OS validation and the missing-playbook error contract are not tested.\\\",\\\"suggestion\\\":\\\"Add tests for an unsupported OS family and a missing expected Herdr playbook, asserting the exception types and actionable error messages.\\\"}],\\\"recommendations\\\":[\\\"Replace source-text assertions for installation dispatch with behavioral tests at the ansible_runner boundary.\\\",\\\"Add explicit coverage for Herdr provisioning failure handling before relying on host E2E evidence.\\\"],\\\"metadata\\\":{\\\"files_reviewed\\\":23,\\\"domain\\\":\\\"CLI UX, lifecycle/core, security, and test coverage\\\"}}\\n\u003c/output\u003e\"}",
+    "pr_body": "\u003c!-- atx:pr-review-summary v3 --\u003e\n## ATX Review Summary\n\n**Current Revision Rating: 4/5** | **Cost: $0.37** | **Time: 1m 52s**\n**Agents: leader, gui-routes, platform-playbooks, render-engine, test-coverage, lifecycle-core, cli-ux, security-reviewer** | **Finding Parse Coverage: complete**\n\n## Blocking Issues\n\n| # | Source | Location | Issue | Suggested Fix |\n|---|--------|----------|-------|---------------|\n| B1 | leader | src/clawrium/core/install.py:1318 | The new Hermes/Claude Herdr dispatch and failure path have no behavioral test. The current test only searches install.py as text, so it cannot verify runner-call order, OS-specific path selection, agent eligibility, abort-on-Herdr-failure behavior, or cleanup before the agent playbook runs. | Add mocked run_installation tests for Hermes and Claude on Linux and Darwin that assert base → Herdr → agent playbook order and exact paths; cover an excluded agent type, and verify a failed Herdr run raises InstallationError, prevents agent installation, and cleans the Herdr artifact directory. |\n| B2 | test-coverage | src/clawrium/core/install.py:1318 | The new Hermes/Claude Herdr dispatch and its failure path have no behavioral test. \\`tests/platform/test_herdr_install.py:51\\` merely searches \\`install.py\\` as text; it does not invoke \\`run_installation\\`, inspect the three Ansible runner calls, verify base → Herdr → agent ordering, prove OpenClaw/ZeroClaw/Ethos make only base → agent calls, or assert that a failed Herdr runner result raises \\`InstallationError\\` before the agent playbook executes. This is host-mutating install orchestration, and source inspection cannot catch regressions such as a reordered call, wrong selected path/OS, a changed eligibility predicate, or continuing after a failed shared-runtime install. | Add mocked \\`run_installation\\` tests for Hermes and Claude on Linux and Darwin that assert exact \\`ansible_runner.run\\` call order and playbook paths, one excluded type asserting no Herdr call, and a Herdr \\`status != \"successful\"\\` case asserting \\`InstallationError\\`, no agent-playbook invocation, and cleanup of the Herdr artifact directory. |\n\n## Warnings\n\n| # | Source | Location | Issue | Suggested Fix |\n|---|--------|----------|-------|---------------|\n| W1 | leader | src/clawrium/core/install.py:1338 | Herdr provisioning invokes ansible_runner.run with quiet=False, streaming raw Ansible output rather than using the CLI progress/output abstraction. This can interleave playbook output with the Rich spinner and make its output inconsistent with other installation stages. | Capture or suppress runner streaming and publish progress through the existing emit/on_event or CLI output helpers; add a CLI-level output test for this stage. |\n| W2 | leader | src/clawrium/core/playbook_resolver.py:134 | The new resolve_herdr_playbook API is covered only for happy-path filenames. Unsupported OS validation and the missing-playbook error contract are not tested. | Add tests for an unsupported OS family and a missing expected Herdr playbook, asserting the exception types and actionable error messages. |\n| W3 | test-coverage | src/clawrium/core/playbook_resolver.py:134 | The new public \\`resolve_herdr_playbook\\` API is tested only for the two happy-path filenames (\\`tests/platform/test_herdr_install.py:46-48\\`). Its invalid-OS validation and missing-playbook error contract are untested, despite the implementation deliberately delegating validation through \\`_suffix_for\\` and providing an actionable \\`FileNotFoundError\\` branch. | Add tests for an unsupported OS family and monkeypatch the expected Herdr playbook path to appear absent, asserting the exception type and actionable message. |\n| W4 | cli-ux | src/clawrium/core/install.py:1338 | The new Herdr provisioning call uses ansible_runner.run(..., quiet=False), which streams Ansible output directly instead of routing it through the CLI progress/output abstraction. This can interleave raw playbook output with the Rich spinner and makes the Herdr stage inconsistent with structured or centrally formatted CLI output. | Capture or suppress the Ansible runner stream and surface status through the existing emit/on_event callback, or route runner output through the established CLI output helpers. |\n\n## Suggestions\n\n| # | Source | Location | Issue | Suggested Fix |\n|---|--------|----------|-------|---------------|\n| - | - | - | None | - |\n\nCo-Authored-By: @atx-ci \u003c269048218+atx-ci@users.noreply.github.com\u003e\n",
+    "pr_body_template": {
+      "name": "pr-review-summary",
+      "version": "3"
+    },
+    "review_render_status": "rendered",
+    "rendered_review_markdown": "# ATX Review\n\n**Rating: 2/5** | **Agents: cli-ux, lifecycle-core, security-reviewer, test-coverage, gui-routes, platform-playbooks, render-engine**\n\n## Summary\n\nThe branch introduces Herdr provisioning for Hermes and Claude using the established resolver and renderer conventions, with no lifecycle-core or security findings reported. However, the new host-mutating installation phase lacks behavioral orchestration coverage, and its runner output can bypass the existing CLI output abstraction.\n\n## Blocking Issues\n\n| # | Source | Category | Location | Issue | Suggested Fix |\n|---|--------|----------|----------|-------|---------------|\n| B1 | - | - | src/clawrium/core/install.py:1318 | The new Hermes/Claude Herdr dispatch and failure path have no behavioral test. The current test only searches install.py as text, so it cannot verify runner-call order, OS-specific path selection, agent eligibility, abort-on-Herdr-failure behavior, or cleanup before the agent playbook runs. | Add mocked run_installation tests for Hermes and Claude on Linux and Darwin that assert base → Herdr → agent playbook order and exact paths; cover an excluded agent type, and verify a failed Herdr run raises InstallationError, prevents agent installation, and cleans the Herdr artifact directory. |\n\n## Warnings\n\n| # | Source | Category | Location | Issue | Suggested Fix |\n|---|--------|----------|----------|-------|---------------|\n| W1 | - | - | src/clawrium/core/install.py:1338 | Herdr provisioning invokes ansible_runner.run with quiet=False, streaming raw Ansible output rather than using the CLI progress/output abstraction. This can interleave playbook output with the Rich spinner and make its output inconsistent with other installation stages. | Capture or suppress runner streaming and publish progress through the existing emit/on_event or CLI output helpers; add a CLI-level output test for this stage. |\n| W2 | - | - | src/clawrium/core/playbook_resolver.py:134 | The new resolve_herdr_playbook API is covered only for happy-path filenames. Unsupported OS validation and the missing-playbook error contract are not tested. | Add tests for an unsupported OS family and a missing expected Herdr playbook, asserting the exception types and actionable error messages. |\n\n## Suggestions\n\n| # | Source | Category | Location | Issue | Suggested Fix |\n|---|--------|----------|----------|-------|---------------|\n| - | - | - | - | None | - |\n\n## Recommendations\n\n- Replace source-text assertions for installation dispatch with behavioral tests at the ansible_runner boundary.\n- Add explicit coverage for Herdr provisioning failure handling before relying on host E2E evidence.\n\n## Agent Status\n\n| Agent | Status | Reason |\n|-------|--------|--------|\n| cli-ux | completed | - |\n| lifecycle-core | completed | - |\n| security-reviewer | completed | - |\n| test-coverage | completed | - |\n| gui-routes | skipped | skipped:budget-limited-ambiguous-full-diff |\n| platform-playbooks | skipped | skipped:budget-limited-ambiguous-full-diff |\n| render-engine | skipped | skipped:budget-limited-ambiguous-full-diff |\n",
+    "normalized_review": {
+      "rating": 2,
+      "summary": "The branch introduces Herdr provisioning for Hermes and Claude using the established resolver and renderer conventions, with no lifecycle-core or security findings reported. However, the new host-mutating installation phase lacks behavioral orchestration coverage, and its runner output can bypass the existing CLI output abstraction.",
+      "findings": [
+        {
+          "severity": "blocking",
+          "location": "src/clawrium/core/install.py:1318",
+          "issue": "The new Hermes/Claude Herdr dispatch and failure path have no behavioral test. The current test only searches install.py as text, so it cannot verify runner-call order, OS-specific path selection, agent eligibility, abort-on-Herdr-failure behavior, or cleanup before the agent playbook runs.",
+          "suggestion": "Add mocked run_installation tests for Hermes and Claude on Linux and Darwin that assert base → Herdr → agent playbook order and exact paths; cover an excluded agent type, and verify a failed Herdr run raises InstallationError, prevents agent installation, and cleans the Herdr artifact directory."
+        },
+        {
+          "severity": "warning",
+          "location": "src/clawrium/core/install.py:1338",
+          "issue": "Herdr provisioning invokes ansible_runner.run with quiet=False, streaming raw Ansible output rather than using the CLI progress/output abstraction. This can interleave playbook output with the Rich spinner and make its output inconsistent with other installation stages.",
+          "suggestion": "Capture or suppress runner streaming and publish progress through the existing emit/on_event or CLI output helpers; add a CLI-level output test for this stage."
+        },
+        {
+          "severity": "warning",
+          "location": "src/clawrium/core/playbook_resolver.py:134",
+          "issue": "The new resolve_herdr_playbook API is covered only for happy-path filenames. Unsupported OS validation and the missing-playbook error contract are not tested.",
+          "suggestion": "Add tests for an unsupported OS family and a missing expected Herdr playbook, asserting the exception types and actionable error messages."
+        }
+      ],
+      "recommendations": [
+        "Replace source-text assertions for installation dispatch with behavioral tests at the ansible_runner boundary.",
+        "Add explicit coverage for Herdr provisioning failure handling before relying on host E2E evidence."
+      ],
+      "agents": [
+        {
+          "name": "cli-ux",
+          "status": "completed"
+        },
+        {
+          "name": "lifecycle-core",
+          "status": "completed"
+        },
+        {
+          "name": "security-reviewer",
+          "status": "completed"
+        },
+        {
+          "name": "test-coverage",
+          "status": "completed"
+        },
+        {
+          "name": "gui-routes",
+          "status": "skipped",
+          "reason": "skipped:budget-limited-ambiguous-full-diff"
+        },
+        {
+          "name": "platform-playbooks",
+          "status": "skipped",
+          "reason": "skipped:budget-limited-ambiguous-full-diff"
+        },
+        {
+          "name": "render-engine",
+          "status": "skipped",
+          "reason": "skipped:budget-limited-ambiguous-full-diff"
+        }
+      ]
+    }
+  },
+  "caller_instructions": {
+    "render_first": "Branch only on `atx_review.review_render_status`: render `atx_review.rendered_review_markdown` verbatim to the user for `rendered` or `legacy`; surface `atx_review.review_render_error_code` and `atx_review.review_render_error_message` for `error`; show no review for `absent`. Never render `atx_review.raw_markdown` — it is retained strictly for trace/debug and may contain unrendered model formatting (#889).",
+    "validate_before_acting": "For each finding, open the referenced file/line and confirm the issue exists in the current code. ATX reviews can hallucinate file paths, line numbers, or behavior. Treat every finding as a hypothesis, not a fact.",
+    "apply_selectively": "Act only on findings you were able to independently verify. Silently skip findings that don't reproduce against current code — do not surface them as work items, do not ask the user about each one, and do not retry the review to 'confirm'. When uncertain whether a finding reproduces, prefer skipping over surfacing it as a task.",
+    "pr_summary_template": "If `atx_review.pr_body` is present, append it verbatim to the PR body. Do not fetch a template, reconstruct the body, or infer review history. When it is absent, no completed review body is available."
+  }
+}
