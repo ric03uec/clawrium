@@ -2738,7 +2738,10 @@ def test_hermes_render_byte_locks_maurice_openrouter():
     )
     out = render_hermes(inputs)
     assert out.files[".hermes/.env"] == _MAURICE_LIKE_ENV_OPENROUTER
-    assert out.files[".hermes/config.yaml"] == _MAURICE_LIKE_YAML_OPENROUTER
+    assert out.files[".hermes/config.yaml"] == (
+        _MAURICE_LIKE_YAML_OPENROUTER
+        + "plugins:\n  enabled:\n    - herdr-agent-state\n"
+    )
 
 
 def test_hermes_render_byte_locks_espresso_ollama():
@@ -2760,7 +2763,10 @@ def test_hermes_render_byte_locks_espresso_ollama():
     )
     out = render_hermes(inputs)
     assert out.files[".hermes/.env"] == _ESPRESSO_LIKE_ENV_OLLAMA
-    assert out.files[".hermes/config.yaml"] == _ESPRESSO_LIKE_YAML_OLLAMA
+    assert out.files[".hermes/config.yaml"] == (
+        _ESPRESSO_LIKE_YAML_OLLAMA
+        + "plugins:\n  enabled:\n    - herdr-agent-state\n"
+    )
     # Explicit absence-assertion: W5 — no auxiliary block for ollama.
     assert "auxiliary:" not in out.files[".hermes/config.yaml"]
 
@@ -3010,7 +3016,9 @@ def test_hermes_byte_lock_per_provider_branch(ptype, expected_env, expected_yaml
     )
     out = render_hermes(inputs)
     assert out.files[".hermes/.env"] == expected_env
-    assert out.files[".hermes/config.yaml"] == expected_yaml
+    assert out.files[".hermes/config.yaml"] == (
+        expected_yaml + "plugins:\n  enabled:\n    - herdr-agent-state\n"
+    )
 
 
 def test_zeroclaw_git_integration_is_allowed_w14():
@@ -3084,7 +3092,7 @@ def test_hermes_atlassian_mcp_servers_byte_lock_w15():
         "      CONFLUENCE_USERNAME: 'u@x.com'\n"
         "      CONFLUENCE_API_TOKEN: 'atl-tk'\n"
     )
-    assert yaml == expected
+    assert yaml == expected + "plugins:\n  enabled:\n    - herdr-agent-state\n"
 
 
 # ---------------------------------------------------------------------------
@@ -5732,7 +5740,7 @@ def test_hermes_slack_user_mcp_byte_lock():
         "    env:\n"
         "      SLACK_MCP_XOXP_TOKEN: 'xoxp-1'\n"
     )
-    assert yaml == expected
+    assert yaml == expected + "plugins:\n  enabled:\n    - herdr-agent-state\n"
 
 
 def test_hermes_slack_cookie_mcp_byte_lock():
@@ -5773,7 +5781,7 @@ def test_hermes_slack_cookie_mcp_byte_lock():
         "      SLACK_MCP_XOXC_TOKEN: 'xoxc-1'\n"
         "      SLACK_MCP_XOXD_TOKEN: 'xoxd-1'\n"
     )
-    assert yaml == expected
+    assert yaml == expected + "plugins:\n  enabled:\n    - herdr-agent-state\n"
 
 
 def test_hermes_atlassian_and_slack_coexist_in_mcp_servers():
@@ -5841,7 +5849,7 @@ def test_hermes_no_slack_baseline_unchanged():
         "  title_generation:\n"
         "    model: \"anthropic/claude-haiku-4.5\"\n"
     )
-    assert yaml == expected
+    assert yaml == expected + "plugins:\n  enabled:\n    - herdr-agent-state\n"
 
 
 def test_hermes_slack_env_file_unchanged_by_slack_integration():
@@ -5988,7 +5996,7 @@ def test_hermes_slack_user_darwin_byte_lock():
         "    env:\n"
         "      SLACK_MCP_XOXP_TOKEN: 'xoxp-1'\n"
     )
-    assert yaml == expected
+    assert yaml == expected + "plugins:\n  enabled:\n    - herdr-agent-state\n"
 
 
 def test_hermes_atlassian_darwin_home_root_applied():

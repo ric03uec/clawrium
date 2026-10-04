@@ -39,6 +39,7 @@ cut. The `itx-release` skill archives this section into a new
 
 ### Added
 
+- Add pinned, checksum-verified host-shared Herdr provisioning for Hermes and Claude Code. Hermes receives the native Herdr plugin and canonical config persistence; Claude remains binary-only, while OpenClaw, ZeroClaw, and Ethos are excluded (#1018).
 - Add `claude-oauth` as a selectable provider for Claude Code agents. It securely imports a locally authorized Claude Code token through the supported Linux `claude setup-token` path and activates it on the selected host without requiring a pre-exported token (#1013).
 - Activate the selected Claude Code OAuth token or Anthropic API key during `clawctl agent configure` and `sync`. Credentials are stored in private agent-owned files and available to finite `clawctl agent shell` commands without appearing in settings, diffs, or output (#998).
 - Add bounded global Claude Code settings management for the dedicated agent account. `clawctl agent configure` and `sync` now render only `~/.claude/settings.json` with the approved model, effort, and permission settings — never credentials, project settings, or a daemon restart (#997).

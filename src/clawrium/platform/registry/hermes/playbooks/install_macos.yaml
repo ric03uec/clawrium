@@ -229,6 +229,42 @@
         group: staff
         mode: "0700"
 
+    # Official Herdr integration. The shared binary is provisioned before
+    # this runtime playbook; actual plugin/configuration state controls this
+    # task so repeated installs do not mutate a healthy Hermes account.
+    - name: Inspect Herdr Hermes plugin directory
+      ansible.builtin.stat:
+        path: "/Users/{{ agent_name }}/.hermes/plugins/herdr-agent-state"
+      register: herdr_hermes_plugin_dir
+
+    - name: Inspect Herdr Hermes plugin configuration
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/grep
+          - -Eq
+          - '^[[:space:]]*-[[:space:]]*herdr-agent-state$'
+          - "/Users/{{ agent_name }}/.hermes/config.yaml"
+      register: herdr_hermes_plugin_config
+      changed_when: false
+      failed_when: false
+      become_user: "{{ agent_name }}"
+
+    - name: Install official Herdr Hermes integration when missing
+      ansible.builtin.command:
+        argv:
+          - /usr/local/bin/herdr
+          - integration
+          - install
+          - hermes
+      become_user: "{{ agent_name }}"
+      environment:
+        HOME: "/Users/{{ agent_name }}"
+        HERMES_HOME: "/Users/{{ agent_name }}/.hermes"
+        PATH: "/usr/bin:/bin"
+      when: >-
+        not herdr_hermes_plugin_dir.stat.exists
+        or herdr_hermes_plugin_config.rc != 0
+
     # ----- Dashboard prerequisites + upstream workarounds (parity with Linux) -----
     - name: Resolve hermes venv python interpreter
       ansible.builtin.set_fact:

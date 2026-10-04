@@ -95,15 +95,11 @@ def make_canonical_stubs(monkeypatch: pytest.MonkeyPatch):
             "build_render_inputs",
             fake_build_render_inputs,
         )
-        monkeypatch.setitem(
-            lifecycle_canonical._RENDERERS, agent_type, fake_renderer
-        )
+        monkeypatch.setitem(lifecycle_canonical._RENDERERS, agent_type, fake_renderer)
         monkeypatch.setattr(
             lifecycle_canonical, "get_agent_by_name", fake_get_agent_by_name
         )
-        monkeypatch.setattr(
-            lifecycle_canonical, "diff_files", fake_diff_files
-        )
+        monkeypatch.setattr(lifecycle_canonical, "diff_files", fake_diff_files)
         monkeypatch.setattr(lifecycle_canonical, "_open_ssh", fake_open_ssh)
         # #811: validate-phase host probe defaults to "install present"
         # so the bearer-rotation invariants under test stay isolated
@@ -119,12 +115,8 @@ def make_canonical_stubs(monkeypatch: pytest.MonkeyPatch):
                 home_path="/home/x/.x",
             ),
         )
-        monkeypatch.setattr(
-            lifecycle_canonical, "_restart_unit", fake_restart_unit
-        )
-        monkeypatch.setattr(
-            lifecycle_canonical, "_verify_health", fake_verify_health
-        )
+        monkeypatch.setattr(lifecycle_canonical, "_restart_unit", fake_restart_unit)
+        monkeypatch.setattr(lifecycle_canonical, "_verify_health", fake_verify_health)
 
         # Suppress onboarding state transition — unrelated to bearer
         # rotation. Tests that explicitly want to assert the state
@@ -140,9 +132,7 @@ def make_canonical_stubs(monkeypatch: pytest.MonkeyPatch):
 
 
 def _fake_push_success(rel_files: tuple[str, ...] = ()) -> WorkspacePhaseResult:
-    return WorkspacePhaseResult(
-        success=True, files_pushed=rel_files, files_excluded=()
-    )
+    return WorkspacePhaseResult(success=True, files_pushed=rel_files, files_excluded=())
 
 
 # ---------------------------------------------------------------------------
@@ -175,18 +165,14 @@ def test_zeroclaw_default_sync_calls_repair_with_exact_args(
             "clawrium.core.workspace_sync.push_workspace_phase",
             return_value=_fake_push_success(),
         ),
-        patch.object(
-            lifecycle_canonical, "diff_files", return_value=[written_diff]
-        ),
+        patch.object(lifecycle_canonical, "diff_files", return_value=[written_diff]),
         patch.object(lifecycle_canonical, "_atomic_write", return_value=None),
         patch(
             "clawrium.core.lifecycle._zeroclaw_repair_after_start",
             repair_mock,
         ),
     ):
-        result = sync_agent_canonical(
-            "alice", force=False, restart=True, verify=True
-        )
+        result = sync_agent_canonical("alice", force=False, restart=True, verify=True)
 
     assert result.success is True
     repair_mock.assert_called_once_with(
@@ -269,9 +255,7 @@ def test_zeroclaw_no_restart_sync_still_calls_repair(
             repair_mock,
         ),
     ):
-        sync_agent_canonical(
-            "alice", force=False, restart=False, verify=False
-        )
+        sync_agent_canonical("alice", force=False, restart=False, verify=False)
 
     # No restart unit ran (operator asked to skip it).
     restart_calls = [c for c in calls if c[0] == "restart"]
@@ -336,18 +320,14 @@ def test_zeroclaw_default_sync_calls_repair_with_exact_args_darwin(
             "clawrium.core.workspace_sync.push_workspace_phase",
             return_value=_fake_push_success(),
         ),
-        patch.object(
-            lifecycle_canonical, "diff_files", return_value=[written_diff]
-        ),
+        patch.object(lifecycle_canonical, "diff_files", return_value=[written_diff]),
         patch.object(lifecycle_canonical, "_atomic_write", return_value=None),
         patch(
             "clawrium.core.lifecycle._zeroclaw_repair_after_start",
             repair_mock,
         ),
     ):
-        result = sync_agent_canonical(
-            "alice", force=False, restart=True, verify=True
-        )
+        result = sync_agent_canonical("alice", force=False, restart=True, verify=True)
 
     assert result.success is True
     repair_mock.assert_called_once_with(
@@ -419,9 +399,7 @@ def test_zeroclaw_no_restart_sync_still_calls_repair_darwin(
             repair_mock,
         ),
     ):
-        sync_agent_canonical(
-            "alice", force=False, restart=False, verify=False
-        )
+        sync_agent_canonical("alice", force=False, restart=False, verify=False)
 
     # No restart unit ran (operator asked to skip it).
     restart_calls = [c for c in calls if c[0] == "restart"]
@@ -460,12 +438,8 @@ def test_zeroclaw_no_restart_sync_still_calls_repair_darwin(
 @pytest.mark.parametrize(
     "sync_kwargs",
     [
-        pytest.param(
-            {"restart": True, "verify": True}, id="default"
-        ),
-        pytest.param(
-            {"restart": False, "verify": False}, id="no-restart"
-        ),
+        pytest.param({"restart": True, "verify": True}, id="default"),
+        pytest.param({"restart": False, "verify": False}, id="no-restart"),
         pytest.param(
             {"workspace_only": True, "restart": False, "verify": False},
             id="workspace-only",
@@ -518,10 +492,9 @@ def test_non_zeroclaw_never_calls_zeroclaw_repair(
             "clawrium.core.workspace_sync.push_workspace_phase",
             return_value=_fake_push_success(),
         ),
-        patch.object(
-            lifecycle_canonical, "diff_files", return_value=[written_diff]
-        ),
+        patch.object(lifecycle_canonical, "diff_files", return_value=[written_diff]),
         patch.object(lifecycle_canonical, "_atomic_write", return_value=None),
+        patch.object(lifecycle_canonical, "_hermes_reconcile_herdr", return_value=None),
         patch(
             "clawrium.core.lifecycle._zeroclaw_repair_after_start",
             repair_mock,
@@ -551,9 +524,7 @@ def test_zeroclaw_workspace_only_does_not_transition_state(
     calls = make_canonical_stubs("zeroclaw")
 
     transition_mock = MagicMock()
-    monkeypatch.setattr(
-        "clawrium.core.onboarding.transition_state", transition_mock
-    )
+    monkeypatch.setattr("clawrium.core.onboarding.transition_state", transition_mock)
 
     repair_mock = MagicMock(return_value=(True, None))
 
@@ -630,9 +601,7 @@ def test_zeroclaw_workspace_only_push_failure_skips_repair(
             repair_mock,
         ),
     ):
-        with pytest.raises(
-            CanonicalSyncError, match=r"workspace overlay push failed"
-        ):
+        with pytest.raises(CanonicalSyncError, match=r"workspace overlay push failed"):
             sync_agent_canonical(
                 "alice",
                 workspace_only=True,
@@ -709,9 +678,7 @@ def test_zeroclaw_repair_failure_default_path_says_restarted(
             "clawrium.core.workspace_sync.push_workspace_phase",
             return_value=_fake_push_success(),
         ),
-        patch.object(
-            lifecycle_canonical, "diff_files", return_value=[written_diff]
-        ),
+        patch.object(lifecycle_canonical, "diff_files", return_value=[written_diff]),
         patch.object(lifecycle_canonical, "_atomic_write", return_value=None),
         patch(
             "clawrium.core.lifecycle._zeroclaw_repair_after_start",
@@ -739,9 +706,7 @@ def test_zeroclaw_workspace_only_repair_failure_raises(
     the CLI's `except` clause routes it to exit code 1."""
     make_canonical_stubs("zeroclaw")
 
-    repair_mock = MagicMock(
-        return_value=(False, "/pair returned 500: gateway hung")
-    )
+    repair_mock = MagicMock(return_value=(False, "/pair returned 500: gateway hung"))
 
     with (
         patch(
@@ -872,9 +837,7 @@ def test_zeroclaw_repair_failure_emits_stale_bearer_event_default_path(
     out of sync with the daemon's enforced bearer."""
     make_canonical_stubs("zeroclaw")
 
-    repair_mock = MagicMock(
-        return_value=(False, "/pair returned 500: gateway hung")
-    )
+    repair_mock = MagicMock(return_value=(False, "/pair returned 500: gateway hung"))
 
     events: list[tuple[str, str]] = []
 
@@ -892,9 +855,7 @@ def test_zeroclaw_repair_failure_emits_stale_bearer_event_default_path(
             "clawrium.core.workspace_sync.push_workspace_phase",
             return_value=_fake_push_success(),
         ),
-        patch.object(
-            lifecycle_canonical, "diff_files", return_value=[written_diff]
-        ),
+        patch.object(lifecycle_canonical, "diff_files", return_value=[written_diff]),
         patch.object(lifecycle_canonical, "_atomic_write", return_value=None),
         patch(
             "clawrium.core.lifecycle._zeroclaw_repair_after_start",
@@ -934,9 +895,7 @@ def test_zeroclaw_workspace_only_repair_failure_emits_stale_bearer_event(
     bare exit-1 with no diagnostic on bearer state."""
     make_canonical_stubs("zeroclaw")
 
-    repair_mock = MagicMock(
-        return_value=(False, "/pair/code returned 401")
-    )
+    repair_mock = MagicMock(return_value=(False, "/pair/code returned 401"))
     events: list[tuple[str, str]] = []
 
     def on_event(stage: str, message: str) -> None:

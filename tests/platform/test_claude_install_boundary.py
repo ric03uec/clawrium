@@ -392,7 +392,7 @@ def test_claude_install_does_not_mint_gateway_state(monkeypatch, tmp_path):
     def run_playbook(**kwargs):
         captured_inventories.append(kwargs["inventory"])
         events = []
-        if len(captured_inventories) == 2:
+        if len(captured_inventories) == 3:
             events = [
                 {
                     "event": "runner_on_ok",
@@ -431,7 +431,7 @@ def test_claude_install_does_not_mint_gateway_state(monkeypatch, tmp_path):
     assert result["success"] is True
     assert result["skipped"] is True
     assert result["skip_reason"] == "already_installed"
-    assert len(captured_inventories) == 2
+    assert len(captured_inventories) == 3
     assert captured_inventories[-1]["all"]["vars"]["config"] == {}
     record = host_state[0]["agents"]["claude-agent"]
     assert record["type"] == "claude"

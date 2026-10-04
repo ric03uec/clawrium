@@ -226,6 +226,13 @@ def _get_agent_playbook_path(agent_type: str, os_family: str = "linux") -> Path:
     return resolve_agent_playbook(agent_type, "install", os_family)
 
 
+def _get_herdr_playbook_path(os_family: str = "linux") -> Path:
+    """Get the OS-specific shared Herdr playbook for an eligible agent."""
+    from clawrium.core.playbook_resolver import resolve_herdr_playbook
+
+    return resolve_herdr_playbook(os_family)
+
+
 def _get_logs_dir() -> Path:
     """Get logs directory, creating if needed."""
     logs_dir = get_config_dir() / "logs"
@@ -1314,6 +1321,35 @@ def run_installation(
         playbooks_run.append(str(base_playbook))
         emit("base", "System dependencies installed")
 
+        # Herdr is a host-shared runtime deliberately scoped to these two
+        # agent types. Keep it between base setup and the agent installer so
+        # Hermes can add its native integration only after the binary exists.
+        if claw_name in ("hermes", "claude"):
+            try:
+                herdr_playbook = _get_herdr_playbook_path(host_os_family)
+            except FileNotFoundError as exc:
+                raise InstallationError(f"Herdr playbook not found: {exc}") from exc
+
+            emit("herdr", "Installing shared Herdr runtime...")
+            herdr_data_dir = install_log_dir / "herdr"
+            herdr_data_dir.mkdir(exist_ok=True)
+            result = ansible_runner.run(
+                private_data_dir=str(herdr_data_dir),
+                inventory=inventory,
+                playbook=str(herdr_playbook),
+                quiet=False,
+                verbosity=1,
+                timeout=300,
+                envvars={"ANSIBLE_BECOME_TIMEOUT": "120"},
+            )
+            if result.status != "successful":
+                raise InstallationError(
+                    f"Herdr playbook failed: {result.status}. "
+                    f"Check logs at {herdr_data_dir}/artifacts/"
+                )
+            playbooks_run.append(str(herdr_playbook))
+            emit("herdr", "Shared Herdr runtime installed")
+
         # Step 9: Run agent playbook
         try:
             claw_playbook = _get_agent_playbook_path(claw_name, host_os_family)
@@ -1759,4 +1795,5 @@ def run_installation(
         # internally with `.exists()`, so it's a safe no-op if a partial
         # failure aborted before either subdir was created.
         _cleanup_ansible_artifacts(install_log_dir / "base")
+        _cleanup_ansible_artifacts(install_log_dir / "herdr")
         _cleanup_ansible_artifacts(install_log_dir / "claw")

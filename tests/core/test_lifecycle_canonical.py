@@ -222,6 +222,7 @@ def _stub_sync_environment(monkeypatch, *, agent_type: str = "hermes"):
     monkeypatch.setattr(lc, "_atomic_write", lambda *a, **kw: None)
     monkeypatch.setattr(lc, "_restart_unit", lambda *a, **kw: None)
     monkeypatch.setattr(lc, "_verify_health", lambda *a, **kw: None)
+    monkeypatch.setattr(lc, "_hermes_reconcile_herdr", lambda *a, **kw: None)
     # #811: stub the validate-phase host probe to "install intact" so
     # the new validate-phase short-circuit doesn't fire on tests that
     # exercise downstream sync behavior. Tests that want to exercise
@@ -238,6 +239,45 @@ def _stub_sync_environment(monkeypatch, *, agent_type: str = "hermes"):
     )
     events: list[tuple[str, str]] = []
     return events, inputs
+
+
+def test_hermes_sync_verifies_api_server_port(monkeypatch):
+    """Hermes health probes its API server, not the gateway-shaped port."""
+    _events, _inputs = _stub_sync_environment(monkeypatch, agent_type="hermes")
+    host = {
+        "hostname": "h",
+        "agents": {
+            "alpha": {
+                "config": {"gateway": {"port": 40000}, "api_server": {"port": 8642}}
+            }
+        },
+    }
+    monkeypatch.setattr(lc, "get_agent_by_name", lambda _: (host, "hermes", {}))
+    monkeypatch.setattr(
+        "clawrium.core.onboarding.transition_state", lambda *args, **kwargs: None
+    )
+    restarted = []
+    verified = []
+    monkeypatch.setattr(
+        lc, "_restart_unit", lambda *args, **kwargs: restarted.append(kwargs)
+    )
+    monkeypatch.setattr(
+        lc, "_verify_health", lambda *args, **kwargs: verified.append(kwargs)
+    )
+
+    result = sync_agent_canonical("alpha", restart=True, verify=True)
+
+    assert result.success
+    assert len(restarted) == 1
+    assert verified == [
+        {
+            "agent_type": "hermes",
+            "agent_name": "alpha",
+            "host": host,
+            "gateway_port": 8642,
+            "on_event": None,
+        }
+    ]
 
 
 def test_sync_state_ready_success_no_error_field(monkeypatch):
@@ -821,6 +861,7 @@ def test_sync_force_bypass_writes_through_secret_removal(monkeypatch):
         "_atomic_write",
         lambda *a, **kw: written.append(kw["remote_path"]),
     )
+    monkeypatch.setattr(lc, "_hermes_reconcile_herdr", lambda *a, **kw: None)
     # Stub onboarding transition so we don't write hosts.json.
     monkeypatch.setattr(
         "clawrium.core.onboarding.transition_state",
@@ -4415,6 +4456,7 @@ class TestHermesSlackInstallRunsBeforeRestart:
         def spy_restart(*_a, **_kw):
             order.append("restart_unit")
 
+        monkeypatch.setattr(lc, "_hermes_reconcile_herdr", lambda *a, **kw: None)
         monkeypatch.setattr(lc, "_hermes_install_slack_mcp", spy_install)
         monkeypatch.setattr(lc, "_restart_unit", spy_restart)
 
@@ -4442,6 +4484,7 @@ class TestHermesSlackInstallRunsBeforeRestart:
         def spy_restart(*_a, **_kw):
             restart_called.append(True)
 
+        monkeypatch.setattr(lc, "_hermes_reconcile_herdr", lambda *a, **kw: None)
         monkeypatch.setattr(lc, "_hermes_install_slack_mcp", boom_install)
         monkeypatch.setattr(lc, "_restart_unit", spy_restart)
 
@@ -5503,9 +5546,7 @@ class TestOpenclawNemoclawOnboardOrdering:
             pytest.param("  ", id="whitespace-only"),
         ],
     )
-    def test_onboard_fails_loud_for_legacy_bare_record(
-        self, monkeypatch, runtime_val
-    ):
+    def test_onboard_fails_loud_for_legacy_bare_record(self, monkeypatch, runtime_val):
         """Legacy bare openclaw records (missing `runtime`, empty
         string, whitespace, or explicit None) are unsupported after
         Phase 3. Sync must fail with the migration note instead of
@@ -5587,7 +5628,9 @@ class TestOpenclawRestartUnitDispatch:
             "clawrium.core.lifecycle._run_lifecycle_playbook",
             lambda **_kw: (False, "nemoclaw start: sandbox did not become active"),
         )
-        with pytest.raises(CanonicalSyncError, match=r"nemoclaw start failed for 'oc-nemo'"):
+        with pytest.raises(
+            CanonicalSyncError, match=r"nemoclaw start failed for 'oc-nemo'"
+        ):
             lc._restart_unit(
                 client=MagicMock(),
                 agent_type="openclaw",
@@ -5604,9 +5647,7 @@ class TestOpenclawRestartUnitDispatch:
             lambda **_kw: (dispatched.append(True), (True, None))[1],
         )
         # Stub the linux systemd path so we don't need a real SSH client.
-        monkeypatch.setattr(
-            lc, "_restart_unit_linux", lambda *_a, **_kw: None
-        )
+        monkeypatch.setattr(lc, "_restart_unit_linux", lambda *_a, **_kw: None)
         for agent_type in ("hermes", "zeroclaw"):
             lc._restart_unit(
                 client=MagicMock(),
@@ -5644,7 +5685,9 @@ class TestOpenclawRestartUnitDispatch:
             "clawrium.core.lifecycle._run_lifecycle_playbook",
             lambda **_kw: (False, "nemoclaw status: sandbox unhealthy"),
         )
-        with pytest.raises(CanonicalSyncError, match=r"nemoclaw status failed for 'oc-nemo'"):
+        with pytest.raises(
+            CanonicalSyncError, match=r"nemoclaw status failed for 'oc-nemo'"
+        ):
             lc._verify_health(
                 client=MagicMock(),
                 agent_type="openclaw",

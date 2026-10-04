@@ -1,0 +1,171 @@
+{
+  "atx_review": {
+    "version": "3",
+    "status": "reviewed",
+    "blocking": false,
+    "revision_id": "3a1e8a0d-ccc5-44e3-aebb-4d22be94c8e9",
+    "review_id": "rev-18541766-6f0e-475d-93a7-23f9dd5707be",
+    "review_title": "Review full branch diff against main",
+    "summary": "{\"response_type\":\"text\",\"content\":\"\u003coutput\u003e\\n{\\\"rating\\\":3,\\\"summary\\\":\\\"The branch’s lifecycle and security changes were reviewed without actionable defects. Test coverage is substantially expanded, ...",
+    "rating": 4,
+    "agents": [
+      "leader",
+      "test-coverage",
+      "security-reviewer",
+      "render-engine",
+      "lifecycle-core",
+      "cli-ux",
+      "gui-routes",
+      "platform-playbooks"
+    ],
+    "agent_contributions": [
+      {
+        "name": "leader",
+        "status": "completed",
+        "cost_usd": 0.092468,
+        "delegated_to": [
+          "96cf24db-1fca-48da-8f6f-2d799acb293a",
+          "e8462619-249e-41f6-8cb0-a7169ae20d74",
+          "2b6bb653-42cd-4aa5-aac5-6edc8b274fd0",
+          "d79463ac-884b-4e03-b34f-fb6017c83027",
+          "2b6bb653-42cd-4aa5-aac5-6edc8b274fd0",
+          "e5323802-3973-44c7-a934-53da9bea7eae",
+          "49fbebd6-8745-4b35-81b4-0bb0bf680f37",
+          "2f559a42-9fca-4be1-a67d-1601b2edbe8b"
+        ]
+      },
+      {
+        "name": "test-coverage",
+        "status": "completed",
+        "rating": 3,
+        "cost_usd": 0.064386
+      },
+      {
+        "name": "security-reviewer",
+        "status": "completed",
+        "rating": 4,
+        "cost_usd": 0.037936
+      },
+      {
+        "name": "render-engine",
+        "status": "failed"
+      },
+      {
+        "name": "lifecycle-core",
+        "status": "completed",
+        "rating": 5,
+        "cost_usd": 0.061905
+      },
+      {
+        "name": "render-engine",
+        "status": "failed"
+      },
+      {
+        "name": "cli-ux",
+        "status": "skipped"
+      },
+      {
+        "name": "gui-routes",
+        "status": "skipped"
+      },
+      {
+        "name": "platform-playbooks",
+        "status": "skipped"
+      }
+    ],
+    "models": [
+      "gpt-5.6-terra",
+      "gpt-5.6-luna",
+      "gpt-5.6-sol"
+    ],
+    "review_cost_usd": 0.256695,
+    "duration_ms": 183384,
+    "findings": {
+      "parse_coverage": "complete",
+      "blocking": [],
+      "warnings": [
+        {
+          "severity": "warning",
+          "location": "scripts/e2e/herdr_install_e2e.py:42-214",
+          "issue": "The new E2E harness has no automated tests covering failures after disposable agents are created. Its finally-path mutates fleet and remote-host state, but failures during Hermes creation, provider attachment/sync, Claude creation, or remote verification are not verified to remove all created agents, preserve existing records, retain the shared binary, and write failure evidence.",
+          "suggestion": "Add isolated mocked CLI/SSH tests for success and each failure boundary; assert exact cleanup commands, preservation of pre-existing fleet state, retained host-shared binary, and evidence fields.",
+          "source_agent": "leader"
+        },
+        {
+          "severity": "warning",
+          "location": "scripts/e2e/herdr_install_e2e.py:42-214",
+          "issue": "The newly added E2E harness has no corresponding automated test coverage. In particular, there is no test that forces a failure after one disposable agent is created and verifies that the finally-path removes every created agent, preserves pre-existing fleet records, writes failed evidence, and retains the host-shared binary.",
+          "suggestion": "Add isolated tests for HerdrE2E using mocked CLI/SSH and host/key boundaries. Exercise success plus failures during Hermes creation, provider attachment/sync, Claude creation, and remote verification; assert exact cleanup commands and evidence fields in each case.",
+          "source_agent": "test-coverage"
+        }
+      ],
+      "suggestions": []
+    },
+    "raw_markdown": "{\"response_type\":\"text\",\"content\":\"\u003coutput\u003e\\n{\\\"rating\\\":3,\\\"summary\\\":\\\"The branch’s lifecycle and security changes were reviewed without actionable defects. Test coverage is substantially expanded, but the newly introduced E2E harness lacks automated coverage for its failure and cleanup behavior, leaving important state-mutating paths unverified.\\\",\\\"findings\\\":[{\\\"severity\\\":\\\"warning\\\",\\\"location\\\":\\\"scripts/e2e/herdr_install_e2e.py:42-214\\\",\\\"issue\\\":\\\"The new E2E harness has no automated tests covering failures after disposable agents are created. Its finally-path mutates fleet and remote-host state, but failures during Hermes creation, provider attachment/sync, Claude creation, or remote verification are not verified to remove all created agents, preserve existing records, retain the shared binary, and write failure evidence.\\\",\\\"suggestion\\\":\\\"Add isolated mocked CLI/SSH tests for success and each failure boundary; assert exact cleanup commands, preservation of pre-existing fleet state, retained host-shared binary, and evidence fields.\\\"}],\\\"recommendations\\\":[\\\"Add unit tests for E2E harness cleanup and failure-reporting paths before treating the committed E2E evidence as regression coverage.\\\"],\\\"metadata\\\":{\\\"files_reviewed\\\":31,\\\"domain\\\":\\\"lifecycle, security, and test coverage\\\"}}\\n\u003c/output\u003e\"}",
+    "pr_body": "\u003c!-- atx:pr-review-summary v3 --\u003e\n## ATX Review Summary\n\n**Current Revision Rating: 4/5** | **Cost: $0.26** | **Time: 3m 3s**\n**Agents: leader, test-coverage, security-reviewer, render-engine, lifecycle-core, cli-ux, gui-routes, platform-playbooks** | **Finding Parse Coverage: complete**\n\n## Blocking Issues\n\n| # | Source | Location | Issue | Suggested Fix |\n|---|--------|----------|-------|---------------|\n| - | - | - | None | - |\n\n## Warnings\n\n| # | Source | Location | Issue | Suggested Fix |\n|---|--------|----------|-------|---------------|\n| W1 | leader | scripts/e2e/herdr_install_e2e.py:42-214 | The new E2E harness has no automated tests covering failures after disposable agents are created. Its finally-path mutates fleet and remote-host state, but failures during Hermes creation, provider attachment/sync, Claude creation, or remote verification are not verified to remove all created agents, preserve existing records, retain the shared binary, and write failure evidence. | Add isolated mocked CLI/SSH tests for success and each failure boundary; assert exact cleanup commands, preservation of pre-existing fleet state, retained host-shared binary, and evidence fields. |\n| W2 | test-coverage | scripts/e2e/herdr_install_e2e.py:42-214 | The newly added E2E harness has no corresponding automated test coverage. In particular, there is no test that forces a failure after one disposable agent is created and verifies that the finally-path removes every created agent, preserves pre-existing fleet records, writes failed evidence, and retains the host-shared binary. | Add isolated tests for HerdrE2E using mocked CLI/SSH and host/key boundaries. Exercise success plus failures during Hermes creation, provider attachment/sync, Claude creation, and remote verification; assert exact cleanup commands and evidence fields in each case. |\n\n## Suggestions\n\n| # | Source | Location | Issue | Suggested Fix |\n|---|--------|----------|-------|---------------|\n| - | - | - | None | - |\n\nCo-Authored-By: @atx-ci \u003c269048218+atx-ci@users.noreply.github.com\u003e\n",
+    "pr_body_template": {
+      "name": "pr-review-summary",
+      "version": "3"
+    },
+    "review_render_status": "rendered",
+    "rendered_review_markdown": "# ATX Review\n\n**Rating: 3/5** | **Agents: lifecycle-core, security-reviewer, test-coverage, render-engine, render-engine, cli-ux, gui-routes, platform-playbooks**\n\n## Summary\n\nThe branch’s lifecycle and security changes were reviewed without actionable defects. Test coverage is substantially expanded, but the newly introduced E2E harness lacks automated coverage for its failure and cleanup behavior, leaving important state-mutating paths unverified.\n\n## Blocking Issues\n\n| # | Source | Category | Location | Issue | Suggested Fix |\n|---|--------|----------|----------|-------|---------------|\n| - | - | - | - | None | - |\n\n## Warnings\n\n| # | Source | Category | Location | Issue | Suggested Fix |\n|---|--------|----------|----------|-------|---------------|\n| W1 | - | - | scripts/e2e/herdr_install_e2e.py:42-214 | The new E2E harness has no automated tests covering failures after disposable agents are created. Its finally-path mutates fleet and remote-host state, but failures during Hermes creation, provider attachment/sync, Claude creation, or remote verification are not verified to remove all created agents, preserve existing records, retain the shared binary, and write failure evidence. | Add isolated mocked CLI/SSH tests for success and each failure boundary; assert exact cleanup commands, preservation of pre-existing fleet state, retained host-shared binary, and evidence fields. |\n\n## Suggestions\n\n| # | Source | Category | Location | Issue | Suggested Fix |\n|---|--------|----------|----------|-------|---------------|\n| - | - | - | - | None | - |\n\n## Recommendations\n\n- Add unit tests for E2E harness cleanup and failure-reporting paths before treating the committed E2E evidence as regression coverage.\n\n## Agent Status\n\n| Agent | Status | Reason |\n|-------|--------|--------|\n| lifecycle-core | completed | - |\n| security-reviewer | completed | - |\n| test-coverage | completed | - |\n| render-engine | failed | - |\n| render-engine | failed | - |\n| cli-ux | skipped | skipped:out-of-scope |\n| gui-routes | skipped | skipped:out-of-scope |\n| platform-playbooks | skipped | skipped:out-of-scope |\n",
+    "normalized_review": {
+      "rating": 3,
+      "summary": "The branch’s lifecycle and security changes were reviewed without actionable defects. Test coverage is substantially expanded, but the newly introduced E2E harness lacks automated coverage for its failure and cleanup behavior, leaving important state-mutating paths unverified.",
+      "findings": [
+        {
+          "severity": "warning",
+          "location": "scripts/e2e/herdr_install_e2e.py:42-214",
+          "issue": "The new E2E harness has no automated tests covering failures after disposable agents are created. Its finally-path mutates fleet and remote-host state, but failures during Hermes creation, provider attachment/sync, Claude creation, or remote verification are not verified to remove all created agents, preserve existing records, retain the shared binary, and write failure evidence.",
+          "suggestion": "Add isolated mocked CLI/SSH tests for success and each failure boundary; assert exact cleanup commands, preservation of pre-existing fleet state, retained host-shared binary, and evidence fields."
+        }
+      ],
+      "recommendations": [
+        "Add unit tests for E2E harness cleanup and failure-reporting paths before treating the committed E2E evidence as regression coverage."
+      ],
+      "agents": [
+        {
+          "name": "lifecycle-core",
+          "status": "completed"
+        },
+        {
+          "name": "security-reviewer",
+          "status": "completed"
+        },
+        {
+          "name": "test-coverage",
+          "status": "completed"
+        },
+        {
+          "name": "render-engine",
+          "status": "failed"
+        },
+        {
+          "name": "render-engine",
+          "status": "failed"
+        },
+        {
+          "name": "cli-ux",
+          "status": "skipped",
+          "reason": "skipped:out-of-scope"
+        },
+        {
+          "name": "gui-routes",
+          "status": "skipped",
+          "reason": "skipped:out-of-scope"
+        },
+        {
+          "name": "platform-playbooks",
+          "status": "skipped",
+          "reason": "skipped:out-of-scope"
+        }
+      ]
+    }
+  },
+  "caller_instructions": {
+    "render_first": "Branch only on `atx_review.review_render_status`: render `atx_review.rendered_review_markdown` verbatim to the user for `rendered` or `legacy`; surface `atx_review.review_render_error_code` and `atx_review.review_render_error_message` for `error`; show no review for `absent`. Never render `atx_review.raw_markdown` — it is retained strictly for trace/debug and may contain unrendered model formatting (#889).",
+    "validate_before_acting": "For each finding, open the referenced file/line and confirm the issue exists in the current code. ATX reviews can hallucinate file paths, line numbers, or behavior. Treat every finding as a hypothesis, not a fact.",
+    "apply_selectively": "Act only on findings you were able to independently verify. Silently skip findings that don't reproduce against current code — do not surface them as work items, do not ask the user about each one, and do not retry the review to 'confirm'. When uncertain whether a finding reproduces, prefer skipping over surfacing it as a task.",
+    "pr_summary_template": "If `atx_review.pr_body` is present, append it verbatim to the PR body. Do not fetch a template, reconstruct the body, or infer review history. When it is absent, no completed review body is available."
+  }
+}

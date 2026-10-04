@@ -1682,6 +1682,36 @@ def _hermes_install_slack_mcp(
         )
 
 
+def _hermes_reconcile_herdr(
+    agent_name: str,
+    hostname: str,
+    host: dict,
+    *,
+    on_event: Callable[[str, str], None] | None = None,
+) -> None:
+    """Migrate legacy Hermes instances before rendering enables Herdr."""
+    from clawrium.core.lifecycle import _run_lifecycle_playbook
+
+    os_family = str(host.get("os_family") or "linux").strip().lower()
+    operation = (
+        "install_herdr_macos"
+        if os_family in ("darwin", "mac", "macos", "osx")
+        else "install_herdr"
+    )
+    if on_event is not None:
+        on_event("herdr_install", f"reconciling Herdr for {agent_name}")
+    success, err = _run_lifecycle_playbook(
+        agent_type="hermes",
+        agent_name=agent_name,
+        hostname=hostname,
+        operation=operation,
+        host=host,
+        timeout=300,
+    )
+    if not success:
+        raise CanonicalSyncError(f"Herdr reconciliation failed for {agent_name!r}: {err}")
+
+
 # #835: openclaw slack MCP subprocess installer. Sibling of the hermes
 # helper directly above — same binary, same version pin, same runbook
 # shape; separate helper because `_run_lifecycle_playbook` resolves the
@@ -2750,6 +2780,7 @@ def sync_agent_canonical(
         # pointing at a binary that failed to install. Fast no-op when
         # no slack integration is attached.
         if inputs.agent_type == "hermes":
+            _hermes_reconcile_herdr(agent_name, hostname, host, on_event=on_event)
             _hermes_install_slack_mcp(
                 agent_name,
                 hostname,
@@ -2900,12 +2931,16 @@ def sync_agent_canonical(
             )
             if verify:
                 emit("verify", "checking unit is active")
-                gateway_port = (
-                    ((host.get("agents") or {}).get(agent_name) or {})
-                    .get("config", {})
-                    .get("gateway", {})
-                    .get("port")
+                agent_config = ((host.get("agents") or {}).get(agent_name) or {}).get(
+                    "config", {}
                 )
+                # Hermes exposes its managed listener through api_server;
+                # gateway.port is only the canonical health endpoint for
+                # gateway-backed agent types.
+                port_config_key = (
+                    "api_server" if inputs.agent_type == "hermes" else "gateway"
+                )
+                gateway_port = (agent_config.get(port_config_key) or {}).get("port")
                 _verify_health(
                     client,
                     agent_type=inputs.agent_type,
