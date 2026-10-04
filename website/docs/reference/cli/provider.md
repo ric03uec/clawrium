@@ -43,7 +43,7 @@ API keys are collected securely via interactive prompt (not visible in process l
 
 | Option | Short | Description |
 |--------|-------|-------------|
-| `--type` | `-t` | Provider type (required): openai, anthropic, openrouter, bedrock, vertex, zai, ollama |
+| `--type` | `-t` | Provider type (required): openai, anthropic, openrouter, bedrock, vertex, zai, ollama, claude-oauth (selection-only, for Claude Code agents; no API key or endpoint) |
 | `--model` | `-m` | Default model to use |
 | `--url` | `-u` | Server URL (required for Ollama) |
 
@@ -292,6 +292,7 @@ Supported provider types:
 
   anthropic - 7 models
   bedrock - 8 models (SDK-based)
+  claude-oauth - selection-only (no models; imports the controller's local Claude Code OAuth token)
   ollama - Self-hosted (dynamic model discovery)
   openai - 51 models
   openrouter - 200+ models

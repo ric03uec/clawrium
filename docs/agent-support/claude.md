@@ -75,9 +75,16 @@ clawctl agent provider attach local-claude-oauth --agent <name>
 clawctl agent sync <name>
 ```
 
-Attach invokes Claude Code's documented `claude setup-token` export command in
-a local, non-logging subprocess. Its stdout and stderr stay in memory and are
-never printed, logged, or included in errors. After browser authorization, the
+Attach imports the controller user's locally validated Claude Code OAuth
+access token from Claude Code 2.1.139's private `~/.claude/.credentials.json`
+artifact. The reader is a narrow, Linux-only reader: the artifact must be a
+current-user-owned regular file with no group or world permissions (mode
+`0600`), at most 64 KiB, and it accepts only the documented
+`claudeAiOauth.accessToken` field. No value other than that field escapes the
+reader; it is never printed, logged, copied, or included in errors. Failure is
+reported as a fixed, secret-free category (for example
+`credentials_artifact_unavailable` or `credentials_artifact_insecure`) rather
+than as a message that could echo credential material. After the import, the
 normalized token is stored only as `CLAUDE_CODE_OAUTH_TOKEN` in that selected
 agent's encrypted per-instance secret scope; the next sync uses the existing
 private activation path to write it on the selected host. This does **not**
@@ -85,9 +92,13 @@ require `CLAUDE_CODE_OAUTH_TOKEN` to be pre-exported by the caller.
 
 The supported reader is currently Linux-controller-only. A controller on any
 other platform fails closed with a clear unsupported-reader error; it does not
-read or copy a keychain, browser profile, credential database, guessed OAuth
-file, or local `~/.claude` directory. Re-attaching the same provider refreshes
-the agent's locally imported token without showing its value.
+search, copy, or enumerate `~/.claude`, a keychain, a browser profile, or a
+credential database — it reads exactly the one documented artifact above.
+Re-attaching the same provider re-imports the current local token and refreshes
+the agent's secret scope without showing its value. If the artifact is absent,
+a controller user who holds a subscription must first authorize Claude Code on
+the controller (for example by running Claude Code once locally); Clawrium
+does not start or drive the browser authorization itself.
 
 Do not retain both keys in the agent secret scope. If both are present,
 configure and sync fail rather than choose an undocumented precedence. Check
@@ -108,10 +119,13 @@ Do not print or copy the remote credential file to diagnose a configuration.
 The `wolf-i` (i-wolf) validation proved install-only behavior, exclusive
 remote API-key environment propagation with a generated **dummy** value, and
 owned-resource cleanup. It did **not** authenticate to Anthropic with that
-dummy value. The earlier OAuth E2E predates the supported `claude setup-token`
-provider reader and deliberately did not inspect local credential storage.
-Authenticated i-wolf OAuth E2E validation is a follow-up; ordinary provider
-selection and sync remain covered by fake-reader unit/integration tests.
+dummy value. The real OAuth E2E (PASS, 2026-10-03) exercised the normal
+provider registration, attach, and sync path against the supported local
+reader on a Linux controller: agent-owned mode-`0600` credential activation,
+redacted shell assertions, owned-resource cleanup, and preservation of
+pre-existing fleet records. The run never printed, copied, or persisted the
+local credential artifact's contents; ordinary provider selection and sync
+remain covered by fake-reader unit/integration tests.
 
 ## Run a finite command
 
