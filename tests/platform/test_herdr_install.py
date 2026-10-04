@@ -171,9 +171,11 @@ def test_excluded_agents_skip_herdr(monkeypatch, tmp_path, agent_type) -> None:
     assert [Path(path).name for path in calls] == ["base.yaml", "install.yaml"]
 
 
-def test_herdr_failure_stops_agent_playbook(monkeypatch, tmp_path) -> None:
+def test_herdr_failure_stops_agent_playbook_and_cleans_artifacts(monkeypatch, tmp_path) -> None:
     _mock_install_dependencies(monkeypatch, tmp_path, "linux")
     calls = []
+    cleanup_paths = []
+    monkeypatch.setattr(install, "_cleanup_ansible_artifacts", cleanup_paths.append)
 
     class Result:
         config = SimpleNamespace(artifact_dir=str(tmp_path))
@@ -196,6 +198,10 @@ def test_herdr_failure_stops_agent_playbook(monkeypatch, tmp_path) -> None:
     with pytest.raises(InstallationError, match="Herdr playbook failed"):
         run_installation("hermes", "host")
     assert [Path(path).name for path in calls] == ["base.yaml", "herdr.yaml"]
+    # Runner artifacts can contain cacheable credentials. The install finally
+    # block must clean all deterministic stage directories even on a Herdr
+    # failure, including the stage that never started.
+    assert [path.name for path in cleanup_paths] == ["base", "herdr", "claw"]
 
 
 @pytest.mark.parametrize("os_family", ["windows", "freebsd"])
