@@ -14,6 +14,7 @@ from clawrium.core import lifecycle, lifecycle_canonical
 from clawrium.core.claude_credentials import configure_claude_credentials
 from clawrium.core.render import (
     AgentConfigError,
+    render_claude_api_key_environment,
     render_claude_oauth_credentials,
 )
 from clawrium.core.render_diff import FileDiff
@@ -47,7 +48,15 @@ def _seed_host(config_dir: Path, *, os_family: str = "linux") -> dict:
 
 
 def _task(playbook: dict, name: str) -> dict:
-    return next(task for task in playbook[0]["tasks"] if task["name"] == name)
+    def walk(tasks: list[dict]):
+        for task in tasks:
+            yield task
+            for key in ("block", "rescue"):
+                nested = task.get(key)
+                if isinstance(nested, list):
+                    yield from walk(nested)
+
+    return next(task for task in walk(playbook[0]["tasks"]) if task["name"] == name)
 
 
 def _unexpected(*_args, **_kwargs):
@@ -65,6 +74,15 @@ def test_render_claude_oauth_credentials_rejects_empty_and_non_string():
         render_claude_oauth_credentials("")
     with pytest.raises(AgentConfigError):
         render_claude_oauth_credentials(None)  # type: ignore[arg-type]
+
+
+def test_render_claude_api_key_environment_is_shell_safe():
+    body = render_claude_api_key_environment("api-$value-'quoted'")
+
+    assert body == "export ANTHROPIC_API_KEY='api-$value-'\"'\"'quoted'\"'\"''\n"
+    assert body.count("ANTHROPIC_API_KEY") == 1
+    with pytest.raises(AgentConfigError):
+        render_claude_api_key_environment("")
 
 
 def test_configure_transports_oauth_body_in_no_log_inventory(
@@ -121,24 +139,32 @@ def test_configure_transports_oauth_body_in_no_log_inventory(
     assert not Path(captured["private_data_dir"]).exists()
 
 
-def test_configure_rejects_api_key_mode_before_remote_transport(
+def test_configure_transports_only_api_key_environment_in_no_log_inventory(
     isolated_config: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ):
     host = _seed_host(isolated_config)
     configure_claude_credentials("claude-code", anthropic_api_key=_SECRET)
+    captured: dict[str, object] = {}
     monkeypatch.setattr(lifecycle, "get_host", lambda _: host)
     monkeypatch.setattr(lifecycle, "get_host_private_key", lambda _: tmp_path / "key")
     monkeypatch.setattr(lifecycle, "_get_logs_dir", lambda: tmp_path / "logs")
-    monkeypatch.setattr(lifecycle.ansible_runner, "run", _unexpected)
-    monkeypatch.setattr(lifecycle, "update_host", _unexpected)
-
-    ok, error = lifecycle.configure_agent(
-        "claude-host", "claude", {}, agent_name="claude-code"
+    monkeypatch.setattr(
+        lifecycle.ansible_runner,
+        "run",
+        lambda **kwargs: captured.update(kwargs) or SimpleNamespace(status="successful"),
     )
 
-    assert ok is False
-    assert "OAuth only" in (error or "")
-    assert _SECRET not in (error or "")
+    assert lifecycle.configure_agent(
+        "claude-host", "claude", {}, agent_name="claude-code"
+    ) == (True, None)
+
+    variables = captured["inventory"]["all"]["vars"]
+    assert variables["claude_credential_mode"] == "api_key"
+    assert variables["claude_api_key_environment"] == (
+        f"export ANTHROPIC_API_KEY={_SECRET}\n"
+    )
+    assert "claude_oauth_credentials" not in variables
+    assert _SECRET not in json.dumps(host)
 
 
 def test_configure_refuses_missing_credential_before_remote_transport(
@@ -241,35 +267,90 @@ def test_activation_playbooks_write_native_credentials_privately_and_no_log(
         "mode": "0600",
         "unsafe_writes": False,
     }
+    api_key_task = _task(playbook, "Atomically replace Claude API-key environment")
+    assert api_key_task["no_log"] is True
+    assert api_key_task["diff"] is False
+    assert api_key_task["ansible.builtin.copy"] == {
+        "content": "{{ claude_api_key_environment }}",
+        "dest": f"{home}/.claude/clawrium-credentials.env",
+        "owner": "{{ agent_name }}",
+        "group": group,
+        "mode": "0600",
+        "unsafe_writes": False,
+    }
     assert "ansible.builtin.command" not in serialized
     assert "ansible.builtin.shell" not in serialized
     assert "systemctl" not in serialized
     assert "launchctl" not in serialized
     assert "ansible_user_dir" not in serialized
 
-    # Retired env/profile artifacts are only referenced as ``state:
-    # absent`` cleanup tasks, ordered strictly AFTER the native
-    # credentials write.
-    env_cleanup = _task(playbook, "Remove retired Claude credential env file")[
+    # Each mode snapshots its prior selected artifact before replacement.
+    # Stale cleanup is verified; a failure restores that snapshot (or removes
+    # a newly introduced selected artifact when no prior state existed).
+    for name, transition_name, backup_name, stale_path, selected_path in (
+        (
+            "Remove stale Claude API-key environment",
+            "Replace native Claude OAuth credentials exclusively",
+            "Back up native Claude OAuth credentials before replacement",
+            f"{home}/.claude/clawrium-credentials.env",
+            f"{home}/.claude/.credentials.json",
+        ),
+        (
+            "Remove stale native Claude OAuth credentials",
+            "Replace Claude API-key environment exclusively",
+            "Back up Claude API-key environment before replacement",
+            f"{home}/.claude/.credentials.json",
+            f"{home}/.claude/clawrium-credentials.env",
+        ),
+    ):
+        backup = _task(playbook, backup_name)
+        assert backup["no_log"] is True
+        assert backup["diff"] is False
+        assert backup["ansible.builtin.copy"]["remote_src"] is True
+        assert backup["ansible.builtin.copy"]["dest"] == (
+            f"{selected_path}.clawrium-backup"
+        )
+        cleanup = _task(playbook, name)
+        assert cleanup["ansible.builtin.file"] == {
+            "path": stale_path,
+            "state": "absent",
+        }
+        verify_name = (
+            "Verify stale Claude API-key environment is absent"
+            if name == "Remove stale Claude API-key environment"
+            else "Verify stale native Claude OAuth credentials are absent"
+        )
+        assert _task(playbook, verify_name)["ansible.builtin.stat"] == {
+            "path": stale_path
+        }
+        transition = _task(playbook, transition_name)
+        assert backup in transition["block"]
+        assert cleanup in transition["block"]
+        assert transition["block"][-1]["ansible.builtin.file"] == {
+            "path": f"{selected_path}.clawrium-backup",
+            "state": "absent",
+        }
+        assert transition["rescue"][0]["ansible.builtin.copy"] == {
+            "remote_src": True,
+            "src": f"{selected_path}.clawrium-backup",
+            "dest": selected_path,
+            "owner": "{{ agent_name }}",
+            "group": group,
+            "mode": "0600",
+            "unsafe_writes": False,
+        }
+        assert transition["rescue"][0]["no_log"] is True
+        assert transition["rescue"][1]["ansible.builtin.file"] == {
+            "path": selected_path,
+            "state": "absent",
+        }
+        assert transition["rescue"][2]["ansible.builtin.file"] == {
+            "path": f"{selected_path}.clawrium-backup",
+            "state": "absent",
+        }
+    assert _task(playbook, "Remove retired Claude profile hook")[
         "ansible.builtin.file"
-    ]
-    hook_cleanup = _task(playbook, "Remove retired Claude profile hook")[
-        "ansible.builtin.file"
-    ]
-    assert env_cleanup == {
-        "path": f"{home}/.claude/clawrium-credentials.env",
-        "state": "absent",
-    }
-    assert hook_cleanup == {
-        "path": f"{home}/.profile.d/clawrium-claude.sh",
-        "state": "absent",
-    }
-    task_names = [t["name"] for t in playbook[0]["tasks"]]
-    credential_idx = task_names.index(
-        "Atomically replace native Claude OAuth credentials"
-    )
-    assert task_names.index("Remove retired Claude credential env file") > credential_idx
-    assert task_names.index("Remove retired Claude profile hook") > credential_idx
+    ] == {"path": f"{home}/.profile.d/clawrium-claude.sh", "state": "absent"}
 
 
 @pytest.mark.parametrize("os_family", ["linux", "darwin"])
@@ -333,7 +414,17 @@ def test_sync_writes_native_credentials_file_with_exactly_one_json_body(
     )
     monkeypatch.setattr(
         lifecycle_canonical,
+        "_remove_stale_claude_credential_artifacts",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        lifecycle_canonical,
         "_remove_retired_claude_artifacts",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        lifecycle_canonical,
+        "_promote_staged_claude_credential_artifact",
         lambda *_args, **_kwargs: None,
     )
     monkeypatch.setattr(lifecycle_canonical, "_restart_unit", _unexpected)
@@ -345,7 +436,7 @@ def test_sync_writes_native_credentials_file_with_exactly_one_json_body(
     credential_write = next(
         write
         for write in writes
-        if write["remote_path"].endswith("/.credentials.json")
+        if write["remote_path"].endswith(".credentials.json.clawrium-stage")
     )
     assert json.loads(credential_write["body"]) == {
         "claudeAiOauth": {"accessToken": "oauth-switch-token"}
@@ -361,24 +452,62 @@ def test_sync_writes_native_credentials_file_with_exactly_one_json_body(
     assert all(write["host"]["os_family"] == os_family for write in writes)
 
 
-def test_sync_rejects_api_key_mode_before_remote_transport(
+def test_sync_writes_private_api_key_environment_and_cleans_oauth(
     isolated_config: Path, monkeypatch: pytest.MonkeyPatch
 ):
     host = _seed_host(isolated_config)
     record = host["agents"]["claude-code"]
     configure_claude_credentials("claude-code", anthropic_api_key=_SECRET)
+    writes: list[dict] = []
+    stale_cleanups: list[dict] = []
+    client = MagicMock()
     monkeypatch.setattr(
         lifecycle_canonical,
         "get_agent_by_name",
         lambda _: (host, "claude", record),
     )
-    monkeypatch.setattr(lifecycle_canonical, "diff_files", _unexpected)
-    monkeypatch.setattr(lifecycle_canonical, "_open_ssh", _unexpected)
+    monkeypatch.setattr(lifecycle_canonical, "diff_files", lambda **_: [])
+    monkeypatch.setattr(lifecycle_canonical, "_open_ssh", lambda _: client)
+    monkeypatch.setattr(
+        lifecycle_canonical,
+        "_ensure_claude_settings_directory",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        lifecycle_canonical,
+        "_atomic_write",
+        lambda _client, **kwargs: writes.append(kwargs),
+    )
+    monkeypatch.setattr(
+        lifecycle_canonical,
+        "_remove_stale_claude_credential_artifacts",
+        lambda _client, **kwargs: stale_cleanups.append(kwargs),
+    )
+    monkeypatch.setattr(
+        lifecycle_canonical,
+        "_remove_retired_claude_artifacts",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        lifecycle_canonical,
+        "_promote_staged_claude_credential_artifact",
+        lambda *_args, **_kwargs: None,
+    )
 
-    with pytest.raises(
-        lifecycle_canonical.CanonicalSyncError, match="OAuth only"
-    ):
-        lifecycle_canonical.sync_agent_canonical("claude-code")
+    lifecycle_canonical.sync_agent_canonical("claude-code")
+
+    home = "/home/claude-code"
+    assert [write["remote_path"] for write in writes] == [
+        f"{home}/.claude/clawrium-credentials.env.clawrium-stage"
+    ]
+    assert writes[0]["body"] == f"export ANTHROPIC_API_KEY={_SECRET}\n"
+    assert stale_cleanups == [
+        {
+            "agent_name": "claude-code",
+            "selected_path": f"{home}/.claude/clawrium-credentials.env.clawrium-stage",
+            "stale_paths": (f"{home}/.claude/.credentials.json",),
+        }
+    ]
 
 
 def test_sync_writes_credentials_even_when_native_files_unchanged(
@@ -430,7 +559,17 @@ def test_sync_writes_credentials_even_when_native_files_unchanged(
     )
     monkeypatch.setattr(
         lifecycle_canonical,
+        "_remove_stale_claude_credential_artifacts",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        lifecycle_canonical,
         "_remove_retired_claude_artifacts",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        lifecycle_canonical,
+        "_promote_staged_claude_credential_artifact",
         lambda *_args, **_kwargs: None,
     )
 
@@ -441,7 +580,7 @@ def test_sync_writes_credentials_even_when_native_files_unchanged(
     assert result.files_written == ()
     assert set(result.files_unchanged) == {".claude/settings.json", ".claude.json"}
     assert [write["remote_path"] for write in writes] == [
-        "/home/claude-code/.claude/.credentials.json",
+        "/home/claude-code/.claude/.credentials.json.clawrium-stage",
     ]
     assert json.loads(writes[-1]["body"]) == {
         "claudeAiOauth": {"accessToken": "oauth-rotation-token"}
@@ -485,7 +624,7 @@ def test_sync_credential_write_failure_sanitizes_error(
         )
 
         def fail_credential_write(_client, **kwargs):
-            if kwargs["remote_path"].endswith("/.credentials.json"):
+            if kwargs["remote_path"].endswith(".credentials.json.clawrium-stage"):
                 raise lifecycle_canonical.CanonicalSyncError(
                     f"{kwargs['remote_path']} write failed: {_SECRET}"
                 )
@@ -532,7 +671,17 @@ def test_sync_resolves_selected_credential_once_for_the_entire_operation(
     )
     monkeypatch.setattr(
         lifecycle_canonical,
+        "_remove_stale_claude_credential_artifacts",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        lifecycle_canonical,
         "_remove_retired_claude_artifacts",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        lifecycle_canonical,
+        "_promote_staged_claude_credential_artifact",
         lambda *_args, **_kwargs: None,
     )
 
@@ -595,27 +744,55 @@ def test_sync_cleans_up_retired_artifacts_after_credential_write(
     def recording_write(_client, **kwargs):
         call_log.append(("write", kwargs["remote_path"]))
 
-    def recording_cleanup(_client, **kwargs):
-        call_log.append(("cleanup", kwargs["retired_paths"]))
+    def recording_stale_cleanup(_client, **kwargs):
+        call_log.append(
+            ("stale_cleanup", (kwargs["selected_path"], kwargs["stale_paths"]))
+        )
+
+    def recording_retired_cleanup(_client, **kwargs):
+        call_log.append(("retired_cleanup", kwargs["retired_paths"]))
+
+    def recording_promotion(_client, **kwargs):
+        call_log.append(
+            ("promote", (kwargs["staged_path"], kwargs["destination_path"]))
+        )
 
     monkeypatch.setattr(lifecycle_canonical, "_atomic_write", recording_write)
     monkeypatch.setattr(
         lifecycle_canonical,
+        "_remove_stale_claude_credential_artifacts",
+        recording_stale_cleanup,
+    )
+    monkeypatch.setattr(
+        lifecycle_canonical,
         "_remove_retired_claude_artifacts",
-        recording_cleanup,
+        recording_retired_cleanup,
+    )
+    monkeypatch.setattr(
+        lifecycle_canonical,
+        "_promote_staged_claude_credential_artifact",
+        recording_promotion,
     )
 
     lifecycle_canonical.sync_agent_canonical("claude-code")
 
     assert call_log == [
-        ("write", "/home/claude-code/.claude/.credentials.json"),
+        ("write", "/home/claude-code/.claude/.credentials.json.clawrium-stage"),
         (
-            "cleanup",
+            "stale_cleanup",
             (
-                "/home/claude-code/.claude/clawrium-credentials.env",
-                "/home/claude-code/.profile.d/clawrium-claude.sh",
+                "/home/claude-code/.claude/.credentials.json.clawrium-stage",
+                ("/home/claude-code/.claude/clawrium-credentials.env",),
             ),
         ),
+        (
+            "promote",
+            (
+                "/home/claude-code/.claude/.credentials.json.clawrium-stage",
+                "/home/claude-code/.claude/.credentials.json",
+            ),
+        ),
+        ("retired_cleanup", ("/home/claude-code/.profile.d/clawrium-claude.sh",)),
     ]
 
 
@@ -641,12 +818,17 @@ def test_sync_skips_cleanup_when_credential_write_fails(
     )
 
     def failing_write(_client, **kwargs):
-        if kwargs["remote_path"].endswith("/.credentials.json"):
+        if kwargs["remote_path"].endswith(".credentials.json.clawrium-stage"):
             raise lifecycle_canonical.CanonicalSyncError(
                 f"credential write failed: {_SECRET}"
             )
 
     monkeypatch.setattr(lifecycle_canonical, "_atomic_write", failing_write)
+    monkeypatch.setattr(
+        lifecycle_canonical,
+        "_remove_stale_claude_credential_artifacts",
+        lambda *_args, **_kwargs: cleanup_called.append(True),
+    )
     monkeypatch.setattr(
         lifecycle_canonical,
         "_remove_retired_claude_artifacts",
@@ -729,6 +911,69 @@ def test_remove_retired_claude_artifacts_raises_on_rm_failure():
         )
 
 
+def test_stale_credential_cleanup_failure_rolls_back_selected_artifact(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    stale = "/home/claude-code/.claude/clawrium-credentials.env"
+    selected = "/home/claude-code/.claude/.credentials.json"
+    removals: list[tuple[str, ...]] = []
+
+    def remove(_client, **kwargs):
+        paths = kwargs["retired_paths"]
+        removals.append(paths)
+        if paths == (stale,):
+            raise lifecycle_canonical.CanonicalSyncError("stale cleanup failed")
+
+    monkeypatch.setattr(lifecycle_canonical, "_remove_retired_claude_artifacts", remove)
+    monkeypatch.setattr(
+        lifecycle_canonical,
+        "_assert_claude_artifact_absent",
+        _unexpected,
+    )
+
+    with pytest.raises(
+        lifecycle_canonical.CanonicalSyncError,
+        match="could not activate Claude credentials exclusively",
+    ):
+        lifecycle_canonical._remove_stale_claude_credential_artifacts(
+            MagicMock(),
+            agent_name="claude-code",
+            selected_path=selected,
+            stale_paths=(stale,),
+        )
+
+    assert removals == [(stale,), (selected,)]
+
+
+def test_stale_credential_transport_failure_removes_staged_artifact(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    stale = "/home/claude-code/.claude/clawrium-credentials.env"
+    stage = "/home/claude-code/.claude/.credentials.json.clawrium-stage"
+    removals: list[tuple[str, ...]] = []
+
+    def remove(_client, **kwargs):
+        paths = kwargs["retired_paths"]
+        removals.append(paths)
+        if paths == (stale,):
+            raise RuntimeError("ssh transport disconnected")
+
+    monkeypatch.setattr(lifecycle_canonical, "_remove_retired_claude_artifacts", remove)
+
+    with pytest.raises(
+        lifecycle_canonical.CanonicalSyncError,
+        match="could not activate Claude credentials exclusively",
+    ):
+        lifecycle_canonical._remove_stale_claude_credential_artifacts(
+            MagicMock(),
+            agent_name="claude-code",
+            selected_path=stage,
+            stale_paths=(stale,),
+        )
+
+    assert removals == [(stale,), (stage,)]
+
+
 @pytest.mark.parametrize(
     ("os_family", "expected_playbook_suffix"),
     [
@@ -780,19 +1025,21 @@ def test_configure_routes_playbook_whose_cleanup_follows_credential_write(
 
     routed_playbook = yaml.safe_load(routed_playbook_path.read_text())
     task_names = [t["name"] for t in routed_playbook[0]["tasks"]]
-    credential_idx = task_names.index(
-        "Atomically replace native Claude OAuth credentials"
-    )
-    env_cleanup_idx = task_names.index("Remove retired Claude credential env file")
+    transition_idx = task_names.index("Replace native Claude OAuth credentials exclusively")
     hook_cleanup_idx = task_names.index("Remove retired Claude profile hook")
-    # Credential write MUST precede both cleanups so a host is never left
-    # without an active credential on partial playbook execution.
-    assert credential_idx < env_cleanup_idx
-    assert credential_idx < hook_cleanup_idx
+    transition = routed_playbook[0]["tasks"][transition_idx]
+    transition_names = [t["name"] for t in transition["block"]]
+    # The credential write and stale cleanup run in one rescue-capable block;
+    # its private backup is removed on both success and rescue paths.
+    assert transition_names.index("Atomically replace native Claude OAuth credentials") < (
+        transition_names.index("Remove stale Claude API-key environment")
+    )
+    assert transition_idx < hook_cleanup_idx
+    assert transition["rescue"][0]["ansible.builtin.copy"]["remote_src"] is True
+    assert transition["rescue"][0]["no_log"] is True
     # And the credential-copy task itself is still no_log + diff: false.
-    credential_task = next(
-        t for t in routed_playbook[0]["tasks"]
-        if t["name"] == "Atomically replace native Claude OAuth credentials"
+    credential_task = _task(
+        routed_playbook, "Atomically replace native Claude OAuth credentials"
     )
     assert credential_task["no_log"] is True
     assert credential_task["diff"] is False

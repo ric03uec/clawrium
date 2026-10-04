@@ -71,6 +71,12 @@ printf '%s' "$ANTHROPIC_API_KEY" | \
 clawctl agent sync <name>
 ```
 
+Creating either reserved Claude credential key through `agent secret create`
+selects that mode atomically and removes the other local mode from the
+agent's encrypted secret scope. Do not attach an ordinary `anthropic`
+provider to a Claude agent; API-key mode is agent-scoped rather than a shared
+provider attachment.
+
 Claude OAuth is a first-class provider type. On a Linux Clawrium
 controller, register and select it through the normal provider workflow:
 
@@ -81,19 +87,14 @@ clawctl agent provider attach local-claude-oauth --agent <name>
 clawctl agent sync <name>
 ```
 
-Attach invokes Claude Code's documented `claude setup-token` export command in
-a local, non-logging subprocess. Its stdout and stderr stay in memory and are
-never printed, logged, or included in errors. After browser authorization, the
-normalized token is stored only as `CLAUDE_CODE_OAUTH_TOKEN` in that selected
-agent's encrypted per-instance secret scope; the next sync uses the existing
-private activation path to write it on the selected host. This does **not**
-require `CLAUDE_CODE_OAUTH_TOKEN` to be pre-exported by the caller.
-
-The supported reader is currently Linux-controller-only. A controller on any
-other platform fails closed with a clear unsupported-reader error; it does not
-read or copy a keychain, browser profile, credential database, guessed OAuth
-file, or local `~/.claude` directory. Re-attaching the same provider refreshes
-the agent's locally imported token without showing its value.
+Attach reads the current controller's exact native Claude credential artifact,
+`~/.claude/.credentials.json`, through a private, Linux-controller-only reader.
+It validates and imports only the allowlisted native OAuth document into the
+selected agent's encrypted per-instance secret scope. It never invokes
+`claude`, prints the document, reads a keychain, browser profile, or credential
+database, or scans a directory. A controller on another platform fails closed
+with a clear unsupported-reader error. Re-attaching the same provider refreshes
+the selected agent's OAuth document without showing its value.
 
 Do not retain both keys in the agent secret scope. If both are present,
 configure and sync fail rather than choose an undocumented precedence. Check
@@ -103,21 +104,23 @@ key names and metadata without revealing values:
 clawctl agent secret get --agent <name>
 ```
 
-A successful configure or sync atomically writes an agent-owned, mode-`0600`
-credential environment file containing only the selected variable; the other
-variable is explicitly unset. Credential values are not written to
-`hosts.json`, `settings.json`, sync diffs, command output, logs, or events.
-Do not print or copy the remote credential file to diagnose a configuration.
+A successful configure or sync writes one private, agent-owned mode-`0600`
+artifact and clears the stale other-mode artifact only after the replacement is
+durable:
 
-### i-wolf E2E evidence
+- OAuth writes native `~/.claude/.credentials.json` and clears the API-key
+  environment file.
+- API-key mode writes `~/.claude/clawrium-credentials.env`, which contains only
+  shell-safe `ANTHROPIC_API_KEY` activation, and clears native OAuth state.
 
-The `wolf-i` (i-wolf) validation proved install-only behavior, exclusive
-remote API-key environment propagation with a generated **dummy** value, and
-owned-resource cleanup. It did **not** authenticate to Anthropic with that
-dummy value. The earlier OAuth E2E predates the supported `claude setup-token`
-provider reader and deliberately did not inspect local credential storage.
-Authenticated i-wolf OAuth E2E validation is a follow-up; ordinary provider
-selection and sync remain covered by fake-reader unit/integration tests.
+Cleanup verifies that the inactive artifact is absent. If cleanup cannot
+complete, configure or sync fails closed and restores the prior selected
+artifact; when there was no prior selected artifact, it removes the newly
+introduced one. This avoids leaving both credential sources available.
+
+Credential values are not written to `hosts.json`, `settings.json`, sync
+diffs, command output, logs, or events. Do not print or copy either remote
+credential artifact to diagnose a configuration.
 
 ## Run a finite command
 
@@ -128,9 +131,10 @@ clawctl agent shell <name> -- 'claude --version'
 ```
 
 `agent shell` runs the supplied command as the dedicated agent Unix user in a
-finite, non-interactive login shell. It activates the managed credential hook
-for that command only. Every command must terminate: no TTY, interactive
-shell, prompt, or Claude Code chat session is created.
+finite, non-interactive login shell. For Claude it clears inherited credential
+variables, then sources the private API-key artifact only when it exists;
+OAuth remains native Claude Code state. Every command must terminate: no TTY,
+interactive shell, prompt, or Claude Code chat session is created.
 
 `clawctl agent exec <name> ...` does not support `claude`; use `agent shell`
 with an explicit command after `--` instead.
@@ -158,9 +162,9 @@ clawctl agent delete --yes <name>
 
 After remote cleanup succeeds, Clawrium removes only resources owned by that
 agent: its dedicated account and home, owned install prefix, complete
-agent-home `~/.claude` directory (including the credential environment file),
-managed shell-startup snippet, ownership marker, local per-agent secrets, and
-fleet record. It does not remove an independently installed global Claude Code
+agent-home `~/.claude` directory (including either private credential
+artifact), ownership marker, local per-agent secrets, and fleet record. It
+does not remove an independently installed global Claude Code
 distribution or project `.claude` settings outside that agent home.
 
 If remote cleanup fails, Clawrium keeps the local secret scope and fleet record

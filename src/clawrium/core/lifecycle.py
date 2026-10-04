@@ -2328,12 +2328,13 @@ def _configure_claude_settings(
     config_data: dict,
     extra_vars: dict | None,
 ) -> tuple[bool, str | None]:
-    """Apply settings plus render the native Claude credential files.
+    """Apply bounded settings and one private Claude credential mode.
 
-    Only the rendered OAuth credential body carries a secret. The playbook
-    uses it under ``no_log`` to atomically replace the dedicated
-    ``~/.claude/.credentials.json``; hosts.json remains the validated
-    non-secret settings object and no service lifecycle is involved.
+    OAuth is written as Claude Code's native ``.credentials.json`` document;
+    API-key mode is written as a shell-safe ``ANTHROPIC_API_KEY`` environment
+    file.  The selected secret reaches the playbook only through one no-log
+    extravar. Hosts metadata remains non-secret and no service lifecycle is
+    involved.
     """
     from clawrium.core.playbook_resolver import (
         normalize_os_family,
@@ -2342,6 +2343,7 @@ def _configure_claude_settings(
     from clawrium.core.render import (
         AgentConfigError,
         parse_claude_settings,
+        render_claude_api_key_environment,
         render_claude_native_files,
         render_claude_oauth_credentials,
     )
@@ -2359,6 +2361,7 @@ def _configure_claude_settings(
         return False, f"Claude settings render failed: {exc}"
 
     from clawrium.core.claude_credentials import (
+        ANTHROPIC_API_KEY,
         CLAUDE_CODE_OAUTH_TOKEN,
         ClaudeCredentialError,
         get_active_claude_credential,
@@ -2366,17 +2369,17 @@ def _configure_claude_settings(
 
     try:
         credential_key, credential_value = get_active_claude_credential(unix_agent_name)
-    except ClaudeCredentialError as exc:
-        return False, f"Claude credential activation failed: {exc}"
-    if credential_key != CLAUDE_CODE_OAUTH_TOKEN:
-        return (
-            False,
-            "Claude native configuration supports OAuth only; "
-            f"found {credential_key} active instead of {CLAUDE_CODE_OAUTH_TOKEN}",
-        )
-    try:
-        rendered_credentials = render_claude_oauth_credentials(credential_value)
-    except AgentConfigError as exc:
+        if credential_key == CLAUDE_CODE_OAUTH_TOKEN:
+            credential_mode = "oauth"
+            credential_var = "claude_oauth_credentials"
+            rendered_credentials = render_claude_oauth_credentials(credential_value)
+        elif credential_key == ANTHROPIC_API_KEY:
+            credential_mode = "api_key"
+            credential_var = "claude_api_key_environment"
+            rendered_credentials = render_claude_api_key_environment(credential_value)
+        else:
+            return False, "Claude credential activation failed"
+    except (AgentConfigError, ClaudeCredentialError) as exc:
         return False, f"Claude credential activation failed: {exc}"
 
     try:
@@ -2395,6 +2398,17 @@ def _configure_claude_settings(
     if not ssh_key:
         return False, "SSH key not found"
 
+    inventory_vars = {
+        "agent_name": unix_agent_name,
+        "agent_type": "claude",
+        "claude_credential_mode": credential_mode,
+        "prerendered_claude_settings_json": rendered.files[".claude/settings.json"],
+        "prerendered_claude_onboarding_json": rendered.files[".claude.json"],
+        # Keep exactly one selected secret in this inventory as a dedicated
+        # no-log playbook extravar. It is never persisted, diffed, emitted,
+        # or passed as a remote command argument.
+        credential_var: rendered_credentials,
+    }
     inventory = {
         "all": {
             "hosts": {
@@ -2408,20 +2422,7 @@ def _configure_claude_settings(
                     "ansible_ssh_extra_args": "-o ServerAliveInterval=30 -o ServerAliveCountMax=10 -o ConnectTimeout=60",
                 }
             },
-            "vars": {
-                "agent_name": unix_agent_name,
-                "agent_type": "claude",
-                "prerendered_claude_settings_json": rendered.files[
-                    ".claude/settings.json"
-                ],
-                "prerendered_claude_onboarding_json": rendered.files[
-                    ".claude.json"
-                ],
-                # Keep the only secret in this inventory as a dedicated
-                # no-log playbook extravar. It is never persisted, rendered,
-                # emitted, or passed as a remote command argument.
-                "claude_oauth_credentials": rendered_credentials,
-            },
+            "vars": inventory_vars,
         }
     }
 

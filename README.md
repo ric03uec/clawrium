@@ -208,9 +208,11 @@ Additional agent types are planned.
 ### 3. Is Claude Code authentication supported?
 
 Claude Code uses exactly one per-agent credential mode: an Anthropic API key
-or an OAuth token supplied from an explicitly exported supported local source.
-Clawrium does not read keychains, browser profiles, databases, or local
-`~/.claude` directories to find OAuth credentials. See [Claude Code
+or a native OAuth document. API keys are supplied through the agent secret CLI;
+OAuth is imported only from the controller's exact private
+`~/.claude/.credentials.json` artifact on supported Linux controllers.
+Clawrium does not read keychains, browser profiles, databases, or scan local
+credential directories. See [Claude Code
 Support](docs/agent-support/claude.md#credentials-and-safe-sync).
 
 ### 4. Which channels are supported?
