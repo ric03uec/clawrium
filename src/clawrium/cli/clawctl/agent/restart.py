@@ -6,6 +6,10 @@ import typer
 
 from clawrium.cli.clawctl.agent._shared import resolve_agent_key, safe_resolve_agent
 from clawrium.cli.output import emit_error, stream_action
+from clawrium.core.agent_lifecycle import (
+    has_daemon_lifecycle,
+    lifecycle_not_applicable_message,
+)
 from clawrium.core.lifecycle import LifecycleError, restart_agent
 from clawrium.core.playbook_resolver import resolve_lifecycle_backend
 
@@ -19,6 +23,9 @@ def restart(
     agent_key = resolve_agent_key(host, name)
     hostname = host["hostname"]
     agent_type = claw_record.get("type", _agent_type)
+
+    if not has_daemon_lifecycle(agent_type):
+        emit_error(lifecycle_not_applicable_message(agent_type, "restart"))
 
     def on_event(stage: str, message: str) -> None:
         stream_action(resource=f"agent/{name}", message=f"[{stage}] {message}")

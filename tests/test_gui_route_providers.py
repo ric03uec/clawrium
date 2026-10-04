@@ -329,10 +329,19 @@ def test_provider_types_returns_rich_model_metadata():
     result = asyncio.run(providers_mod.provider_types())
     types = result["types"]
 
-    # All ten provider types are present
+    # All eleven provider types are present
     assert set(types.keys()) == {
-        "openai", "anthropic", "openrouter", "bedrock",
-        "vertex", "zai", "opencode", "opencode-go", "ollama", "litellm",
+        "openai",
+        "anthropic",
+        "openrouter",
+        "bedrock",
+        "vertex",
+        "zai",
+        "opencode",
+        "opencode-go",
+        "ollama",
+        "litellm",
+        "claude-oauth",
     }
 
     # Cloud providers carry catalog-shaped models
@@ -350,6 +359,10 @@ def test_provider_types_returns_rich_model_metadata():
 
     # Ollama yields an empty catalog (models populated per-instance)
     assert types["ollama"]["models"] == []
+    # Claude OAuth is a selection-only provider; credentials remain scoped to
+    # the selected Claude agent rather than the provider registry.
+    assert types["claude-oauth"]["models"] == []
+    assert types["claude-oauth"]["requires_api_key"] is False
 
 
 # ─── bedrock branch (issue #694) ────────────────────────────────────

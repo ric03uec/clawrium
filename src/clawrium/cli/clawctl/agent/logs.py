@@ -26,6 +26,10 @@ from clawrium.cli.clawctl._common import OutputFormat
 from clawrium.cli.clawctl._stub import echo_not_implemented
 from clawrium.cli.clawctl.agent._shared import resolve_agent_key, safe_resolve_agent
 from clawrium.cli.output import emit_error, stream_action
+from clawrium.core.agent_lifecycle import (
+    has_daemon_lifecycle,
+    lifecycle_not_applicable_message,
+)
 
 
 def logs(
@@ -40,6 +44,8 @@ def logs(
     host, _agent_type, claw_record = safe_resolve_agent(name)
     agent_key = resolve_agent_key(host, name)
     agent_type = claw_record.get("type", _agent_type)
+    if not has_daemon_lifecycle(agent_type):
+        emit_error(lifecycle_not_applicable_message(agent_type, "logs"))
     if agent_type == "openclaw":
         if output is OutputFormat.json:
             placeholder_event = {

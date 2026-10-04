@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from typing import TypedDict
 from urllib.parse import urlparse
 
+from clawrium.core.agent_lifecycle import has_completed_install, has_daemon_lifecycle
 from clawrium.core.health import (
     ClawStatus,
     HealthResult,
@@ -275,14 +276,28 @@ def get_fleet_data_local(
             # onboarding record get CHECKING since we can't confirm
             # running/stopped without SSH.
             onboard_status, onboard_step = get_onboarding_status(claw_record)
-            if onboard_status in (
+            if not has_daemon_lifecycle(agent_type):
+                install_complete = has_completed_install(claw_record)
+                status = (
+                    ClawStatus.READY
+                    if install_complete
+                    else ClawStatus.INSTALL_MISSING
+                )
+                health_error = (
+                    None
+                    if install_complete
+                    else claw_record.get("error") or "Installation is incomplete"
+                )
+            elif onboard_status in (
                 ClawStatus.ONBOARDING,
                 ClawStatus.PENDING_ONBOARD,
             ):
                 status = onboard_status
+                health_error = None
                 provisioning_count += 1
             else:
                 status = ClawStatus.CHECKING
+                health_error = None
 
             agents.append(
                 AgentViewModel(
@@ -298,8 +313,10 @@ def get_fleet_data_local(
                     uptime=calculate_uptime(started_at),
                     missing_secrets=None,
                     onboarding_step=onboard_step,
-                    process_running=None,
-                    health_error=None,
+                    process_running=(
+                        False if not has_daemon_lifecycle(agent_type) else None
+                    ),
+                    health_error=health_error,
                     addresses=h.get("addresses", []),
                     provider=provider_name,
                     provider_type=provider_type,
@@ -505,18 +522,32 @@ def get_agent_static(agent_key: str, host_identifier: str) -> AgentViewModel | N
 
         identity = _build_agent_identity(agent_key, h, claw_record)
         onboard_status, onboard_step = get_onboarding_status(claw_record)
-        if onboard_status in (ClawStatus.ONBOARDING, ClawStatus.PENDING_ONBOARD):
+        if not has_daemon_lifecycle(identity["agent_type"]):
+            install_complete = has_completed_install(claw_record)
+            status = (
+                ClawStatus.READY if install_complete else ClawStatus.INSTALL_MISSING
+            )
+            health_error = (
+                None
+                if install_complete
+                else claw_record.get("error") or "Installation is incomplete"
+            )
+        elif onboard_status in (ClawStatus.ONBOARDING, ClawStatus.PENDING_ONBOARD):
             status = onboard_status
+            health_error = None
         else:
             status = ClawStatus.CHECKING
+            health_error = None
 
         return AgentViewModel(
             **identity,
             status=status,
             missing_secrets=None,
             onboarding_step=onboard_step,
-            process_running=None,
-            health_error=None,
+            process_running=(
+                False if not has_daemon_lifecycle(identity["agent_type"]) else None
+            ),
+            health_error=health_error,
             cpu_count=None,
             memory_total_mb=None,
         )

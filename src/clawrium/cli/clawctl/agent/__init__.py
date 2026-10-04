@@ -56,21 +56,32 @@ agent_app = typer.Typer(
 
 
 # Verb registration. Order matches plan §4.
-agent_app.command(name="create", help="Install an agent on a host.")(_create.create)
+agent_app.command(
+    name="create", help="Install an agent on a host (Claude Code is install-only)."
+)(_create.create)
 agent_app.command(name="get", help="List agents.")(_get.get)
 agent_app.command(name="describe", help="Describe an agent.")(_describe.describe)
 agent_app.command(name="delete", help="Delete an agent.")(_delete.delete)
 agent_app.command(name="edit", help="Edit an agent record in $EDITOR.")(_edit.edit)
-agent_app.command(name="configure", help="Configure an agent (per stage).")(
-    _configure.configure
+agent_app.command(
+    name="configure",
+    help="Configure an agent (Claude Code writes bounded global settings only).",
+)(_configure.configure)
+agent_app.command(name="start", help="Start a daemon-backed agent (not Claude Code).")(
+    _start.start
 )
-agent_app.command(name="start", help="Start an agent.")(_start.start)
-agent_app.command(name="stop", help="Stop an agent.")(_stop.stop)
-agent_app.command(name="status", help="Probe an agent runtime.")(_status.status)
-agent_app.command(name="restart", help="Restart an agent.")(_restart.restart)
+agent_app.command(name="stop", help="Stop a daemon-backed agent (not Claude Code).")(
+    _stop.stop
+)
+agent_app.command(
+    name="status", help="Probe an agent runtime (use get for install-only Claude Code)."
+)(_status.status)
+agent_app.command(
+    name="restart", help="Restart a daemon-backed agent (not Claude Code)."
+)(_restart.restart)
 agent_app.command(
     name="sync",
-    help="Sync local control-plane state and workspace overlay to the agent.",
+    help="Sync local state (Claude Code syncs settings only; no restart).",
 )(_sync.sync)
 agent_app.command(
     name="upgrade",
@@ -80,15 +91,20 @@ agent_app.command(
     name="doctor",
     help="Diagnose an agent's render bundle (attachments, secrets, files).",
 )(_doctor.doctor)
-agent_app.command(name="logs", help="Stream agent logs.")(_logs.logs)
-agent_app.command(name="chat", help="Chat with an agent.")(_chat.chat)
-agent_app.command(name="open", help="Open the agent's web UI in a browser.")(_open.open)
+agent_app.command(
+    name="logs", help="Stream logs from a daemon-backed agent (not Claude Code)."
+)(_logs.logs)
+agent_app.command(
+    name="chat", help="Chat with a chat-enabled agent (not Claude Code)."
+)(_chat.chat)
+agent_app.command(
+    name="open", help="Open a native web UI (not available for Claude Code)."
+)(_open.open)
 agent_app.command(name="port-forward", help="Forward a local port to the agent.")(
     _port_forward.port_forward
 )
 agent_app.command(
     name="exec",
-    help="Execute a command against the agent's native CLI on its host.",
     context_settings=_exec.EXEC_CONTEXT_SETTINGS,
 )(_exec.exec_cmd)
 agent_app.command(

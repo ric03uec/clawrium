@@ -587,7 +587,10 @@ def _open_ssh(host: dict, *, timeout: int = 15) -> paramiko.SSHClient:
 
 def _host_is_macos(host: dict) -> bool:
     """Single OS-detection helper for the canonical pipeline dispatchers."""
-    return host.get("hardware", {}).get("os") == "macos"
+    hardware_os = host.get("hardware", {}).get("os")
+    if hardware_os == "macos":
+        return True
+    return str(host.get("os_family", "")).lower() in {"darwin", "macos", "osx"}
 
 
 def _atomic_write_linux(
@@ -600,13 +603,30 @@ def _atomic_write_linux(
 ) -> None:
     """Linux implementation: agent_name doubles as the primary group name."""
     quoted_path = shlex.quote(remote_path)
-    _, stdout, _ = client.exec_command("mktemp /tmp/clawrium-sync.XXXXXX")
-    if stdout.channel.recv_exit_status() != 0:
-        raise CanonicalSyncError("mktemp failed on host")
-    tmp_path = stdout.read().decode("utf-8").strip()
-    if not tmp_path:
-        raise CanonicalSyncError("mktemp returned empty path")
+    tmp_path: str | None = None
     try:
+        _, mktemp_out, mktemp_err = client.exec_command(
+            "mktemp /tmp/clawrium-sync.XXXXXX", timeout=timeout
+        )
+        mktemp_stdout = mktemp_out.read().decode("utf-8", errors="replace")
+        mktemp_stderr = mktemp_err.read().decode("utf-8", errors="replace")
+        mktemp_rc = mktemp_out.channel.recv_exit_status()
+        if mktemp_rc != 0:
+            detail = mktemp_stderr.strip() or mktemp_stdout.strip()
+            raise CanonicalSyncError(
+                f"mktemp failed on host (exit {mktemp_rc}): {detail}"
+            )
+        candidate = mktemp_stdout.strip()
+        if not candidate:
+            raise CanonicalSyncError("mktemp returned empty path")
+        prefix = "/tmp/clawrium-sync."
+        if not candidate.startswith(prefix) or "/" in candidate[len(prefix) :]:
+            raise CanonicalSyncError(
+                f"mktemp returned unsafe path {candidate!r}; expected prefix "
+                "'/tmp/clawrium-sync.' with no nested path"
+            )
+        tmp_path = candidate
+
         sftp = client.open_sftp()
         try:
             with sftp.file(tmp_path, "wb") as fh:
@@ -619,14 +639,20 @@ def _atomic_write_linux(
             f"{shlex.quote(tmp_path)} {quoted_path}"
         )
         _, install_out, install_err = client.exec_command(cmd, timeout=timeout)
+        stdout_text = install_out.read().decode("utf-8", errors="replace")
+        stderr_text = install_err.read().decode("utf-8", errors="replace")
         rc = install_out.channel.recv_exit_status()
         if rc != 0:
-            stderr_text = install_err.read().decode("utf-8", errors="replace")
+            detail = stderr_text.strip() or stdout_text.strip()
             raise CanonicalSyncError(
-                f"install {remote_path!r} failed (exit {rc}): {stderr_text.strip()}"
+                f"install {remote_path!r} failed (exit {rc}): {detail}"
             )
     finally:
-        client.exec_command(f"rm -f {shlex.quote(tmp_path)}")
+        if tmp_path is not None:
+            _, cleanup_out, _ = client.exec_command(
+                f"rm -f {shlex.quote(tmp_path)}", timeout=timeout
+            )
+            cleanup_out.channel.recv_exit_status()
 
 
 def _atomic_write(
@@ -661,6 +687,241 @@ def _atomic_write(
         remote_path=remote_path,
         body=body,
         timeout=timeout,
+    )
+
+
+def _ensure_claude_settings_directory(
+    client: paramiko.SSHClient,
+    *,
+    agent_name: str,
+    os_family: str,
+    timeout: int = 30,
+) -> None:
+    """Create the dedicated Claude state directory with private ownership."""
+    settings_dir = f"{home_root_for(os_family)}/{agent_name}/.claude"
+    command = (
+        "sudo -n install -d -m 0700 -o "
+        f"{shlex.quote(agent_name)} {shlex.quote(settings_dir)}"
+    )
+    _, stdout, stderr = client.exec_command(command, timeout=timeout)
+    stdout_text = stdout.read().decode("utf-8", errors="replace")
+    stderr_text = stderr.read().decode("utf-8", errors="replace")
+    rc = stdout.channel.recv_exit_status()
+    if rc != 0:
+        detail = stderr_text.strip() or stdout_text.strip()
+        raise CanonicalSyncError(
+            f"could not create Claude settings directory {settings_dir!r} "
+            f"(exit {rc}): {detail}"
+        )
+
+
+_CLAUDE_CREDENTIAL_KEYS = "CLAUDE_CODE_OAUTH_TOKEN ANTHROPIC_API_KEY"
+
+
+_CLAUDE_SHELL_STARTUP_SNIPPET = (
+    'if [ -r "$HOME/.claude/clawrium-credentials.env" ]; then\n'
+    '  . "$HOME/.claude/clawrium-credentials.env"\n'
+    "fi\n"
+)
+
+
+def _validate_claude_credential_activation(agent_name: str) -> tuple[str, str]:
+    """Resolve one selected credential without placing it in sync output."""
+    from clawrium.core.claude_credentials import (
+        ClaudeCredentialError,
+        get_active_claude_credential,
+    )
+
+    try:
+        return get_active_claude_credential(agent_name)
+    except ClaudeCredentialError as exc:
+        raise CanonicalSyncError(f"Claude credential activation failed: {exc}") from exc
+
+
+def _claude_credential_env_body(key: str, value: str) -> str:
+    """Build one shell-safe env export from the already-selected secret.
+
+    The body is deliberately kept out of the renderer and diff pipeline. It
+    moves only through Paramiko's SFTP write in ``_atomic_write``; no remote
+    command argument, event, log message, or rendered file carries its value.
+    """
+    return f"unset {_CLAUDE_CREDENTIAL_KEYS}\nexport {key}={shlex.quote(value)}\n"
+
+
+def _ensure_claude_activation_directories(
+    client: paramiko.SSHClient,
+    *,
+    agent_name: str,
+    os_family: str,
+    timeout: int = 30,
+) -> None:
+    """Create the two private directories that hold Claude activation state."""
+    _ensure_claude_settings_directory(
+        client, agent_name=agent_name, os_family=os_family, timeout=timeout
+    )
+    startup_dir = f"{home_root_for(os_family)}/{agent_name}/.profile.d"
+    command = (
+        "sudo -n install -d -m 0700 -o "
+        f"{shlex.quote(agent_name)} {shlex.quote(startup_dir)}"
+    )
+    _, stdout, stderr = client.exec_command(command, timeout=timeout)
+    stdout_text = stdout.read().decode("utf-8", errors="replace")
+    stderr_text = stderr.read().decode("utf-8", errors="replace")
+    rc = stdout.channel.recv_exit_status()
+    if rc != 0:
+        detail = stderr_text.strip() or stdout_text.strip()
+        raise CanonicalSyncError(
+            f"could not create Claude startup directory {startup_dir!r} "
+            f"(exit {rc}): {detail}"
+        )
+
+
+def _sync_claude_settings(
+    *,
+    agent_name: str,
+    host: dict,
+    claw_record: dict,
+    workspace_only: bool,
+    dry_run: bool,
+    on_event: Callable[[str, str], None] | None,
+) -> CanonicalSyncResult:
+    """Sync Claude settings and credential activation without a daemon lifecycle.
+
+    This bypasses provider assembly, install probes, restart, and health checks:
+    Claude is an installed CLI. Its settings use the canonical diff path, while
+    the selected credential bypasses rendering and diff output entirely.
+    """
+    from clawrium.core.playbook_resolver import normalize_os_family
+    from clawrium.core.render import (
+        AgentConfigError,
+        parse_claude_settings,
+        render_claude_settings,
+    )
+
+    hostname = host.get("hostname", "")
+    raw_config = claw_record.get("config", {})
+    try:
+        settings = parse_claude_settings(raw_config)
+        rendered = render_claude_settings(settings)
+    except AgentConfigError as exc:
+        raise CanonicalSyncError(f"Claude settings render failed: {exc}") from exc
+
+    if workspace_only:
+        if on_event is not None:
+            on_event(
+                "sync",
+                "Claude has no workspace overlay; workspace-only sync skipped settings",
+            )
+        return CanonicalSyncResult(
+            success=True,
+            agent=agent_name,
+            host=hostname,
+            files_written=(),
+            files_unchanged=(),
+            diffs=(),
+        )
+
+    # Resolve exactly once before diff_files opens SSH. This makes dry-run
+    # reject a bad credential without remote I/O and prevents a concurrent
+    # local mode switch from validating one secret then writing another.
+    credential_key, credential_value = _validate_claude_credential_activation(
+        agent_name
+    )
+
+    os_family = normalize_os_family(host)
+    # `diff_files` owns remote-path construction. Feed it the normalized family
+    # used by the render/write paths so legacy `macos` / `osx` records still
+    # resolve the dedicated account home beneath /Users rather than /home.
+    diff_host = dict(host)
+    diff_host["os_family"] = os_family
+    diffs = diff_files(
+        host=diff_host,
+        agent_name=agent_name,
+        rendered_files=rendered.files,
+    )
+    if dry_run:
+        return CanonicalSyncResult(
+            success=True,
+            agent=agent_name,
+            host=hostname,
+            files_written=(),
+            files_unchanged=tuple(d.path for d in diffs if not d.unified_diff),
+            diffs=tuple(diffs),
+        )
+
+    # Do not put the selected credential into `rendered.files` or a FileDiff:
+    # dry-run output must remain safe to display. The body moves directly to a
+    # private SFTP temp file and is never interpolated into a remote command.
+    credential_body = _claude_credential_env_body(credential_key, credential_value)
+    home = f"{home_root_for(os_family)}/{agent_name}"
+    credential_path = f"{home}/.claude/clawrium-credentials.env"
+    startup_path = f"{home}/.profile.d/clawrium-claude.sh"
+
+    files_written: list[str] = []
+    files_unchanged: list[str] = []
+    client = _open_ssh(host)
+    try:
+        try:
+            _ensure_claude_activation_directories(
+                client,
+                agent_name=agent_name,
+                os_family=os_family,
+            )
+        except Exception:
+            raise CanonicalSyncError("Claude credential activation failed") from None
+
+        for diff in diffs:
+            if not diff.unified_diff:
+                files_unchanged.append(diff.path)
+                continue
+            if on_event is not None:
+                on_event("write", f"writing {diff.remote_path}")
+            _atomic_write(
+                client,
+                agent_name=agent_name,
+                remote_path=diff.remote_path,
+                body=diff.rendered_body,
+                host=diff_host,
+            )
+            files_written.append(diff.path)
+
+        # Install the non-secret hook before rotating the credential. If hook
+        # creation fails, the old active credential remains untouched; once it
+        # succeeds, the final atomic replacement changes exactly one export.
+        try:
+            _atomic_write(
+                client,
+                agent_name=agent_name,
+                remote_path=startup_path,
+                body=_CLAUDE_SHELL_STARTUP_SNIPPET,
+                host=diff_host,
+            )
+            _atomic_write(
+                client,
+                agent_name=agent_name,
+                remote_path=credential_path,
+                body=credential_body,
+                host=diff_host,
+            )
+        except Exception:
+            raise CanonicalSyncError("Claude credential activation failed") from None
+    finally:
+        client.close()
+
+    if on_event is not None:
+        on_event(
+            "sync",
+            f"synced Claude global settings: {len(files_written)} written, "
+            f"{len(files_unchanged)} unchanged; credential activation updated; "
+            "no daemon restart",
+        )
+    return CanonicalSyncResult(
+        success=True,
+        agent=agent_name,
+        host=hostname,
+        files_written=tuple(files_written),
+        files_unchanged=tuple(files_unchanged),
+        diffs=tuple(diffs),
     )
 
 
@@ -1684,8 +1945,7 @@ def _setup_github_integration(
             stdin_body=gitconfig_body,
             timeout=timeout,
             context=(
-                f"gitconfig write for {agent_name!r} "
-                f"(integration {integ.name!r})"
+                f"gitconfig write for {agent_name!r} (integration {integ.name!r})"
             ),
         )
         if rc != 0:
@@ -1727,10 +1987,7 @@ def _setup_github_integration(
             login_cmd,
             stdin_body=token + "\n",
             timeout=timeout,
-            context=(
-                f"gh auth login for {agent_name!r} "
-                f"(integration {integ.name!r})"
-            ),
+            context=(f"gh auth login for {agent_name!r} (integration {integ.name!r})"),
         )
         if rc != 0:
             raise CanonicalSyncError(
@@ -1749,8 +2006,7 @@ def _setup_github_integration(
             stdin_body=None,
             timeout=timeout,
             context=(
-                f"gh auth setup-git for {agent_name!r} "
-                f"(integration {integ.name!r})"
+                f"gh auth setup-git for {agent_name!r} (integration {integ.name!r})"
             ),
         )
         if rc != 0:
@@ -1819,6 +2075,7 @@ def _render_gitconfig_body(creds: dict) -> str:
     value as defense-in-depth against a tampered secrets store that
     could otherwise inject `[credential] helper=/evil` sections.
     """
+
     def _sanitize(v: str) -> str:
         return v.replace("\n", " ").replace("\r", "").replace("\x00", "")
 
@@ -1854,6 +2111,8 @@ def _render_gitconfig_body(creds: dict) -> str:
         "[core]\n"
         f"    editor = {core_editor}\n"
     )
+
+
 # Phase 2 of #11 (issue #944): NemoClaw sandbox onboard is invoked
 # at sync time via a single-purpose runbook. Mirrors the shape of
 # `_openclaw_install_slack_mcp` / `_openclaw_install_plugins` exactly:
@@ -2001,6 +2260,50 @@ def sync_agent_canonical(
 
     _validate_agent_name(agent_name)
 
+    resolved = get_agent_by_name(agent_name)
+    if resolved is not None:
+        # Issue #917: the middle element of `get_agent_by_name` is the
+        # agent *type* (e.g. "zeroclaw"), NOT the instance name. The old
+        # `agent_key` local misled its two consumers below into treating
+        # the type as an instance name, producing a spurious "registry
+        # record missing for zeroclaw after sync" warning at line ~2417
+        # when `_transition` looked up the type as if it were a claw name.
+        # Callers that actually want the instance name use `agent_name`
+        # (the function parameter at line 1742).
+        host, agent_type, _claw_record = resolved
+        hostname = host.get("hostname", "")
+
+        from clawrium.core.agent_lifecycle import (
+            has_completed_install,
+            has_daemon_lifecycle,
+            incomplete_install_message,
+        )
+
+        if not has_daemon_lifecycle(agent_type):
+            if not has_completed_install(_claw_record):
+                raise CanonicalSyncError(incomplete_install_message(agent_type, "sync"))
+            if agent_type == "claude":
+                return _sync_claude_settings(
+                    agent_name=agent_name,
+                    host=host,
+                    claw_record=_claw_record,
+                    workspace_only=workspace_only,
+                    dry_run=dry_run,
+                    on_event=on_event,
+                )
+            emit(
+                "sync",
+                f"{agent_type} is an installed CLI; no daemon configuration is managed yet",
+            )
+            return CanonicalSyncResult(
+                success=True,
+                agent=agent_name,
+                host=hostname,
+                files_written=(),
+                files_unchanged=(),
+                diffs=(),
+            )
+
     emit("validate", f"assembling render inputs for {agent_name}")
     inputs = build_render_inputs(agent_name)
 
@@ -2010,17 +2313,8 @@ def sync_agent_canonical(
             f"no canonical renderer for agent type {inputs.agent_type!r}"
         )
 
-    resolved = get_agent_by_name(agent_name)
     if resolved is None:
         raise CanonicalSyncError(f"agent {agent_name!r} not found in hosts.json")
-    # Issue #917: the middle element of `get_agent_by_name` is the
-    # agent *type* (e.g. "zeroclaw"), NOT the instance name. The old
-    # `agent_key` local misled its two consumers below into treating
-    # the type as an instance name, producing a spurious "registry
-    # record missing for zeroclaw after sync" warning at line ~2417
-    # when `_transition` looked up the type as if it were a claw name.
-    # Callers that actually want the instance name use `agent_name`
-    # (the function parameter at line 1742).
     host, agent_type, _claw_record = resolved
     hostname = host.get("hostname", "")
 

@@ -3,7 +3,7 @@
 Self-contained: does NOT import from `agent_exec`. Keeps the shell flow
 free to evolve without contaminating exec's hardened code path.
 
-`run_agent_shell(hostname, agent_name, cmd_argv, timeout)` invokes the
+`run_agent_shell(hostname, agent_name, cmd_argv, timeout, agent_type)` invokes the
 shell playbook against the host that owns the agent. The playbook is
 selected per-OS by `core.playbook_resolver.resolve_shell_playbook` —
 Linux runs `shell.yaml` (`/usr/bin/timeout` enforces the kill window);
@@ -82,6 +82,17 @@ _AGENT_NAME_RE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
 # characters. A tampered hosts.json alias of `../tmp/evil` would
 # otherwise escape the logs root.
 _LOG_DIR_SAFE_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
+
+# The Claude-specific prelude clears any credential inherited from login files,
+# then requires the managed hook to load successfully before the supplied
+# command may run. It deliberately contains no secret value.
+_CLAUDE_ACTIVATION_PREPEND = (
+    "unset CLAUDE_CODE_OAUTH_TOKEN ANTHROPIC_API_KEY; "
+    '[ -r "$HOME/.profile.d/clawrium-claude.sh" ] '
+    '&& . "$HOME/.profile.d/clawrium-claude.sh" || '
+    "{ printf '%s\\n' \"Claude credential activation unavailable; "
+    "run 'clawctl agent sync <name>'\" >&2; false; }"
+)
 
 
 class AgentShellError(Exception):
@@ -175,6 +186,41 @@ def _extract_failure_message(result, default: str) -> str:
     return default
 
 
+def _claude_activation_prepend(
+    host: dict, agent_name: str, agent_type: str | None = None
+) -> str:
+    """Return the fixed Claude-only activation source statement, if applicable.
+
+    ``agent shell`` is intentionally a finite command runner, not an
+    interactive-shell feature. It therefore sources the managed snippet in
+    its already-existing pre-command prelude only for a resolved Claude Code
+    agent. The CLI supplies ``agent_type`` from its resolved record so a
+    duplicate Unix username on a malformed host record cannot activate a
+    different agent's credential. Direct callers retain the legacy host-record
+    lookup when they do not supply a type. The statement contains no credential
+    value; the private, agent-owned snippet does that lookup.
+    """
+    if agent_type == "claude":
+        return _CLAUDE_ACTIVATION_PREPEND
+    if agent_type is not None:
+        return ""
+    agents = host.get("agents")
+    if not isinstance(agents, dict):
+        return ""
+    for key, record in agents.items():
+        if not isinstance(record, dict):
+            continue
+        record_type = record.get("type")
+        if not isinstance(record_type, str) or not record_type:
+            record_type = key
+        if record_type != "claude":
+            continue
+        unix_name = record.get("agent_name") or record.get("name") or key
+        if unix_name == agent_name:
+            return _CLAUDE_ACTIVATION_PREPEND
+    return ""
+
+
 def _effective_timeout(timeout: int | None) -> int:
     """Resolve the user-supplied timeout to the on-wire `shell_timeout`.
 
@@ -200,6 +246,7 @@ def run_agent_shell(
     agent_name: str,
     cmd_argv: list[str],
     timeout: int = 120,
+    agent_type: str | None = None,
 ) -> tuple[str, str, int]:
     """Run `cmd_argv` in a login bash shell on `hostname` as `agent_name`.
 
@@ -266,7 +313,13 @@ def run_agent_shell(
     # module stays free of OS literals (dispatcher-only OS-fork
     # invariant — `playbook_resolver.py` docstring).
     rc_prepend = playbook_resolver.shell_rc_prepend(os_family)
-    cmd_str = f"{rc_prepend} {user_cmd}"
+    activation_prepend = _claude_activation_prepend(host, agent_name, agent_type)
+    if activation_prepend:
+        # A resolved Claude command fails closed: the user command is only
+        # reached after its private, managed credential hook has succeeded.
+        cmd_str = f"{rc_prepend} {activation_prepend} && {user_cmd}"
+    else:
+        cmd_str = f"{rc_prepend} {user_cmd}"
     # The command runs through ansible's templating layer, so a user
     # command of `echo {{ lookup('env','SECRET') }}` would otherwise
     # expand the lookup on the controller and ship the secret to the

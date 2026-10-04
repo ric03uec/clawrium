@@ -293,6 +293,38 @@ def check_claw_health(
             "memory_total_mb": None,
         }
 
+    agent_type = claw_record.get("type", "")
+    from clawrium.core.agent_lifecycle import (
+        has_completed_install,
+        has_daemon_lifecycle,
+    )
+
+    if not has_daemon_lifecycle(agent_type):
+        # Claude Code is an interactive CLI, not a service. Its healthy
+        # state is a completed installed record, and importantly this must
+        # return before SSH/key lookup so fleet polling never pgreps an
+        # unrelated Node process or invokes a daemon health probe.
+        install_complete = has_completed_install(claw_record)
+        return {
+            "agent": claw_name,
+            "host": hostname,
+            "status": (
+                ClawStatus.READY if install_complete else ClawStatus.INSTALL_MISSING
+            ),
+            "agent_name": claw_record.get("agent_name") or claw_record.get("name"),
+            "error": (
+                None
+                if install_complete
+                else claw_record.get("error") or "Installation is incomplete"
+            ),
+            "missing_secrets": None,
+            "onboarding_step": None,
+            "process_running": False,
+            "onboarding_stages": None,
+            "cpu_count": None,
+            "memory_total_mb": None,
+        }
+
     claw_user = claw_record.get("agent_name") or claw_record.get("name")
     if not claw_user:
         return {
@@ -357,7 +389,6 @@ def check_claw_health(
     # Build the pgrep command per agent type.
     # openclaw sets process title to "openclaw"; hermes runs as python3 invoking
     # `hermes gateway run`, so match the full command line via -f.
-    agent_type = claw_record.get("type", "")
     if agent_type == "openclaw":
         check_cmd = f"pgrep -u {claw_user} openclaw"
     elif agent_type == "hermes":

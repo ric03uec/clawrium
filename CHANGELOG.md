@@ -39,6 +39,10 @@ cut. The `itx-release` skill archives this section into a new
 
 ### Added
 
+- Add `claude-oauth` as a selectable provider for Claude Code agents. It securely imports a locally authorized Claude Code token through the supported Linux `claude setup-token` path and activates it on the selected host without requiring a pre-exported token (#1013).
+- Activate the selected Claude Code OAuth token or Anthropic API key during `clawctl agent configure` and `sync`. Credentials are stored in private agent-owned files and available to finite `clawctl agent shell` commands without appearing in settings, diffs, or output (#998).
+- Add bounded global Claude Code settings management for the dedicated agent account. `clawctl agent configure` and `sync` now render only `~/.claude/settings.json` with the approved model, effort, and permission settings — never credentials, project settings, or a daemon restart (#997).
+- Add no-daemon lifecycle handling for the install-only `claude` agent type: lifecycle and log commands report as not applicable, while fleet views show the installed CLI as ready without probing a process, gateway, or port (#996).
 - Add the install-only `claude` agent registry type. It installs the pinned Claude Code npm package into a dedicated agent account and owned prefix without starting Claude Code, a service, authentication, chat, or a web UI (#995).
 - Make all thirteen `/itx-*` workflow skills available from Claude Code,
   OpenCode, and Pi from one canonical `.claude/skills/` source. Pi also exposes
@@ -56,6 +60,10 @@ cut. The `itx-release` skill archives this section into a new
 
 ### Changed
 
+- Formalize `clawctl agent shell <name> -- <command>` as Claude Code's
+  completion-only, non-interactive native command path. The resolved Claude
+  record is carried to the shell runner before its managed credential hook is
+  sourced; no native exec surface is added (#1000).
 - **zeroclaw**: manifest pins bumped from v0.8.2 → v0.8.5 across all five shipped arch rows (armv7l Debian 13, aarch64 Ubuntu 22.04/24.04, x86_64 Ubuntu 22.04/24.04). SHA256s sourced from the upstream `SHA256SUMS` for `v0.8.5`. `latest_version` resolves to `0.8.5` for fresh installs and `clawctl agent upgrade` on existing agents (#985).
 - ITX review workflows now select an ATX transport by capability instead of a
   Claude-specific MCP tool name, with stateless CLI and documented manual
@@ -92,6 +100,7 @@ cut. The `itx-release` skill archives this section into a new
 
 ### Documentation
 
+- Document the shipped install-only Claude Code agent contract: isolated install, bounded global settings, safe mutually exclusive credential activation, finite shell commands, unavailable daemon/UI/chat operations, and owned-resource removal (#1001).
 - Correct the ZeroClaw Discord documentation for schema-v3 aliased channel tables, agent bindings, and the registry/attach/sync workflow (#979).
 - Align the ZeroClaw support matrix and rendered `config.toml` examples with schema v3, current v0.8.2 installs, aliased provider/agent/channel tables, and heartbeat binding (#984).
 - Align the ZeroClaw support matrix with the v0.8.5 pin: the pinned-version, install-URL, and troubleshooting references now say `0.8.5`, and the rendered-`config.toml` prose no longer describes the root-level `[providers] fallback` block (retired upstream in v0.8.5; provider selection lives on `[agents.<alias>].model_provider` only). The audited-surface note warns that root-level `[providers]`, `[cron]`, and `[node_transport]` blocks must not be hand-added via the workspace overlay (#985).

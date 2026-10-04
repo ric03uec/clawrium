@@ -27,8 +27,8 @@
 |------|-----------------|-------|
 | **Control machine OS** | Ubuntu, macOS | Tested end-to-end |
 | **Target host OS** | Ubuntu, macOS | macOS hosts must enable Remote Login first ([host setup](docs/host-preparation.md)) |
-| **Agent runtimes** | OpenClaw ✅, Hermes ✅, ZeroClaw ✅ | IronClaw planned |
-| **Inference providers** | Anthropic, OpenAI, OpenRouter, Ollama | Claude subscription is NOT supported — API keys only |
+| **Agent runtimes** | OpenClaw ✅, Hermes ✅, ZeroClaw ✅, Claude Code ✅ | Claude Code is install-only (no daemon, chat, or web UI); IronClaw planned |
+| **Inference providers** | Anthropic, OpenAI, OpenRouter, Ollama | Claude Code accepts an Anthropic API key or explicitly supplied OAuth token |
 | **Messaging channels** | Discord, Slack | OpenClaw only |
 | **Container runtime** | None required | No Docker, no Kubernetes — SSH + Ansible |
 
@@ -60,9 +60,12 @@ A Clawrium **agent** is a general-purpose AI assistant that runs on a host in yo
 - **[OpenClaw](https://github.com/openclaw/openclaw)** ✅ - Open-source general assistant
 - **[Hermes](https://github.com/NousResearch/hermes-agent)** ✅ (Nous Research) - OpenAI-compatible local API
 - **[ZeroClaw](https://github.com/zeroclaw-labs/zeroclaw)** ✅ - Lightweight assistant for resource-constrained hosts
+- **[Claude Code](https://github.com/anthropics/claude-code)** ✅ - Isolated, install-only command environment; see [Claude Code Support](docs/agent-support/claude.md)
 - **[IronClaw](https://github.com/nearai/ironclaw)** _(planned)_ - High-performance assistant for demanding workloads
 
-Clawrium manages the lifecycle of these agents across your fleet - install, configure, start, stop, upgrade, monitor.
+Clawrium manages installation and configuration for every supported agent, and
+daemon lifecycle operations for agent types that provide a managed daemon.
+Claude Code intentionally remains an install-only, no-daemon command environment.
 
 ## Who this is for
 
@@ -202,9 +205,13 @@ Ubuntu and macOS are in the test matrix — both as the control machine and as t
 
 Additional agent types are planned.
 
-### 3. Is Claude subscription supported?
+### 3. Is Claude Code authentication supported?
 
-No. Clawrium supports API keys only, by design.
+Claude Code uses exactly one per-agent credential mode: an Anthropic API key
+or an OAuth token supplied from an explicitly exported supported local source.
+Clawrium does not read keychains, browser profiles, databases, or local
+`~/.claude` directories to find OAuth credentials. See [Claude Code
+Support](docs/agent-support/claude.md#credentials-and-safe-sync).
 
 ### 4. Which channels are supported?
 

@@ -42,7 +42,7 @@ def exec_cmd(
         ..., help="Agent name (as shown by `clawctl agent get`)."
     ),
 ) -> None:
-    """Execute a command against the agent's native CLI on its host.
+    """Execute a native CLI command; unavailable for Claude Code (use `agent shell`).
 
     The command runs as the agent's user in the agent's workspace
     directory. Everything after the agent name is forwarded as argv to
@@ -72,6 +72,15 @@ def exec_cmd(
     host, agent_type, claw_record = safe_resolve_agent(name)
     claw_type = claw_record.get("type") or agent_type
     if claw_type not in SUPPORTED_CLAW_TYPES:
+        if claw_type == "claude":
+            emit_error(
+                "agent type 'claude' does not support exec",
+                hint=(
+                    "use clawctl agent shell <name> -- '<command that exits>'; "
+                    "Claude Code has no interactive or native-exec path"
+                ),
+                exit_code=2,
+            )
         emit_error(
             f"agent type '{claw_type}' does not support exec",
             hint="supported types: " + ", ".join(sorted(SUPPORTED_CLAW_TYPES)),

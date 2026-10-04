@@ -1,0 +1,71 @@
+---
+# Darwin counterpart to configure.yaml. It writes only the dedicated user's
+# global Claude settings and never invokes Claude Code or launchctl.
+- hosts: all
+  become: yes
+  tasks:
+    - name: Refuse to run on non-Darwin hosts (dispatcher contract)
+      ansible.builtin.fail:
+        msg: configure_macos.yaml invoked against a non-Darwin host
+      when: ansible_os_family != "Darwin"
+
+    - name: Validate agent_name (defense-in-depth)
+      ansible.builtin.fail:
+        msg: "Invalid agent_name"
+      when: agent_name is not match('^[a-z][a-z0-9_-]{0,31}$')
+
+    - name: Validate selected Claude credential transport
+      ansible.builtin.assert:
+        that:
+          - claude_credential_key in ['CLAUDE_CODE_OAUTH_TOKEN', 'ANTHROPIC_API_KEY']
+          - claude_credential_value is string
+          - claude_credential_value | length > 0
+      no_log: true
+
+    - name: Create dedicated Claude global settings directory
+      ansible.builtin.file:
+        path: "/Users/{{ agent_name }}/.claude"
+        state: directory
+        owner: "{{ agent_name }}"
+        group: staff
+        mode: "0700"
+
+    - name: Create managed Claude shell startup directory
+      ansible.builtin.file:
+        path: "/Users/{{ agent_name }}/.profile.d"
+        state: directory
+        owner: "{{ agent_name }}"
+        group: staff
+        mode: "0700"
+
+    - name: Write bounded global Claude settings
+      ansible.builtin.copy:
+        content: "{{ prerendered_claude_settings_json }}"
+        dest: "/Users/{{ agent_name }}/.claude/settings.json"
+        owner: "{{ agent_name }}"
+        group: staff
+        mode: "0600"
+
+    - name: Write managed Claude shell startup snippet
+      ansible.builtin.copy:
+        content: |
+          if [ -r "$HOME/.claude/clawrium-credentials.env" ]; then
+            . "$HOME/.claude/clawrium-credentials.env"
+          fi
+        dest: "/Users/{{ agent_name }}/.profile.d/clawrium-claude.sh"
+        owner: "{{ agent_name }}"
+        group: staff
+        mode: "0600"
+        unsafe_writes: false
+
+    - name: Atomically replace active Claude credential environment
+      ansible.builtin.copy:
+        content: |
+          unset CLAUDE_CODE_OAUTH_TOKEN ANTHROPIC_API_KEY
+          export {{ claude_credential_key }}={{ claude_credential_value | quote }}
+        dest: "/Users/{{ agent_name }}/.claude/clawrium-credentials.env"
+        owner: "{{ agent_name }}"
+        group: staff
+        mode: "0600"
+        unsafe_writes: false
+      no_log: true

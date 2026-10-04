@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import base64
 from pathlib import Path
 import re
 import secrets as stdlib_secrets
 from unittest.mock import Mock
 
+from jinja2 import Environment, StrictUndefined
+import pytest
 import yaml
 
 from clawrium.core.install import _install_was_skipped, run_installation
@@ -126,7 +129,6 @@ def test_claude_install_runbooks_are_state_based_and_never_invoke_claude():
         assert "force_install" in yaml.safe_dump(
             _task(tasks, "Set install skip condition")
         )
-
         install_argv = _task(
             tasks, "Install pinned Claude Code package into owned prefix"
         )["ansible.builtin.command"]["argv"]
@@ -178,6 +180,45 @@ def test_claude_install_runbooks_are_state_based_and_never_invoke_claude():
         )
         for executable_text in _executable_task_texts(tasks):
             assert not forbidden_executable.search(executable_text.lower())
+
+
+@pytest.mark.parametrize("name", ("install.yaml", "install_macos.yaml"))
+@pytest.mark.parametrize(
+    ("metadata_exists", "slurp_result", "expected"),
+    (
+        (False, {"skipped": True}, "False"),
+        (
+            True,
+            {
+                "content": base64.b64encode(
+                    b'{"name":"@anthropic-ai/claude-code","version":"2.1.100"}'
+                ).decode()
+            },
+            "True",
+        ),
+    ),
+)
+def test_claude_package_metadata_match_handles_skipped_slurp(
+    name: str, metadata_exists: bool, slurp_result: dict, expected: str
+):
+    """Evaluate the exact Ansible Jinja expression for fresh and repeat installs."""
+    package_match = _task(
+        _tasks(name), "Determine whether installed package metadata matches the pin"
+    )["ansible.builtin.set_fact"]["claude_package_at_target"]
+    environment = Environment(undefined=StrictUndefined)
+    environment.filters["bool"] = bool
+    environment.filters["b64decode"] = lambda value: base64.b64decode(value).decode()
+    environment.filters["regex_search"] = lambda value, pattern: re.search(
+        pattern, value
+    )
+
+    result = environment.from_string(package_match).render(
+        claude_package_metadata_stat={"stat": {"exists": metadata_exists}},
+        claude_package_metadata_content=slurp_result,
+        claude_package_version=PINNED_VERSION,
+    )
+
+    assert result.strip() == expected
 
 
 def test_claude_install_skip_marker_uses_the_generic_idempotency_contract():
@@ -248,6 +289,84 @@ def test_claude_remove_runbooks_only_target_dedicated_resources():
                 "Delete dedicated"
             ):
                 assert "claude_ownership_marker_stat.stat.exists" in yaml.safe_dump(task)
+
+
+def test_claude_remove_runbooks_allowlist_dedicated_cleanup_only():
+    """Removal must not grow into a global Claude or project cleanup path."""
+    shared_install_fragments = (
+        "/usr/local",
+        "/usr/lib",
+        "/etc/",
+        "/opt/",
+        "/Library/",
+    )
+    cleanup_tasks = {
+        "remove.yaml": [
+            "Remove managed Claude Code startup snippet",
+            "Remove managed Claude Code credential file",
+            "Remove full dedicated Claude Code state directory",
+            "Remove owned Claude Code install prefix",
+            "Remove dedicated Claude Code agent account and home",
+            "Remove Claude Code account ownership marker",
+        ],
+        "remove_macos.yaml": [
+            "Remove managed Claude Code startup snippet",
+            "Remove managed Claude Code credential file",
+            "Remove full dedicated Claude Code state directory",
+            "Remove owned Claude Code install prefix",
+            "Delete dedicated Claude Code account via dscl",
+            "Remove dedicated Claude Code home directory",
+            "Remove Claude Code account ownership marker",
+        ],
+    }
+
+    for name, expected_cleanup_order in cleanup_tasks.items():
+        tasks = _tasks(name)
+        file_paths = {
+            task["ansible.builtin.file"]["path"]
+            for task in tasks
+            if "ansible.builtin.file" in task
+        }
+        allowed_file_paths = {
+            "{{ claude_home }}/.profile.d/clawrium-claude.sh",
+            "{{ claude_home }}/.claude/clawrium-credentials.env",
+            "{{ claude_home }}/.claude",
+            "{{ claude_prefix }}",
+            "{{ claude_ownership_marker }}",
+        }
+        if name == "remove_macos.yaml":
+            allowed_file_paths.add("{{ claude_home }}")
+        assert file_paths == allowed_file_paths
+        assert not any(
+            fragment in path
+            for path in file_paths
+            for fragment in shared_install_fragments
+        )
+
+        task_names = [task["name"] for task in tasks]
+        assert [task_names.index(task_name) for task_name in expected_cleanup_order] == sorted(
+            task_names.index(task_name) for task_name in expected_cleanup_order
+        )
+        for task_name in expected_cleanup_order:
+            task = _task(tasks, task_name)
+            assert "claude_ownership_marker_stat.stat.exists" in yaml.safe_dump(task)
+            if "ansible.builtin.file" in task:
+                assert task["ansible.builtin.file"]["state"] == "absent"
+
+        executable_text = "\n".join(_executable_task_texts(tasks)).lower()
+        assert not re.search(r"(?<![a-z0-9_-])(npm|claude)(?![a-z0-9_-])", executable_text)
+
+    linux_account = _task(
+        _tasks("remove.yaml"), "Remove dedicated Claude Code agent account and home"
+    )["ansible.builtin.user"]
+    assert linux_account == {
+        "name": "{{ agent_name }}",
+        "state": "absent",
+        "remove": True,
+    }
+    assert _task(
+        _tasks("remove_macos.yaml"), "Delete dedicated Claude Code account via dscl"
+    )["ansible.builtin.command"] == "dscl . -delete /Users/{{ agent_name }}"
 
 
 def test_claude_install_does_not_mint_gateway_state(monkeypatch, tmp_path):

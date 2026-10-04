@@ -259,7 +259,10 @@ def _bootstrap_with_tolerance(
     )
     if already_loaded:
         return True, None
-    return False, f"launchctl bootstrap ({kind}) failed (rc={rc}): {err.strip() or out.strip()}"
+    return (
+        False,
+        f"launchctl bootstrap ({kind}) failed (rc={rc}): {err.strip() or out.strip()}",
+    )
 
 
 def start_agent_macos(
@@ -305,10 +308,16 @@ def start_agent_macos(
             client, agent_name, kind="gateway", agent_type=agent_type
         )
         if rc != 0:
-            return False, f"launchctl kickstart (gateway) failed (rc={rc}): {err.strip() or out.strip()}"
+            return (
+                False,
+                f"launchctl kickstart (gateway) failed (rc={rc}): {err.strip() or out.strip()}",
+            )
 
         if dashboard_port is not None:
-            emit("start", f"launchctl bootstrap {agent_name} (dashboard:{dashboard_port})")
+            emit(
+                "start",
+                f"launchctl bootstrap {agent_name} (dashboard:{dashboard_port})",
+            )
             ok, err = _bootstrap_with_tolerance(
                 client, agent_name, kind="dashboard", agent_type=agent_type
             )
@@ -319,7 +328,10 @@ def start_agent_macos(
                 client, agent_name, kind="dashboard", agent_type=agent_type
             )
             if rc != 0:
-                return False, f"launchctl kickstart (dashboard) failed (rc={rc}): {err.strip() or out.strip()}"
+                return (
+                    False,
+                    f"launchctl kickstart (dashboard) failed (rc={rc}): {err.strip() or out.strip()}",
+                )
 
         return True, None
     finally:
@@ -345,9 +357,7 @@ def stop_agent_macos(
             on_event(stage, message)
         logger.info("[%s] %s", stage, message)
 
-    kinds_to_stop = (
-        ("dashboard", "gateway") if agent_type == "hermes" else ("gateway",)
-    )
+    kinds_to_stop = ("dashboard", "gateway") if agent_type == "hermes" else ("gateway",)
     client = _ssh(host)
     try:
         for kind in kinds_to_stop:
@@ -364,7 +374,10 @@ def stop_agent_macos(
                 or "no such file" in combined
             )
             if rc != 0 and not not_loaded:
-                return False, f"launchctl bootout ({kind}) failed (rc={rc}): {err.strip() or out.strip()}"
+                return (
+                    False,
+                    f"launchctl bootout ({kind}) failed (rc={rc}): {err.strip() or out.strip()}",
+                )
         return True, None
     finally:
         client.close()
@@ -544,7 +557,15 @@ def start_agent(
     resolved = _resolve_agent_record(host, target, expected_type=claw_name)
     if not resolved:
         raise LifecycleError(f"Agent '{target}' not installed on '{hostname}'")
-    agent_key, _agent_type, claw_record = resolved
+    agent_key, agent_type, claw_record = resolved
+
+    from clawrium.core.agent_lifecycle import (
+        has_daemon_lifecycle,
+        lifecycle_not_applicable_message,
+    )
+
+    if not has_daemon_lifecycle(agent_type):
+        raise LifecycleError(lifecycle_not_applicable_message(agent_type, "start"))
 
     onboarding = claw_record.get("onboarding", {})
     state_value = onboarding.get("state", "pending")
@@ -609,7 +630,15 @@ def stop_agent(
     resolved = _resolve_agent_record(host, target, expected_type=claw_name)
     if not resolved:
         raise LifecycleError(f"Agent '{target}' not installed on '{hostname}'")
-    agent_key, _agent_type, _ = resolved
+    agent_key, agent_type, _ = resolved
+
+    from clawrium.core.agent_lifecycle import (
+        has_daemon_lifecycle,
+        lifecycle_not_applicable_message,
+    )
+
+    if not has_daemon_lifecycle(agent_type):
+        raise LifecycleError(lifecycle_not_applicable_message(agent_type, "stop"))
 
     emit("stop", f"Stopping {agent_key} on {hostname}...")
     success, error = stop_agent_macos(
@@ -666,7 +695,15 @@ def restart_agent(
     resolved = _resolve_agent_record(host, target, expected_type=claw_name)
     if not resolved:
         raise LifecycleError(f"Agent '{target}' not installed on '{hostname}'")
-    agent_key, _agent_type, _ = resolved
+    agent_key, agent_type, _ = resolved
+
+    from clawrium.core.agent_lifecycle import (
+        has_daemon_lifecycle,
+        lifecycle_not_applicable_message,
+    )
+
+    if not has_daemon_lifecycle(agent_type):
+        raise LifecycleError(lifecycle_not_applicable_message(agent_type, "restart"))
 
     success, error = restart_agent_macos(
         host, agent_key, on_event=on_event, agent_type=claw_name
@@ -711,9 +748,21 @@ def configure_agent(
     YAML, and ATX iteration 1 B2 flagged the previous "orchestrator
     will dispatch" comment as unimplemented; this is the dispatch).
     """
+    from clawrium.core.agent_lifecycle import has_daemon_lifecycle
     from clawrium.core.hosts import get_host
     from clawrium.core.lifecycle import configure_agent as _core_configure
     from clawrium.core.playbook_resolver import resolve_agent_playbook
+
+    if not has_daemon_lifecycle(claw_name):
+        return _core_configure(
+            hostname=hostname,
+            claw_name=claw_name,
+            config_data=config_data,
+            agent_name=agent_name,
+            extra_vars=extra_vars,
+            on_event=on_event,
+            reason=reason,
+        )
 
     macos_playbook = resolve_agent_playbook(claw_name, "configure", "darwin")
     ok, err = _core_configure(
@@ -763,9 +812,19 @@ def sync_agent(
     handlers (the Linux configure.yaml's "Restart hermes service"
     handler is systemd-only); the restart here is the equivalent.
     """
+    from clawrium.core.agent_lifecycle import has_daemon_lifecycle
     from clawrium.core.hosts import get_host
     from clawrium.core.lifecycle import sync_agent as _core_sync
     from clawrium.core.playbook_resolver import resolve_agent_playbook
+
+    if not has_daemon_lifecycle(claw_name):
+        return _core_sync(
+            hostname=hostname,
+            claw_name=claw_name,
+            agent_name=agent_name,
+            workspace_only=workspace_only,
+            on_event=on_event,
+        )
 
     macos_playbook = resolve_agent_playbook(claw_name, "configure", "darwin")
     # ATX iter4 B1: do NOT let _core_sync write state=READY before we
@@ -821,9 +880,7 @@ def sync_agent(
             )
     except (AgentNotFoundError, OnboardingNotFoundError) as exc:
         result["success"] = False
-        result["error"] = (
-            f"registry record missing for {agent_key} after sync: {exc!s}"
-        )
+        result["error"] = f"registry record missing for {agent_key} after sync: {exc!s}"
     except Exception as exc:
         result["success"] = False
         result["error"] = (
@@ -904,10 +961,11 @@ def atomic_write_macos(
         # otherwise let the sudo install below overwrite that path
         # with `body`. Same defense-in-depth register as
         # _validate_agent_name.
-        if not candidate.startswith("/tmp/clawrium-sync."):
+        prefix = "/tmp/clawrium-sync."
+        if not candidate.startswith(prefix) or "/" in candidate[len(prefix) :]:
             raise CanonicalSyncError(
-                f"mktemp returned unsafe path {candidate!r}; expected "
-                f"prefix '/tmp/clawrium-sync.'"
+                f"mktemp returned unsafe path {candidate!r}; expected prefix "
+                "'/tmp/clawrium-sync.' with no nested path"
             )
         tmp_path = candidate
 
@@ -1029,8 +1087,7 @@ def restart_unit_macos(
             any_not_loaded = True
             break
         raise CanonicalSyncError(
-            f"launchctl kickstart -k ({kind}) failed (rc={rc}): "
-            f"{(err or out).strip()}"
+            f"launchctl kickstart -k ({kind}) failed (rc={rc}): {(err or out).strip()}"
         )
 
     if not any_not_loaded:
@@ -1117,10 +1174,7 @@ def verify_health_macos(
     # `type(...) is int` (not `isinstance`) so `True`/`False` are
     # rejected — bool is a subclass of int and a JSON parser that
     # round-trips `true` through `int` would otherwise sail through.
-    if (
-        type(gateway_port) is not int
-        or not 0 < gateway_port < 65536
-    ):
+    if type(gateway_port) is not int or not 0 < gateway_port < 65536:
         raise CanonicalSyncError(
             f"verify_health_macos: invalid gateway_port {gateway_port!r}"
         )
@@ -1147,9 +1201,8 @@ def verify_health_macos(
         # `connection refused` stderr from a not-yet-listening daemon
         # and prematurely aborting the wait window.
         _NC_MISSING_RE = _re.compile(r"\bnc\b[^\n]*not found", _re.IGNORECASE)
-        if (
-            "command not found" in stderr_text.lower()
-            or _NC_MISSING_RE.search(stderr_text)
+        if "command not found" in stderr_text.lower() or _NC_MISSING_RE.search(
+            stderr_text
         ):
             raise CanonicalSyncError(
                 f"verify_health_macos: `nc` is not available on the agent "

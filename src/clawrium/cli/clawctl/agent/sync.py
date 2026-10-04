@@ -44,6 +44,11 @@ from clawrium.cli.output import (
     emit_error,
     stream_action,
 )
+from clawrium.core.agent_lifecycle import (
+    has_completed_install,
+    has_daemon_lifecycle,
+    incomplete_install_message,
+)
 
 
 _PHASES = (
@@ -314,6 +319,68 @@ def sync(
     host, _agent_type, claw_record = safe_resolve_agent(name)
     agent_key = resolve_agent_key(host, name)
     agent_type = claw_record.get("type", _agent_type)
+
+    if not has_daemon_lifecycle(agent_type):
+        if not has_completed_install(claw_record):
+            emit_error(incomplete_install_message(agent_type, "sync"))
+        if agent_type != "claude":
+            stream_action(
+                resource=f"agent/{name}",
+                message=(
+                    f"{agent_type} is an installed CLI; no daemon configuration is "
+                    "managed yet"
+                ),
+            )
+            return
+
+        from clawrium.core.lifecycle_canonical import (
+            CanonicalSyncError,
+            sync_agent_canonical,
+        )
+
+        # Preserve the global CLI safety contract: --diff must never write.
+        # Claude's focused path does not print a diff yet, but it still
+        # performs the canonical read-only render/diff pass.
+        if diff:
+            dry_run = True
+
+        on_host_name = claw_record.get("agent_name") or agent_key
+
+        def claude_event(stage_evt: str, message: str) -> None:
+            stream_action(resource=f"agent/{name}", message=f"[{stage_evt}] {message}")
+
+        try:
+            result = sync_agent_canonical(
+                on_host_name,
+                restart=False,
+                verify=False,
+                push_workspace=False,
+                workspace_only=workspace_only,
+                dry_run=dry_run,
+                on_event=claude_event,
+            )
+        except CanonicalSyncError as exc:
+            emit_error(
+                f"agent {name!r} on host {host['hostname']!r}: sync failed: {exc}"
+            )
+        if not result.success:
+            emit_error(
+                f"agent {name!r} on host {host['hostname']!r}: sync failed: "
+                f"{result.error or 'unknown error'}"
+            )
+        if dry_run:
+            stream_action(
+                resource=f"agent/{name}", message="dry-run complete; no changes pushed"
+            )
+            return
+        stream_action(
+            resource=f"agent/{name}",
+            message=(
+                f"synced Claude global settings ({len(result.files_written)} written, "
+                f"{len(result.files_unchanged)} unchanged); no daemon restart"
+            ),
+        )
+        return
 
     # F8 (parent #555): `--diff` implies `--dry-run`. Promote here so
     # the phase-emission and short-circuit logic below sees the

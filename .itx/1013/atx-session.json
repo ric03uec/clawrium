@@ -1,0 +1,53 @@
+{
+  "session_id": "bbe62c64-1305-4d28-8f73-8b7bbd7fd3a2",
+  "transport": "cli",
+  "base_branch": "issue-1001-claude-docs-help",
+  "iteration": 3,
+  "last_rating": 3,
+  "last_blockers": [],
+  "started_at": "2026-10-03T16:41:11Z",
+  "updated_at": "2026-10-03T17:00:41Z",
+  "review_command": "atx review request --worktree issue-1013-claude-oauth-provider --prompt <iteration-specific prompt> --format json --timeout 15m",
+  "reviews": [
+    {
+      "iteration": 1,
+      "revision_id": "372af726-fa4c-4853-88a4-bade7a3aea1f",
+      "review_id": "rev-4d83db64-17a0-4e97-8147-c1132883f84a",
+      "rating": 2,
+      "cost_usd": 0.3477822,
+      "duration_ms": 201914,
+      "status": "completed",
+      "blocking_findings": [
+        "Attach-level coverage was omitted because the new test file was untracked.",
+        "Claude attach output needed the shared sanitization boundary."
+      ],
+      "resolution": "Added the test to the review index, covered the real attach-to-reader path and non-OAuth refusal, and routed new status output through stream_action."
+    },
+    {
+      "iteration": 2,
+      "revision_id": "ff3161d5-29b0-4099-8fcd-ab9f24481bec",
+      "review_id": "rev-4d83db64-17a0-4e97-8147-c1132883f84a",
+      "rating": 3,
+      "cost_usd": 0.7530856,
+      "duration_ms": 261962,
+      "status": "completed",
+      "blocking_findings": [
+        "The existing repository-wide secret-store at-rest encryption architecture was identified."
+      ],
+      "resolution": "Deferred by explicit user direction: #1013 continues to use the existing per-instance secret contract and does not broaden into a global secrets-system rewrite. Provider-specific rollback findings were fixed."
+    },
+    {
+      "iteration": 3,
+      "revision_id": "bbe62c64-1305-4d28-8f73-8b7bbd7fd3a2",
+      "review_id": "rev-4d83db64-17a0-4e97-8147-c1132883f84a",
+      "rating": 3,
+      "cost_usd": 0.5313692,
+      "duration_ms": 129964,
+      "status": "completed",
+      "blocking_findings": [
+        "Cancellation cleanup lacked direct regression coverage."
+      ],
+      "resolution": "Added KeyboardInterrupt cancellation cleanup coverage and generalized cleanup to BaseException while preserving the original cancellation. No fourth review was requested because the task caps ATX review at three iterations."
+    }
+  ]
+}

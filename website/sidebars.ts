@@ -33,6 +33,7 @@ const sidebars: SidebarsConfig = {
         'agent-support/openclaw',
         'agent-support/hermes',
         'agent-support/zeroclaw',
+        'agent-support/claude',
         'agent-support/memory',
       ],
     },
