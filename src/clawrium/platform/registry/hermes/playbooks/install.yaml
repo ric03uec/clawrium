@@ -247,7 +247,7 @@
       environment:
         HOME: "/home/{{ agent_name }}"
         HERMES_HOME: "/home/{{ agent_name }}/.hermes"
-        PATH: "/home/{{ agent_name }}/.local/bin:/usr/local/bin:/usr/bin:/bin"
+        PATH: "/usr/local/bin:/usr/bin:/bin"
       when: >-
         not herdr_hermes_plugin_dir.stat.exists
         or herdr_hermes_plugin_config.rc != 0
