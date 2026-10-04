@@ -1,12 +1,14 @@
 {
-  "session_id": "16554432-b08c-4b7c-8983-2d3fafb32184",
+  "session_id": "86825dbb-5285-47ba-851b-f279ea529fea",
   "transport": "cli",
-  "commit_sha": "619281c",
-  "iteration": 3,
-  "last_rating": 4,
+  "commit_sha": "3e82c19",
+  "iteration": 4,
+  "last_rating": 2.5,
   "last_blockers": [
-    "Behavioral install dispatch/failure tests"
+    "Hermes sync API-server health-port regression test",
+    "pre-existing lifecycle OS-dispatch findings",
+    "legacy Hermes Herdr migration"
   ],
   "started_at": "2026-10-04T03:49:35Z",
-  "updated_at": "2026-10-04T04:03:00Z"
+  "updated_at": "2026-10-04T06:22:40Z"
 }

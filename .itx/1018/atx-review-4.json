@@ -1,0 +1,206 @@
+{
+  "atx_review": {
+    "version": "3",
+    "status": "reviewed",
+    "blocking": true,
+    "revision_id": "86825dbb-5285-47ba-851b-f279ea529fea",
+    "review_id": "rev-ab9e2d55-1380-42f9-8b69-ee4f03ae47cf",
+    "review_title": "Review full diff against main",
+    "summary": "{\"response_type\":\"text\",\"content\":\"\u003coutput\u003e\\n{\\\"rating\\\":2,\\\"summary\\\":\\\"The branch adds Herdr provisioning and macOS lifecycle behavior, but reviewers identified a prohibited OS-specific branch in th...",
+    "rating": 2.5,
+    "agents": [
+      "leader",
+      "platform-playbooks",
+      "render-engine",
+      "security-reviewer",
+      "test-coverage",
+      "gui-routes",
+      "lifecycle-core",
+      "cli-ux"
+    ],
+    "agent_contributions": [
+      {
+        "name": "leader",
+        "status": "completed",
+        "cost_usd": 0.068466,
+        "delegated_to": [
+          "2f559a42-9fca-4be1-a67d-1601b2edbe8b",
+          "2b6bb653-42cd-4aa5-aac5-6edc8b274fd0",
+          "e8462619-249e-41f6-8cb0-a7169ae20d74",
+          "96cf24db-1fca-48da-8f6f-2d799acb293a",
+          "49fbebd6-8745-4b35-81b4-0bb0bf680f37",
+          "d79463ac-884b-4e03-b34f-fb6017c83027",
+          "e5323802-3973-44c7-a934-53da9bea7eae"
+        ]
+      },
+      {
+        "name": "platform-playbooks",
+        "status": "skipped"
+      },
+      {
+        "name": "render-engine",
+        "status": "skipped"
+      },
+      {
+        "name": "security-reviewer",
+        "status": "skipped"
+      },
+      {
+        "name": "test-coverage",
+        "status": "completed",
+        "rating": 2,
+        "cost_usd": 0.230912
+      },
+      {
+        "name": "gui-routes",
+        "status": "completed",
+        "rating": 5,
+        "cost_usd": 0.011469199999999999
+      },
+      {
+        "name": "lifecycle-core",
+        "status": "completed",
+        "rating": 2,
+        "cost_usd": 0.08748480000000003
+      },
+      {
+        "name": "cli-ux",
+        "status": "completed",
+        "rating": 3,
+        "cost_usd": 0.0742074
+      }
+    ],
+    "models": [
+      "gpt-5.6-terra",
+      "gpt-5.6-luna",
+      "gpt-5.6-sol"
+    ],
+    "review_cost_usd": 0.47253940000000005,
+    "duration_ms": 164611,
+    "findings": {
+      "parse_coverage": "complete",
+      "blocking": [
+        {
+          "severity": "blocking",
+          "location": "src/clawrium/core/lifecycle_canonical.py:1654-1658",
+          "issue": "The canonical lifecycle module directly branches on Darwin to select macOS-specific operations; similar branches are reported elsewhere in the module. This conflicts with the required dispatcher-only OS fork and can cause Linux/macOS lifecycle divergence.",
+          "suggestion": "Move OS-specific selection into the resolver or lifecycle_macos dispatcher seam, leaving lifecycle_canonical free of explicit Darwin conditionals.",
+          "source_agent": "leader"
+        },
+        {
+          "severity": "blocking",
+          "location": "src/clawrium/core/lifecycle_canonical.py:2906",
+          "issue": "The Hermes health-check port routing changed to api_server.port, but no behavioral sync test verifies that a dirty Hermes sync which restarts calls _verify_health with that port.",
+          "suggestion": "Add a sync_agent_canonical test with distinct gateway and api_server ports that asserts restart and health verification use the Hermes api_server port; cover absent api_server behavior if supported.",
+          "source_agent": "leader"
+        },
+        {
+          "severity": "blocking",
+          "location": "src/clawrium/core/lifecycle_canonical.py:2906",
+          "issue": "The new Hermes-specific health-check branch switches the source port from config.gateway.port to config.api_server.port, but no changed test invokes sync_agent_canonical for a dirty Hermes sync with restart=True and verify=True and asserts that _verify_health receives the api_server port. Existing changed tests cover rendering and install playbooks only; they cannot catch a regression where Hermes is verified on None, the gateway port, or not verified after restart.",
+          "suggestion": "Add a focused sync_agent_canonical unit test using a Hermes host fixture with distinct gateway and api_server ports. Stub external SSH/render boundaries, force at least one file write, and assert _restart_unit and _verify_health are called once with agent_type='hermes', the expected agent name, and gateway_port equal to the api_server port. Also cover absent api_server configuration if None is an intended supported value.",
+          "source_agent": "test-coverage"
+        },
+        {
+          "severity": "blocking",
+          "location": "src/clawrium/core/lifecycle_canonical.py:1654-1658",
+          "issue": "The canonical lifecycle module directly normalizes the host OS and conditionally selects install_slack_mcp_macos versus install_slack_mcp. Similar in-file Darwin branches also exist at lines 1733-1737, 1824-1827, and 2190-2193. This is the prohibited in-file OS branching pattern: lifecycle code is deciding Darwin behavior rather than delegating through the centralized playbook/backend dispatcher.",
+          "suggestion": "Move the OS-specific playbook selection and Darwin-specific operation into the resolver or the corresponding lifecycle_macos implementation, and have lifecycle_canonical call a single dispatcher API. Keep the Linux lifecycle path free of explicit Darwin conditionals.",
+          "source_agent": "lifecycle-core"
+        }
+      ],
+      "warnings": [
+        {
+          "severity": "warning",
+          "location": "src/clawrium/platform/registry/hermes/templates/hermes-config.canonical.yaml.j2:292",
+          "issue": "The Herdr plugin is enabled unconditionally during Hermes configure/sync, while provisioning occurs only in the fresh-install playbook. Legacy Hermes agents may be configured to load a plugin that is not installed.",
+          "suggestion": "Gate plugin rendering on a persisted or verified Herdr installation state, or migrate existing agents by installing Herdr before enabling the plugin; add legacy upgrade/sync coverage.",
+          "source_agent": "leader"
+        },
+        {
+          "severity": "warning",
+          "location": "src/clawrium/platform/registry/hermes/templates/hermes-config.canonical.yaml.j2:292",
+          "issue": "The template unconditionally emits `plugins.enabled: [herdr-agent-state]` for every Hermes configure/sync operation. The Herdr integration is only installed in the fresh-install playbook, so pre-existing Hermes agents that were installed before this change can be synced with a plugin enabled that does not exist locally. Depending on Hermes plugin-loading behavior, this can cause startup failure or a degraded agent after an otherwise successful `clawctl agent sync`.",
+          "suggestion": "Gate the plugin block on a persisted Herdr-enabled/install state and only emit it after verifying the Herdr binary and plugin directory exist, or add an explicit migration step that installs the integration for existing Hermes agents before enabling it. Add a regression test covering sync/configure of a legacy Hermes installation without Herdr.",
+          "source_agent": "cli-ux"
+        }
+      ],
+      "suggestions": []
+    },
+    "raw_markdown": "{\"response_type\":\"text\",\"content\":\"\u003coutput\u003e\\n{\\\"rating\\\":2,\\\"summary\\\":\\\"The branch adds Herdr provisioning and macOS lifecycle behavior, but reviewers identified a prohibited OS-specific branch in the canonical lifecycle path and a missing behavioral test for the changed Hermes health-check route. A further upgrade-path concern is that Hermes configuration can enable Herdr for legacy installations that lack its plugin files.\\\",\\\"findings\\\":[{\\\"severity\\\":\\\"blocking\\\",\\\"location\\\":\\\"src/clawrium/core/lifecycle_canonical.py:1654-1658\\\",\\\"issue\\\":\\\"The canonical lifecycle module directly branches on Darwin to select macOS-specific operations; similar branches are reported elsewhere in the module. This conflicts with the required dispatcher-only OS fork and can cause Linux/macOS lifecycle divergence.\\\",\\\"suggestion\\\":\\\"Move OS-specific selection into the resolver or lifecycle_macos dispatcher seam, leaving lifecycle_canonical free of explicit Darwin conditionals.\\\"},{\\\"severity\\\":\\\"blocking\\\",\\\"location\\\":\\\"src/clawrium/core/lifecycle_canonical.py:2906\\\",\\\"issue\\\":\\\"The Hermes health-check port routing changed to api_server.port, but no behavioral sync test verifies that a dirty Hermes sync which restarts calls _verify_health with that port.\\\",\\\"suggestion\\\":\\\"Add a sync_agent_canonical test with distinct gateway and api_server ports that asserts restart and health verification use the Hermes api_server port; cover absent api_server behavior if supported.\\\"},{\\\"severity\\\":\\\"warning\\\",\\\"location\\\":\\\"src/clawrium/platform/registry/hermes/templates/hermes-config.canonical.yaml.j2:292\\\",\\\"issue\\\":\\\"The Herdr plugin is enabled unconditionally during Hermes configure/sync, while provisioning occurs only in the fresh-install playbook. Legacy Hermes agents may be configured to load a plugin that is not installed.\\\",\\\"suggestion\\\":\\\"Gate plugin rendering on a persisted or verified Herdr installation state, or migrate existing agents by installing Herdr before enabling the plugin; add legacy upgrade/sync coverage.\\\"}],\\\"recommendations\\\":[\\\"Run lifecycle tests with Linux and Darwin fixtures across configure, sync, restart, and health verification.\\\",\\\"Retain the existing install-dispatch coverage and add behavioral lifecycle tests for newly introduced routing decisions.\\\"],\\\"metadata\\\":{\\\"files_reviewed\\\":8,\\\"domain\\\":\\\"CLI, lifecycle core, GUI scope, and test coverage\\\"}}\\n\u003c/output\u003e\"}",
+    "pr_body": "\u003c!-- atx:pr-review-summary v3 --\u003e\n## ATX Review Summary\n\n**Current Revision Rating: 2.5/5** | **Cost: $0.47** | **Time: 2m 44s**\n**Agents: leader, platform-playbooks, render-engine, security-reviewer, test-coverage, gui-routes, lifecycle-core, cli-ux** | **Finding Parse Coverage: complete**\n\n## Blocking Issues\n\n| # | Source | Location | Issue | Suggested Fix |\n|---|--------|----------|-------|---------------|\n| B1 | leader | src/clawrium/core/lifecycle_canonical.py:1654-1658 | The canonical lifecycle module directly branches on Darwin to select macOS-specific operations; similar branches are reported elsewhere in the module. This conflicts with the required dispatcher-only OS fork and can cause Linux/macOS lifecycle divergence. | Move OS-specific selection into the resolver or lifecycle_macos dispatcher seam, leaving lifecycle_canonical free of explicit Darwin conditionals. |\n| B2 | leader | src/clawrium/core/lifecycle_canonical.py:2906 | The Hermes health-check port routing changed to api_server.port, but no behavioral sync test verifies that a dirty Hermes sync which restarts calls _verify_health with that port. | Add a sync_agent_canonical test with distinct gateway and api_server ports that asserts restart and health verification use the Hermes api_server port; cover absent api_server behavior if supported. |\n| B3 | test-coverage | src/clawrium/core/lifecycle_canonical.py:2906 | The new Hermes-specific health-check branch switches the source port from config.gateway.port to config.api_server.port, but no changed test invokes sync_agent_canonical for a dirty Hermes sync with restart=True and verify=True and asserts that _verify_health receives the api_server port. Existing changed tests cover rendering and install playbooks only; they cannot catch a regression where Hermes is verified on None, the gateway port, or not verified after restart. | Add a focused sync_agent_canonical unit test using a Hermes host fixture with distinct gateway and api_server ports. Stub external SSH/render boundaries, force at least one file write, and assert _restart_unit and _verify_health are called once with agent_type='hermes', the expected agent name, and gateway_port equal to the api_server port. Also cover absent api_server configuration if None is an intended supported value. |\n| B4 | lifecycle-core | src/clawrium/core/lifecycle_canonical.py:1654-1658 | The canonical lifecycle module directly normalizes the host OS and conditionally selects install_slack_mcp_macos versus install_slack_mcp. Similar in-file Darwin branches also exist at lines 1733-1737, 1824-1827, and 2190-2193. This is the prohibited in-file OS branching pattern: lifecycle code is deciding Darwin behavior rather than delegating through the centralized playbook/backend dispatcher. | Move the OS-specific playbook selection and Darwin-specific operation into the resolver or the corresponding lifecycle_macos implementation, and have lifecycle_canonical call a single dispatcher API. Keep the Linux lifecycle path free of explicit Darwin conditionals. |\n\n## Warnings\n\n| # | Source | Location | Issue | Suggested Fix |\n|---|--------|----------|-------|---------------|\n| W1 | leader | src/clawrium/platform/registry/hermes/templates/hermes-config.canonical.yaml.j2:292 | The Herdr plugin is enabled unconditionally during Hermes configure/sync, while provisioning occurs only in the fresh-install playbook. Legacy Hermes agents may be configured to load a plugin that is not installed. | Gate plugin rendering on a persisted or verified Herdr installation state, or migrate existing agents by installing Herdr before enabling the plugin; add legacy upgrade/sync coverage. |\n| W2 | cli-ux | src/clawrium/platform/registry/hermes/templates/hermes-config.canonical.yaml.j2:292 | The template unconditionally emits \\`plugins.enabled: \\[herdr-agent-state\\]\\` for every Hermes configure/sync operation. The Herdr integration is only installed in the fresh-install playbook, so pre-existing Hermes agents that were installed before this change can be synced with a plugin enabled that does not exist locally. Depending on Hermes plugin-loading behavior, this can cause startup failure or a degraded agent after an otherwise successful \\`clawctl agent sync\\`. | Gate the plugin block on a persisted Herdr-enabled/install state and only emit it after verifying the Herdr binary and plugin directory exist, or add an explicit migration step that installs the integration for existing Hermes agents before enabling it. Add a regression test covering sync/configure of a legacy Hermes installation without Herdr. |\n\n## Suggestions\n\n| # | Source | Location | Issue | Suggested Fix |\n|---|--------|----------|-------|---------------|\n| - | - | - | None | - |\n\nCo-Authored-By: @atx-ci \u003c269048218+atx-ci@users.noreply.github.com\u003e\n",
+    "pr_body_template": {
+      "name": "pr-review-summary",
+      "version": "3"
+    },
+    "review_render_status": "rendered",
+    "rendered_review_markdown": "# ATX Review\n\n**Rating: 2/5** | **Agents: cli-ux, gui-routes, lifecycle-core, test-coverage, platform-playbooks, render-engine, security-reviewer**\n\n## Summary\n\nThe branch adds Herdr provisioning and macOS lifecycle behavior, but reviewers identified a prohibited OS-specific branch in the canonical lifecycle path and a missing behavioral test for the changed Hermes health-check route. A further upgrade-path concern is that Hermes configuration can enable Herdr for legacy installations that lack its plugin files.\n\n## Blocking Issues\n\n| # | Source | Category | Location | Issue | Suggested Fix |\n|---|--------|----------|----------|-------|---------------|\n| B1 | - | - | src/clawrium/core/lifecycle_canonical.py:1654-1658 | The canonical lifecycle module directly branches on Darwin to select macOS-specific operations; similar branches are reported elsewhere in the module. This conflicts with the required dispatcher-only OS fork and can cause Linux/macOS lifecycle divergence. | Move OS-specific selection into the resolver or lifecycle_macos dispatcher seam, leaving lifecycle_canonical free of explicit Darwin conditionals. |\n| B2 | - | - | src/clawrium/core/lifecycle_canonical.py:2906 | The Hermes health-check port routing changed to api_server.port, but no behavioral sync test verifies that a dirty Hermes sync which restarts calls _verify_health with that port. | Add a sync_agent_canonical test with distinct gateway and api_server ports that asserts restart and health verification use the Hermes api_server port; cover absent api_server behavior if supported. |\n\n## Warnings\n\n| # | Source | Category | Location | Issue | Suggested Fix |\n|---|--------|----------|----------|-------|---------------|\n| W1 | - | - | src/clawrium/platform/registry/hermes/templates/hermes-config.canonical.yaml.j2:292 | The Herdr plugin is enabled unconditionally during Hermes configure/sync, while provisioning occurs only in the fresh-install playbook. Legacy Hermes agents may be configured to load a plugin that is not installed. | Gate plugin rendering on a persisted or verified Herdr installation state, or migrate existing agents by installing Herdr before enabling the plugin; add legacy upgrade/sync coverage. |\n\n## Suggestions\n\n| # | Source | Category | Location | Issue | Suggested Fix |\n|---|--------|----------|----------|-------|---------------|\n| - | - | - | - | None | - |\n\n## Recommendations\n\n- Run lifecycle tests with Linux and Darwin fixtures across configure, sync, restart, and health verification.\n- Retain the existing install-dispatch coverage and add behavioral lifecycle tests for newly introduced routing decisions.\n\n## Agent Status\n\n| Agent | Status | Reason |\n|-------|--------|--------|\n| cli-ux | completed | - |\n| gui-routes | completed | - |\n| lifecycle-core | completed | - |\n| test-coverage | completed | - |\n| platform-playbooks | skipped | skipped:budget-limited-broad-review |\n| render-engine | skipped | skipped:budget-limited-broad-review |\n| security-reviewer | skipped | skipped:budget-limited-broad-review |\n",
+    "normalized_review": {
+      "rating": 2,
+      "summary": "The branch adds Herdr provisioning and macOS lifecycle behavior, but reviewers identified a prohibited OS-specific branch in the canonical lifecycle path and a missing behavioral test for the changed Hermes health-check route. A further upgrade-path concern is that Hermes configuration can enable Herdr for legacy installations that lack its plugin files.",
+      "findings": [
+        {
+          "severity": "blocking",
+          "location": "src/clawrium/core/lifecycle_canonical.py:1654-1658",
+          "issue": "The canonical lifecycle module directly branches on Darwin to select macOS-specific operations; similar branches are reported elsewhere in the module. This conflicts with the required dispatcher-only OS fork and can cause Linux/macOS lifecycle divergence.",
+          "suggestion": "Move OS-specific selection into the resolver or lifecycle_macos dispatcher seam, leaving lifecycle_canonical free of explicit Darwin conditionals."
+        },
+        {
+          "severity": "blocking",
+          "location": "src/clawrium/core/lifecycle_canonical.py:2906",
+          "issue": "The Hermes health-check port routing changed to api_server.port, but no behavioral sync test verifies that a dirty Hermes sync which restarts calls _verify_health with that port.",
+          "suggestion": "Add a sync_agent_canonical test with distinct gateway and api_server ports that asserts restart and health verification use the Hermes api_server port; cover absent api_server behavior if supported."
+        },
+        {
+          "severity": "warning",
+          "location": "src/clawrium/platform/registry/hermes/templates/hermes-config.canonical.yaml.j2:292",
+          "issue": "The Herdr plugin is enabled unconditionally during Hermes configure/sync, while provisioning occurs only in the fresh-install playbook. Legacy Hermes agents may be configured to load a plugin that is not installed.",
+          "suggestion": "Gate plugin rendering on a persisted or verified Herdr installation state, or migrate existing agents by installing Herdr before enabling the plugin; add legacy upgrade/sync coverage."
+        }
+      ],
+      "recommendations": [
+        "Run lifecycle tests with Linux and Darwin fixtures across configure, sync, restart, and health verification.",
+        "Retain the existing install-dispatch coverage and add behavioral lifecycle tests for newly introduced routing decisions."
+      ],
+      "agents": [
+        {
+          "name": "cli-ux",
+          "status": "completed"
+        },
+        {
+          "name": "gui-routes",
+          "status": "completed"
+        },
+        {
+          "name": "lifecycle-core",
+          "status": "completed"
+        },
+        {
+          "name": "test-coverage",
+          "status": "completed"
+        },
+        {
+          "name": "platform-playbooks",
+          "status": "skipped",
+          "reason": "skipped:budget-limited-broad-review"
+        },
+        {
+          "name": "render-engine",
+          "status": "skipped",
+          "reason": "skipped:budget-limited-broad-review"
+        },
+        {
+          "name": "security-reviewer",
+          "status": "skipped",
+          "reason": "skipped:budget-limited-broad-review"
+        }
+      ]
+    }
+  },
+  "caller_instructions": {
+    "render_first": "Branch only on `atx_review.review_render_status`: render `atx_review.rendered_review_markdown` verbatim to the user for `rendered` or `legacy`; surface `atx_review.review_render_error_code` and `atx_review.review_render_error_message` for `error`; show no review for `absent`. Never render `atx_review.raw_markdown` — it is retained strictly for trace/debug and may contain unrendered model formatting (#889).",
+    "validate_before_acting": "For each finding, open the referenced file/line and confirm the issue exists in the current code. ATX reviews can hallucinate file paths, line numbers, or behavior. Treat every finding as a hypothesis, not a fact.",
+    "apply_selectively": "Act only on findings you were able to independently verify. Silently skip findings that don't reproduce against current code — do not surface them as work items, do not ask the user about each one, and do not retry the review to 'confirm'. When uncertain whether a finding reproduces, prefer skipping over surfacing it as a task.",
+    "pr_summary_template": "If `atx_review.pr_body` is present, append it verbatim to the PR body. Do not fetch a template, reconstruct the body, or infer review history. When it is absent, no completed review body is available."
+  }
+}
