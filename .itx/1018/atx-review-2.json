@@ -1,0 +1,221 @@
+{
+  "atx_review": {
+    "version": "3",
+    "status": "reviewed",
+    "blocking": false,
+    "revision_id": "783a7f08-beeb-4a72-8d63-b84b5a3cb686",
+    "review_id": "rev-d91f67d8-5105-4e44-8a98-4bd39a33d877",
+    "review_title": "Review full branch diff",
+    "summary": "{\"response_type\":\"text\",\"content\":\"\u003coutput\u003e\\n{\\\"rating\\\":2,\\\"summary\\\":\\\"The branch introduces Herdr provisioning for Hermes and Claude with useful static coverage, but the committed E2E evidence show...",
+    "rating": 2.5,
+    "agents": [
+      "leader",
+      "cli-ux",
+      "gui-routes",
+      "render-engine",
+      "test-coverage",
+      "security-reviewer",
+      "platform-playbooks",
+      "lifecycle-core"
+    ],
+    "agent_contributions": [
+      {
+        "name": "leader",
+        "status": "completed",
+        "cost_usd": 0.07089000000000001,
+        "delegated_to": [
+          "e5323802-3973-44c7-a934-53da9bea7eae",
+          "49fbebd6-8745-4b35-81b4-0bb0bf680f37",
+          "2b6bb653-42cd-4aa5-aac5-6edc8b274fd0",
+          "96cf24db-1fca-48da-8f6f-2d799acb293a",
+          "e8462619-249e-41f6-8cb0-a7169ae20d74",
+          "2f559a42-9fca-4be1-a67d-1601b2edbe8b",
+          "d79463ac-884b-4e03-b34f-fb6017c83027"
+        ]
+      },
+      {
+        "name": "cli-ux",
+        "status": "skipped"
+      },
+      {
+        "name": "gui-routes",
+        "status": "skipped"
+      },
+      {
+        "name": "render-engine",
+        "status": "skipped"
+      },
+      {
+        "name": "test-coverage",
+        "status": "completed",
+        "rating": 2,
+        "cost_usd": 0.057429999999999995
+      },
+      {
+        "name": "security-reviewer",
+        "status": "completed",
+        "rating": 4,
+        "cost_usd": 0.027442
+      },
+      {
+        "name": "platform-playbooks",
+        "status": "completed",
+        "rating": 2,
+        "cost_usd": 0.058032
+      },
+      {
+        "name": "lifecycle-core",
+        "status": "completed",
+        "rating": 3,
+        "cost_usd": 0.09813200000000001
+      }
+    ],
+    "models": [
+      "gpt-5.6-terra",
+      "gpt-5.6-luna",
+      "gpt-5.6-sol"
+    ],
+    "review_cost_usd": 0.311926,
+    "duration_ms": 214082,
+    "findings": {
+      "parse_coverage": "complete",
+      "blocking": [
+        {
+          "severity": "blocking",
+          "location": "src/clawrium/platform/registry/hermes/templates/hermes-config.canonical.yaml.j2",
+          "issue": "The changed Hermes canonical configuration does not round-trip through agent sync: committed E2E evidence records `clawctl agent sync herdr-hermes-e2e` exiting 1 and `hermes_plugin_persists_after_sync: false` (.itx/1018/02_E2E_HERDR.md:9-12). Routine sync therefore breaks or removes the installed integration.",
+          "suggestion": "Reproduce and fix the sync failure against the supported Hermes configuration schema. Add an automated install/configure/sync test asserting zero sync exit status and retained Herdr plugin/configuration state.",
+          "source_agent": "leader"
+        },
+        {
+          "severity": "blocking",
+          "location": ".itx/1018/02_E2E_HERDR.md:8-10",
+          "issue": "The committed E2E evidence reports that `clawctl agent sync herdr-hermes-e2e` exited 1 and `hermes_plugin_persists_after_sync` is false. Despite this, there is no test coverage in the added `tests/platform/test_herdr_install.py` for configure/sync after installation that proves the Hermes integration remains installed and its rendered configuration survives synchronization.",
+          "suggestion": "Fix the sync failure first, then add an automated lifecycle-level test that installs/configures Hermes with Herdr, runs sync, and asserts both the integration/plugin state and canonical Herdr configuration remain present. Make the E2E script fail its process when these expected invariants are false so a failed result cannot be committed as successful validation.",
+          "source_agent": "test-coverage"
+        },
+        {
+          "severity": "blocking",
+          "location": "src/clawrium/platform/registry/hermes/templates/hermes-config.canonical.yaml.j2",
+          "issue": "The changed canonical Hermes configuration does not round-trip through `clawctl agent sync`. The branch's committed E2E result records `clawctl agent sync herdr-hermes-e2e` exiting with status 1 and `hermes_plugin_persists_after_sync: false` (.itx/1018/02_E2E_HERDR.md:9-12). This means the registry's canonical configuration change is either invalid for Hermes or incompatible with the render/configure flow, so a routine sync breaks the installed integration.",
+          "suggestion": "Reproduce the sync failure, correct the canonical Herdr configuration to the exact Hermes-supported schema, and add a test that renders, configures, then syncs a Hermes agent and verifies both a zero exit status and retained Herdr plugin/configuration state.",
+          "source_agent": "platform-playbooks"
+        }
+      ],
+      "warnings": [
+        {
+          "severity": "warning",
+          "location": "scripts/e2e/herdr_install_e2e.py",
+          "issue": "Required E2E invariants can be recorded as false without blocking the branch; the committed report also shows Claude binary-only and shared-binary reuse invariants failing. This allows a failed acceptance run to appear as completed validation.",
+          "suggestion": "Make the E2E harness return non-zero whenever required invariants fail, including successful Hermes sync, plugin persistence, binary-only Claude behavior, shared-binary reuse, and cleanup isolation.",
+          "source_agent": "leader"
+        },
+        {
+          "severity": "warning",
+          "location": "src/clawrium/platform/registry/hermes/playbooks/install_macos.yaml:255-266",
+          "issue": "The macOS `herdr integration install hermes` task sets PATH to only `/usr/bin:/bin`, unlike nearby tasks that include Homebrew and agent-local binary locations. This can prevent Herdr or its runtime dependencies from resolving on otherwise healthy macOS hosts.",
+          "suggestion": "Use the complete macOS PATH used by surrounding Hermes tasks, including `/opt/homebrew/bin`, the agent-local bin directory, and `/usr/local/bin`, and cover this Darwin integration path in tests.",
+          "source_agent": "leader"
+        },
+        {
+          "severity": "warning",
+          "location": "scripts/e2e/herdr_install_e2e.py",
+          "issue": "The new E2E script records failures and negative invariant results in a JSON report, but the committed report demonstrates that these failures did not block the branch. A test harness that can report a failed sync and non-persistent plugin while returning success is a weak assertion boundary and permits regressions to pass CI.",
+          "suggestion": "After emitting diagnostics, raise or return non-zero whenever any required invariant fails, including Hermes sync success, plugin persistence after sync, Claude binary-only behavior, shared-binary reuse, and cleanup isolation.",
+          "source_agent": "test-coverage"
+        },
+        {
+          "severity": "warning",
+          "location": "scripts/e2e/herdr_install_e2e.py",
+          "issue": "The E2E acceptance signal is internally failing but the branch still presents the implementation as complete. The recorded result also reports `claude_binary_only: false` and `shared_binary_reused: false` (.itx/1018/02_E2E_HERDR.md:4-15), contradicting the stated binary-only Claude scope and shared-binary reuse requirement.",
+          "suggestion": "Make the E2E script fail the CI job when any required invariant is false, including Claude binary-only behavior, successful Hermes sync persistence, and reuse of the existing shared Herdr binary. Do not merge with a recorded failed acceptance run.",
+          "source_agent": "platform-playbooks"
+        },
+        {
+          "severity": "warning",
+          "location": "src/clawrium/platform/registry/hermes/playbooks/install_macos.yaml:255-266",
+          "issue": "The macOS Hermes install playbook invokes `herdr integration install hermes` whenever either the plugin directory or the config entry is missing, but the command is executed as the agent user while the playbook only supplies `PATH=/usr/bin:/bin`. Herdr integrations commonly need the agent's local tool directory and Homebrew paths available; unlike the surrounding macOS Hermes tasks, this task removes `/opt/homebrew/bin` and the agent-local bin directory from PATH. On hosts where the Herdr CLI or its runtime dependencies are resolved through those paths, a healthy shared Herdr installation can fail during every Hermes install/configure.",
+          "suggestion": "Use the same complete macOS PATH as the surrounding Hermes tasks, at minimum `/opt/homebrew/bin:/Users/{{ agent_name }}/.local/bin:/usr/local/bin:/usr/bin:/bin`, and add an integration-task test covering a Darwin host with the shared Herdr binary already installed.",
+          "source_agent": "lifecycle-core"
+        }
+      ],
+      "suggestions": []
+    },
+    "raw_markdown": "{\"response_type\":\"text\",\"content\":\"\u003coutput\u003e\\n{\\\"rating\\\":2,\\\"summary\\\":\\\"The branch introduces Herdr provisioning for Hermes and Claude with useful static coverage, but the committed E2E evidence shows Hermes agent sync fails and the integration does not persist afterward. This is a release-blocking regression in the configure/sync workflow; no independent security vulnerability was identified.\\\",\\\"findings\\\":[{\\\"severity\\\":\\\"blocking\\\",\\\"location\\\":\\\"src/clawrium/platform/registry/hermes/templates/hermes-config.canonical.yaml.j2\\\",\\\"issue\\\":\\\"The changed Hermes canonical configuration does not round-trip through agent sync: committed E2E evidence records `clawctl agent sync herdr-hermes-e2e` exiting 1 and `hermes_plugin_persists_after_sync: false` (.itx/1018/02_E2E_HERDR.md:9-12). Routine sync therefore breaks or removes the installed integration.\\\",\\\"suggestion\\\":\\\"Reproduce and fix the sync failure against the supported Hermes configuration schema. Add an automated install/configure/sync test asserting zero sync exit status and retained Herdr plugin/configuration state.\\\"},{\\\"severity\\\":\\\"warning\\\",\\\"location\\\":\\\"scripts/e2e/herdr_install_e2e.py\\\",\\\"issue\\\":\\\"Required E2E invariants can be recorded as false without blocking the branch; the committed report also shows Claude binary-only and shared-binary reuse invariants failing. This allows a failed acceptance run to appear as completed validation.\\\",\\\"suggestion\\\":\\\"Make the E2E harness return non-zero whenever required invariants fail, including successful Hermes sync, plugin persistence, binary-only Claude behavior, shared-binary reuse, and cleanup isolation.\\\"},{\\\"severity\\\":\\\"warning\\\",\\\"location\\\":\\\"src/clawrium/platform/registry/hermes/playbooks/install_macos.yaml:255-266\\\",\\\"issue\\\":\\\"The macOS `herdr integration install hermes` task sets PATH to only `/usr/bin:/bin`, unlike nearby tasks that include Homebrew and agent-local binary locations. This can prevent Herdr or its runtime dependencies from resolving on otherwise healthy macOS hosts.\\\",\\\"suggestion\\\":\\\"Use the complete macOS PATH used by surrounding Hermes tasks, including `/opt/homebrew/bin`, the agent-local bin directory, and `/usr/local/bin`, and cover this Darwin integration path in tests.\\\"}],\\\"recommendations\\\":[\\\"Do not merge until Hermes configure/sync preserves the Herdr integration and the E2E succeeds.\\\",\\\"Gate E2E acceptance invariants in CI with a non-zero failure exit.\\\",\\\"Add lifecycle-level coverage for the install/configure/sync sequence on Hermes, plus Darwin PATH coverage.\\\"],\\\"metadata\\\":{\\\"files_reviewed\\\":8,\\\"domain\\\":\\\"platform registry, lifecycle, security, and test coverage\\\"}}\\n\u003c/output\u003e\"}",
+    "pr_body": "\u003c!-- atx:pr-review-summary v3 --\u003e\n## ATX Review Summary\n\n**Current Revision Rating: 2.5/5** | **Cost: $0.31** | **Time: 3m 34s**\n**Agents: leader, cli-ux, gui-routes, render-engine, test-coverage, security-reviewer, platform-playbooks, lifecycle-core** | **Finding Parse Coverage: complete**\n\n## Blocking Issues\n\n| # | Source | Location | Issue | Suggested Fix |\n|---|--------|----------|-------|---------------|\n| B1 | leader | src/clawrium/platform/registry/hermes/templates/hermes-config.canonical.yaml.j2 | The changed Hermes canonical configuration does not round-trip through agent sync: committed E2E evidence records \\`clawctl agent sync herdr-hermes-e2e\\` exiting 1 and \\`hermes_plugin_persists_after_sync: false\\` (.itx/1018/02_E2E_HERDR.md:9-12). Routine sync therefore breaks or removes the installed integration. | Reproduce and fix the sync failure against the supported Hermes configuration schema. Add an automated install/configure/sync test asserting zero sync exit status and retained Herdr plugin/configuration state. |\n| B2 | test-coverage | .itx/1018/02_E2E_HERDR.md:8-10 | The committed E2E evidence reports that \\`clawctl agent sync herdr-hermes-e2e\\` exited 1 and \\`hermes_plugin_persists_after_sync\\` is false. Despite this, there is no test coverage in the added \\`tests/platform/test_herdr_install.py\\` for configure/sync after installation that proves the Hermes integration remains installed and its rendered configuration survives synchronization. | Fix the sync failure first, then add an automated lifecycle-level test that installs/configures Hermes with Herdr, runs sync, and asserts both the integration/plugin state and canonical Herdr configuration remain present. Make the E2E script fail its process when these expected invariants are false so a failed result cannot be committed as successful validation. |\n| B3 | platform-playbooks | src/clawrium/platform/registry/hermes/templates/hermes-config.canonical.yaml.j2 | The changed canonical Hermes configuration does not round-trip through \\`clawctl agent sync\\`. The branch's committed E2E result records \\`clawctl agent sync herdr-hermes-e2e\\` exiting with status 1 and \\`hermes_plugin_persists_after_sync: false\\` (.itx/1018/02_E2E_HERDR.md:9-12). This means the registry's canonical configuration change is either invalid for Hermes or incompatible with the render/configure flow, so a routine sync breaks the installed integration. | Reproduce the sync failure, correct the canonical Herdr configuration to the exact Hermes-supported schema, and add a test that renders, configures, then syncs a Hermes agent and verifies both a zero exit status and retained Herdr plugin/configuration state. |\n\n## Warnings\n\n| # | Source | Location | Issue | Suggested Fix |\n|---|--------|----------|-------|---------------|\n| W1 | leader | scripts/e2e/herdr_install_e2e.py | Required E2E invariants can be recorded as false without blocking the branch; the committed report also shows Claude binary-only and shared-binary reuse invariants failing. This allows a failed acceptance run to appear as completed validation. | Make the E2E harness return non-zero whenever required invariants fail, including successful Hermes sync, plugin persistence, binary-only Claude behavior, shared-binary reuse, and cleanup isolation. |\n| W2 | leader | src/clawrium/platform/registry/hermes/playbooks/install_macos.yaml:255-266 | The macOS \\`herdr integration install hermes\\` task sets PATH to only \\`/usr/bin:/bin\\`, unlike nearby tasks that include Homebrew and agent-local binary locations. This can prevent Herdr or its runtime dependencies from resolving on otherwise healthy macOS hosts. | Use the complete macOS PATH used by surrounding Hermes tasks, including \\`/opt/homebrew/bin\\`, the agent-local bin directory, and \\`/usr/local/bin\\`, and cover this Darwin integration path in tests. |\n| W3 | test-coverage | scripts/e2e/herdr_install_e2e.py | The new E2E script records failures and negative invariant results in a JSON report, but the committed report demonstrates that these failures did not block the branch. A test harness that can report a failed sync and non-persistent plugin while returning success is a weak assertion boundary and permits regressions to pass CI. | After emitting diagnostics, raise or return non-zero whenever any required invariant fails, including Hermes sync success, plugin persistence after sync, Claude binary-only behavior, shared-binary reuse, and cleanup isolation. |\n| W4 | platform-playbooks | scripts/e2e/herdr_install_e2e.py | The E2E acceptance signal is internally failing but the branch still presents the implementation as complete. The recorded result also reports \\`claude_binary_only: false\\` and \\`shared_binary_reused: false\\` (.itx/1018/02_E2E_HERDR.md:4-15), contradicting the stated binary-only Claude scope and shared-binary reuse requirement. | Make the E2E script fail the CI job when any required invariant is false, including Claude binary-only behavior, successful Hermes sync persistence, and reuse of the existing shared Herdr binary. Do not merge with a recorded failed acceptance run. |\n| W5 | lifecycle-core | src/clawrium/platform/registry/hermes/playbooks/install_macos.yaml:255-266 | The macOS Hermes install playbook invokes \\`herdr integration install hermes\\` whenever either the plugin directory or the config entry is missing, but the command is executed as the agent user while the playbook only supplies \\`PATH=/usr/bin:/bin\\`. Herdr integrations commonly need the agent's local tool directory and Homebrew paths available; unlike the surrounding macOS Hermes tasks, this task removes \\`/opt/homebrew/bin\\` and the agent-local bin directory from PATH. On hosts where the Herdr CLI or its runtime dependencies are resolved through those paths, a healthy shared Herdr installation can fail during every Hermes install/configure. | Use the same complete macOS PATH as the surrounding Hermes tasks, at minimum \\`/opt/homebrew/bin:/Users/{{ agent_name }}/.local/bin:/usr/local/bin:/usr/bin:/bin\\`, and add an integration-task test covering a Darwin host with the shared Herdr binary already installed. |\n\n## Suggestions\n\n| # | Source | Location | Issue | Suggested Fix |\n|---|--------|----------|-------|---------------|\n| - | - | - | None | - |\n\nCo-Authored-By: @atx-ci \u003c269048218+atx-ci@users.noreply.github.com\u003e\n",
+    "pr_body_template": {
+      "name": "pr-review-summary",
+      "version": "3"
+    },
+    "review_render_status": "rendered",
+    "rendered_review_markdown": "# ATX Review\n\n**Rating: 2/5** | **Agents: lifecycle-core, platform-playbooks, security-reviewer, test-coverage, cli-ux, gui-routes, render-engine**\n\n## Summary\n\nThe branch introduces Herdr provisioning for Hermes and Claude with useful static coverage, but the committed E2E evidence shows Hermes agent sync fails and the integration does not persist afterward. This is a release-blocking regression in the configure/sync workflow; no independent security vulnerability was identified.\n\n## Blocking Issues\n\n| # | Source | Category | Location | Issue | Suggested Fix |\n|---|--------|----------|----------|-------|---------------|\n| B1 | - | - | src/clawrium/platform/registry/hermes/templates/hermes-config.canonical.yaml.j2 | The changed Hermes canonical configuration does not round-trip through agent sync: committed E2E evidence records \\`clawctl agent sync herdr-hermes-e2e\\` exiting 1 and \\`hermes_plugin_persists_after_sync: false\\` (.itx/1018/02_E2E_HERDR.md:9-12). Routine sync therefore breaks or removes the installed integration. | Reproduce and fix the sync failure against the supported Hermes configuration schema. Add an automated install/configure/sync test asserting zero sync exit status and retained Herdr plugin/configuration state. |\n\n## Warnings\n\n| # | Source | Category | Location | Issue | Suggested Fix |\n|---|--------|----------|----------|-------|---------------|\n| W1 | - | - | scripts/e2e/herdr_install_e2e.py | Required E2E invariants can be recorded as false without blocking the branch; the committed report also shows Claude binary-only and shared-binary reuse invariants failing. This allows a failed acceptance run to appear as completed validation. | Make the E2E harness return non-zero whenever required invariants fail, including successful Hermes sync, plugin persistence, binary-only Claude behavior, shared-binary reuse, and cleanup isolation. |\n| W2 | - | - | src/clawrium/platform/registry/hermes/playbooks/install_macos.yaml:255-266 | The macOS \\`herdr integration install hermes\\` task sets PATH to only \\`/usr/bin:/bin\\`, unlike nearby tasks that include Homebrew and agent-local binary locations. This can prevent Herdr or its runtime dependencies from resolving on otherwise healthy macOS hosts. | Use the complete macOS PATH used by surrounding Hermes tasks, including \\`/opt/homebrew/bin\\`, the agent-local bin directory, and \\`/usr/local/bin\\`, and cover this Darwin integration path in tests. |\n\n## Suggestions\n\n| # | Source | Category | Location | Issue | Suggested Fix |\n|---|--------|----------|----------|-------|---------------|\n| - | - | - | - | None | - |\n\n## Recommendations\n\n- Do not merge until Hermes configure/sync preserves the Herdr integration and the E2E succeeds.\n- Gate E2E acceptance invariants in CI with a non-zero failure exit.\n- Add lifecycle-level coverage for the install/configure/sync sequence on Hermes, plus Darwin PATH coverage.\n\n## Agent Status\n\n| Agent | Status | Reason |\n|-------|--------|--------|\n| lifecycle-core | completed | - |\n| platform-playbooks | completed | - |\n| security-reviewer | completed | - |\n| test-coverage | completed | - |\n| cli-ux | skipped | skipped:budget-limited-full-branch-scope |\n| gui-routes | skipped | skipped:budget-limited-full-branch-scope |\n| render-engine | skipped | skipped:budget-limited-full-branch-scope |\n",
+    "normalized_review": {
+      "rating": 2,
+      "summary": "The branch introduces Herdr provisioning for Hermes and Claude with useful static coverage, but the committed E2E evidence shows Hermes agent sync fails and the integration does not persist afterward. This is a release-blocking regression in the configure/sync workflow; no independent security vulnerability was identified.",
+      "findings": [
+        {
+          "severity": "blocking",
+          "location": "src/clawrium/platform/registry/hermes/templates/hermes-config.canonical.yaml.j2",
+          "issue": "The changed Hermes canonical configuration does not round-trip through agent sync: committed E2E evidence records `clawctl agent sync herdr-hermes-e2e` exiting 1 and `hermes_plugin_persists_after_sync: false` (.itx/1018/02_E2E_HERDR.md:9-12). Routine sync therefore breaks or removes the installed integration.",
+          "suggestion": "Reproduce and fix the sync failure against the supported Hermes configuration schema. Add an automated install/configure/sync test asserting zero sync exit status and retained Herdr plugin/configuration state."
+        },
+        {
+          "severity": "warning",
+          "location": "scripts/e2e/herdr_install_e2e.py",
+          "issue": "Required E2E invariants can be recorded as false without blocking the branch; the committed report also shows Claude binary-only and shared-binary reuse invariants failing. This allows a failed acceptance run to appear as completed validation.",
+          "suggestion": "Make the E2E harness return non-zero whenever required invariants fail, including successful Hermes sync, plugin persistence, binary-only Claude behavior, shared-binary reuse, and cleanup isolation."
+        },
+        {
+          "severity": "warning",
+          "location": "src/clawrium/platform/registry/hermes/playbooks/install_macos.yaml:255-266",
+          "issue": "The macOS `herdr integration install hermes` task sets PATH to only `/usr/bin:/bin`, unlike nearby tasks that include Homebrew and agent-local binary locations. This can prevent Herdr or its runtime dependencies from resolving on otherwise healthy macOS hosts.",
+          "suggestion": "Use the complete macOS PATH used by surrounding Hermes tasks, including `/opt/homebrew/bin`, the agent-local bin directory, and `/usr/local/bin`, and cover this Darwin integration path in tests."
+        }
+      ],
+      "recommendations": [
+        "Do not merge until Hermes configure/sync preserves the Herdr integration and the E2E succeeds.",
+        "Gate E2E acceptance invariants in CI with a non-zero failure exit.",
+        "Add lifecycle-level coverage for the install/configure/sync sequence on Hermes, plus Darwin PATH coverage."
+      ],
+      "agents": [
+        {
+          "name": "lifecycle-core",
+          "status": "completed"
+        },
+        {
+          "name": "platform-playbooks",
+          "status": "completed"
+        },
+        {
+          "name": "security-reviewer",
+          "status": "completed"
+        },
+        {
+          "name": "test-coverage",
+          "status": "completed"
+        },
+        {
+          "name": "cli-ux",
+          "status": "skipped",
+          "reason": "skipped:budget-limited-full-branch-scope"
+        },
+        {
+          "name": "gui-routes",
+          "status": "skipped",
+          "reason": "skipped:budget-limited-full-branch-scope"
+        },
+        {
+          "name": "render-engine",
+          "status": "skipped",
+          "reason": "skipped:budget-limited-full-branch-scope"
+        }
+      ]
+    }
+  },
+  "caller_instructions": {
+    "render_first": "Branch only on `atx_review.review_render_status`: render `atx_review.rendered_review_markdown` verbatim to the user for `rendered` or `legacy`; surface `atx_review.review_render_error_code` and `atx_review.review_render_error_message` for `error`; show no review for `absent`. Never render `atx_review.raw_markdown` — it is retained strictly for trace/debug and may contain unrendered model formatting (#889).",
+    "validate_before_acting": "For each finding, open the referenced file/line and confirm the issue exists in the current code. ATX reviews can hallucinate file paths, line numbers, or behavior. Treat every finding as a hypothesis, not a fact.",
+    "apply_selectively": "Act only on findings you were able to independently verify. Silently skip findings that don't reproduce against current code — do not surface them as work items, do not ask the user about each one, and do not retry the review to 'confirm'. When uncertain whether a finding reproduces, prefer skipping over surfacing it as a task.",
+    "pr_summary_template": "If `atx_review.pr_body` is present, append it verbatim to the PR body. Do not fetch a template, reconstruct the body, or infer review history. When it is absent, no completed review body is available."
+  }
+}
