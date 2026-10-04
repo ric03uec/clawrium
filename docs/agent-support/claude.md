@@ -1,6 +1,6 @@
 # Claude Code Support
 
-Clawrium supports `claude` as an **isolated, per-agent Claude Code environment** with on-demand CLI chat. It is not a daemon-backed assistant: Clawrium prepares an isolated account and command environment, then runs a finite Claude Code process only for each `clawctl agent chat` turn.
+Clawrium supports `claude` as an **isolated, per-agent Claude Code environment** with on-demand CLI and GUI chat. It is not a daemon-backed assistant: Clawrium prepares an isolated account and command environment, then runs a finite Claude Code process only for each chat turn.
 
 **Pinned version:** `2.1.100`
 
@@ -154,6 +154,13 @@ suggest `clawctl agent sync <name>`; malformed Claude CLI JSON and non-auth
 command failures are surfaced as chat errors without echoing credential-bearing
 stderr.
 
+The **Chat** tab on the agent page in `clawctl gui` uses this same backend — it
+does not create a gateway, tunnel, paired device, or a second Claude invocation
+path. The tab keeps a browser-conversation session key so later turns resume
+the same Claude session; select **New chat** to cancel any pending turn and
+start a fresh session. Generic SSE errors never include prompts, credential
+values, remote stderr, or controller paths.
+
 ## Run a finite command
 
 Use the normal command-shell path for Claude Code:
@@ -182,7 +189,7 @@ with an explicit command after `--` instead.
 | `start`, `stop`, `restart`, `logs` | Not applicable: Claude Code has no Clawrium-managed daemon or service. |
 | `open`, native web UI, tunnel, port, pairing | Unavailable: the manifest declares no web UI. |
 | `chat` | Supported on demand through `clawctl agent chat`; every turn is a finite Claude CLI process. |
-| GUI chat | Deferred to the GUI SSE phase; this change does not add a GUI chat transport. |
+| GUI chat | Supported through the agent-page Chat tab; it reuses the same finite CLI backend and has no native web UI. |
 | `exec` | Unavailable for Claude Code; use `agent shell`. |
 
 ## Removal ownership

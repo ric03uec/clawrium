@@ -82,10 +82,11 @@ cut. The `itx-release` skill archives this section into a new
 
 ### Added
 
-- Add on-demand CLI chat for Claude Code agents. `clawctl agent chat` runs a
-  finite, authenticated Claude Code turn as the dedicated agent user without
-  starting a daemon, gateway, or native web UI; OAuth and API-key modes reuse
-  the selected private credential state (#989).
+- Add on-demand CLI and GUI chat for Claude Code agents. `clawctl agent chat`
+  and the agent-page Chat tab run a finite, authenticated Claude Code turn as
+  the dedicated agent user without starting a daemon, gateway, tunnel, or
+  native web UI; OAuth and API-key modes reuse the selected private credential
+  state (#989).
 - Add pinned, checksum-verified host-shared Herdr provisioning for Hermes and Claude Code. Hermes receives the native Herdr plugin and canonical config persistence; Claude remains binary-only, while OpenClaw, ZeroClaw, and Ethos are excluded (#1018).
 - Add `claude-oauth` as a selectable provider for Claude Code agents. It securely imports an allowlisted native OAuth document from the supported Linux controller artifact and activates it on the selected host without requiring a pre-exported token (#1013).
 - Activate the selected Claude Code OAuth token or Anthropic API key during `clawctl agent configure` and `sync`. Credentials are stored in private agent-owned files and available to finite `clawctl agent shell` commands without appearing in settings, diffs, or output (#998).

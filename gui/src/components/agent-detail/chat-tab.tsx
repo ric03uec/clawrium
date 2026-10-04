@@ -11,15 +11,26 @@ interface ChatTabProps {
   agentName: string;
 }
 
+function newBrowserChatSession(): string {
+  // This is an opaque correlation key, not an auth credential. It scopes the
+  // server-side Claude backend UUID to one visible browser conversation.
+  if (typeof globalThis.crypto?.randomUUID === "function") {
+    return `gui:${globalThis.crypto.randomUUID()}`;
+  }
+  return `gui:${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+}
+
 export function ChatTab({ agentKey, agentName }: ChatTabProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
+  const [sessionKey, setSessionKey] = useState(newBrowserChatSession);
   const [sending, setSending] = useState(false);
   const [thinkingElapsed, setThinkingElapsed] = useState(0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const sendingRef = useRef(false);
+  const conversationGenerationRef = useRef(0);
 
   useEffect(() => () => {
     abortRef.current?.abort();
@@ -63,10 +74,27 @@ export function ChatTab({ agentKey, agentName }: ChatTabProps) {
     }
   }, []);
 
+  const handleReset = useCallback(() => {
+    // Aborting is best-effort at the browser boundary. The generation guard
+    // below prevents a late cancellation/error from appearing in the fresh
+    // transcript while the FastAPI route finishes remote cleanup.
+    conversationGenerationRef.current += 1;
+    abortRef.current?.abort();
+    abortRef.current = null;
+    sendingRef.current = false;
+    setSending(false);
+    setMessages([]);
+    setInput("");
+    setSessionKey(newBrowserChatSession());
+    focusTextarea();
+  }, [focusTextarea]);
+
   const handleSend = useCallback(async () => {
     // Sync ref guard prevents double-send race (ATX W2)
     if (!input.trim() || sendingRef.current) return;
     sendingRef.current = true;
+    const conversationGeneration = conversationGenerationRef.current;
+    const requestSession = sessionKey;
 
     const userMsg: ChatMessage = {
       role: "user",
@@ -83,8 +111,10 @@ export function ChatTab({ agentKey, agentName }: ChatTabProps) {
 
     try {
       const response = await api.sendChatMessage(agentKey, userMsg.content, {
+        session: requestSession,
         signal: controller.signal,
       });
+      if (conversationGeneration !== conversationGenerationRef.current) return;
       const assistantMsg: ChatMessage = {
         role: "assistant",
         content: response,
@@ -92,6 +122,7 @@ export function ChatTab({ agentKey, agentName }: ChatTabProps) {
       };
       setMessages((prev) => [...prev, assistantMsg]);
     } catch (err) {
+      if (conversationGeneration !== conversationGenerationRef.current) return;
       if (err instanceof DOMException && err.name === "AbortError") {
         // Append stopped marker to partial message — but since we haven't
         // started streaming partials yet (Phase 1), just note it.
@@ -110,12 +141,14 @@ export function ChatTab({ agentKey, agentName }: ChatTabProps) {
         setMessages((prev) => [...prev, errorMsg]);
       }
     } finally {
-      setSending(false);
-      sendingRef.current = false;
-      abortRef.current = null;
-      focusTextarea();
+      if (conversationGeneration === conversationGenerationRef.current) {
+        setSending(false);
+        sendingRef.current = false;
+        abortRef.current = null;
+        focusTextarea();
+      }
     }
-  }, [input, agentKey, focusTextarea]);
+  }, [input, agentKey, sessionKey, focusTextarea]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -198,6 +231,14 @@ export function ChatTab({ agentKey, agentName }: ChatTabProps) {
             rows={1}
             className="flex-1 rounded-lg border border-default px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary resize-none overflow-y-auto max-h-[182px] min-h-[24px]"
           />
+          <Button
+            variant="secondary"
+            size="md"
+            onClick={handleReset}
+            type="button"
+          >
+            New chat
+          </Button>
           {sending ? (
             <Button
               variant="danger"

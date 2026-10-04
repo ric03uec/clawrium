@@ -12,6 +12,8 @@ import logging
 import re
 import shutil
 import shlex
+import time
+from dataclasses import dataclass
 
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
@@ -19,6 +21,7 @@ from typing import Literal
 
 from pydantic import BaseModel
 
+from clawrium.core.chat_claude import ClaudeCodeChatBackend
 from clawrium.core.keys import get_host_private_key
 from clawrium.gui.routes._common import resolve_agent as _resolve_agent
 from clawrium.core.memory import (
@@ -80,6 +83,82 @@ from clawrium.core.skills_state import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/agents", tags=["agents"])
+
+# A Claude Code process is created for every turn, but its upstream UUID has
+# to survive the browser's separate POSTs. Keep one shared backend per
+# browser-created conversation, never per agent alone: interleaved browser
+# conversations must not reset each other's upstream history.
+_CLAUDE_BROWSER_SESSION_TTL_SECONDS = 30 * 60
+_CLAUDE_BROWSER_SESSION_MAX = 128
+_CLAUDE_RESPONSE_TIMEOUT_SECONDS = 120.0
+_CLAUDE_SESSION_KEY_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
+_CLAUDE_MAX_PROMPT_CHARS = 100_000
+
+
+@dataclass
+class _ClaudeBrowserSession:
+    backend: ClaudeCodeChatBackend
+    lock: asyncio.Lock
+    last_used: float
+
+
+_CLAUDE_BROWSER_SESSIONS: dict[tuple[str, str], _ClaudeBrowserSession] = {}
+
+
+def _get_claude_browser_session(
+    *,
+    agent_key: str,
+    session_key: str,
+    hostname: str,
+    agent_name: str,
+) -> _ClaudeBrowserSession:
+    """Return the bounded, in-memory backend for one browser conversation.
+
+    The backend deliberately owns only the UUID that Claude Code needs for
+    ``--resume``. Credentials stay in the remote agent-owned artifacts and
+    prompts never enter this cache or its keys.
+    """
+    now = time.monotonic()
+    cache_key = (agent_key, session_key)
+    cached = _CLAUDE_BROWSER_SESSIONS.get(cache_key)
+    if cached is not None:
+        cached.last_used = now
+        return cached
+
+    # Idle entries have no live remote connection: every completed, failed, or
+    # cancelled turn closes its backend below. Do not evict a conversation that
+    # currently owns its per-session lock.
+    for key, value in tuple(_CLAUDE_BROWSER_SESSIONS.items()):
+        if (
+            not value.lock.locked()
+            and now - value.last_used > _CLAUDE_BROWSER_SESSION_TTL_SECONDS
+        ):
+            _CLAUDE_BROWSER_SESSIONS.pop(key, None)
+
+    while len(_CLAUDE_BROWSER_SESSIONS) >= _CLAUDE_BROWSER_SESSION_MAX:
+        evictable = [
+            (value.last_used, key)
+            for key, value in _CLAUDE_BROWSER_SESSIONS.items()
+            if not value.lock.locked()
+        ]
+        if not evictable:
+            # Temporarily exceed the soft bound rather than replacing an
+            # active conversation and corrupting its Claude resume state.
+            break
+        _, oldest_key = min(evictable)
+        _CLAUDE_BROWSER_SESSIONS.pop(oldest_key, None)
+
+    session = _ClaudeBrowserSession(
+        backend=ClaudeCodeChatBackend(
+            hostname=hostname,
+            agent_name=agent_name,
+            timeout_seconds=_CLAUDE_RESPONSE_TIMEOUT_SECONDS,
+        ),
+        lock=asyncio.Lock(),
+        last_used=now,
+    )
+    _CLAUDE_BROWSER_SESSIONS[cache_key] = session
+    return session
 
 
 # --- Memory endpoints ---
@@ -189,6 +268,9 @@ async def chat_send(agent_key: str, body: ChatRequest):
         raise HTTPException(status_code=404, detail=f"Agent '{agent_key}' not found")
 
     host_record, agent_type, agent_record = resolved
+    install_status = agent_record.get("status")
+    if install_status is not None and install_status != "installed":
+        raise HTTPException(status_code=409, detail="Agent is not installed")
 
     # Determine chat type from manifest
     try:
@@ -211,10 +293,11 @@ async def chat_send(agent_key: str, body: ChatRequest):
         return await _chat_hermes(
             host_record, agent_type, agent_record, agent_key, body
         )
-    elif chat_type == "websocket":
+    if chat_type == "websocket":
         return await _chat_openclaw(host_record, agent_type, agent_record, body)
-    else:
-        raise HTTPException(status_code=400, detail=f"Unknown chat type: {chat_type}")
+    if chat_type == "claude":
+        return await _chat_claude(host_record, agent_record, agent_key, body)
+    raise HTTPException(status_code=400, detail=f"Unknown chat type: {chat_type}")
 
 
 @router.get("/{agent_key}/chat/info")
@@ -995,6 +1078,88 @@ async def _chat_hermes(
             )
         finally:
             await backend.close()
+
+    return StreamingResponse(generate(), media_type="text/event-stream")
+
+
+async def _chat_claude(
+    host_record: dict,
+    agent_record: dict,
+    agent_key: str,
+    body: ChatRequest,
+):
+    """Run one finite Claude Code turn through the shared CLI backend.
+
+    Each browser conversation supplies an opaque session key. The GUI keeps
+    that key stable until its New chat action, while this route retains the
+    corresponding backend UUID long enough for Claude's ``--resume`` path.
+    No credential, prompt, stderr, or remote diagnostic is included in SSE
+    errors or server logs.
+    """
+    if not body.message.strip():
+        raise HTTPException(status_code=422, detail="Chat message must not be blank")
+    if len(body.message) > _CLAUDE_MAX_PROMPT_CHARS:
+        raise HTTPException(status_code=422, detail="Chat message is too long")
+    if not _CLAUDE_SESSION_KEY_RE.fullmatch(body.session):
+        raise HTTPException(status_code=422, detail="Invalid chat session")
+
+    hostname = host_record.get("hostname")
+    agent_name = agent_record.get("agent_name") or agent_record.get("name") or agent_key
+    if not isinstance(hostname, str) or not hostname.strip():
+        raise HTTPException(status_code=500, detail=_CHAT_GENERIC_ERROR)
+    if not isinstance(agent_name, str) or not agent_name.strip():
+        raise HTTPException(status_code=500, detail=_CHAT_GENERIC_ERROR)
+
+    session = _get_claude_browser_session(
+        agent_key=agent_key,
+        session_key=body.session,
+        hostname=hostname,
+        agent_name=agent_name,
+    )
+
+    async def generate():
+        try:
+            # A malicious or stale browser client must not interleave two
+            # turns for the same Claude UUID. Different browser sessions get
+            # separate locks and separate backends.
+            async with session.lock:
+                try:
+                    await session.backend.connect()
+                    response_text = await session.backend.send_message(
+                        message=body.message,
+                        session_key=body.session,
+                        response_timeout_seconds=_CLAUDE_RESPONSE_TIMEOUT_SECONDS,
+                    )
+                    events = [
+                        "data: "
+                        + json.dumps({"type": "content", "text": response_text})
+                        + "\n\n",
+                        "data: [DONE]\n\n",
+                    ]
+                except asyncio.CancelledError:
+                    # The shared backend signals its runner, waits for prompt
+                    # artifacts to be removed, then re-raises cancellation.
+                    raise
+                except Exception:
+                    # Do not log exception details here: backend failures may
+                    # carry SSH/Ansible context and must not expose prompts,
+                    # credentials, or remote stderr through GUI logs or SSE.
+                    events = [
+                        "data: "
+                        + json.dumps(
+                            {"type": "error", "message": _CHAT_GENERIC_ERROR}
+                        )
+                        + "\n\n",
+                        "data: [DONE]\n\n",
+                    ]
+                finally:
+                    session.last_used = time.monotonic()
+                    await session.backend.close()
+
+                for event in events:
+                    yield event
+        except asyncio.CancelledError:
+            raise
 
     return StreamingResponse(generate(), media_type="text/event-stream")
 

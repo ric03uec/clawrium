@@ -1,9 +1,18 @@
 import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import type { AgentDetail, AgentDetailHealth, AgentStatus } from "@/lib/types";
+import type {
+  AgentDetail,
+  AgentDetailHealth,
+  AgentStatus,
+  WebUIResponse,
+} from "@/lib/types";
 
-const webUIState = { data: undefined, isLoading: false, isError: false };
+const webUIState: {
+  data: WebUIResponse | undefined;
+  isLoading: boolean;
+  isError: boolean;
+} = { data: undefined, isLoading: false, isError: false };
 const noopMutation = { mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false };
 
 vi.mock("@/hooks", () => ({
@@ -78,6 +87,27 @@ describe("AgentHeader — chrome", () => {
     render(<AgentHeader agent={makeAgent()} health={undefined} />);
     expect(screen.getByText("demo")).toBeTruthy();
     expect(screen.getByText(/hermes v2026\.4\.2/)).toBeTruthy();
+  });
+
+  it("hides Open Agent UI when the Claude manifest has no native UI", () => {
+    webUIState.data = {
+      available: false,
+      local_url: null,
+      reason: "Agent type 'claude' does not expose a native web UI.",
+    };
+    try {
+      render(
+        <AgentHeader
+          agent={makeAgent({ agent_type: "claude" })}
+          health={undefined}
+        />,
+      );
+      expect(
+        screen.queryByRole("button", { name: /Open Agent UI/i }),
+      ).not.toBeInTheDocument();
+    } finally {
+      webUIState.data = undefined;
+    }
   });
 });
 
