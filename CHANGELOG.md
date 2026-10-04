@@ -39,7 +39,7 @@ cut. The `itx-release` skill archives this section into a new
 
 ### Added
 
-- Add `claude-oauth` as a selectable provider for Claude Code agents. It securely imports a locally authorized Claude Code token through the supported Linux `claude setup-token` path and activates it on the selected host without requiring a pre-exported token (#1013).
+- Add `claude-oauth` as a selectable provider for Claude Code agents. It securely imports the controller user's locally validated Claude Code OAuth token from Claude Code 2.1.139's private `~/.claude/.credentials.json` artifact through a narrow Linux-only reader and activates it on the selected host without requiring a pre-exported token (#1013, reader updated in #1016).
 - Activate the selected Claude Code OAuth token or Anthropic API key during `clawctl agent configure` and `sync`. Credentials are stored in private agent-owned files and available to finite `clawctl agent shell` commands without appearing in settings, diffs, or output (#998).
 - Add bounded global Claude Code settings management for the dedicated agent account. `clawctl agent configure` and `sync` now render only `~/.claude/settings.json` with the approved model, effort, and permission settings — never credentials, project settings, or a daemon restart (#997).
 - Add no-daemon lifecycle handling for the install-only `claude` agent type: lifecycle and log commands report as not applicable, while fleet views show the installed CLI as ready without probing a process, gateway, or port (#996).
@@ -100,6 +100,7 @@ cut. The `itx-release` skill archives this section into a new
 
 ### Documentation
 
+- Correct the Claude Code OAuth documentation after the local reader was changed from the `claude setup-token` subprocess to a narrow reader of Claude Code 2.1.139's private `~/.claude/.credentials.json` artifact (`claudeAiOauth.accessToken` only, mode-0600 current-user-owned, ≤64 KiB, secret-free failure categories): update `docs/agent-support/claude.md` + its website mirror, the README's Claude Code authentication answers, and the `claude-oauth` row in the provider registry reference; the `i-wolf E2E evidence` section now reflects the PASSing real-OAuth E2E (#1016).
 - Document the shipped install-only Claude Code agent contract: isolated install, bounded global settings, safe mutually exclusive credential activation, finite shell commands, unavailable daemon/UI/chat operations, and owned-resource removal (#1001).
 - Correct the ZeroClaw Discord documentation for schema-v3 aliased channel tables, agent bindings, and the registry/attach/sync workflow (#979).
 - Align the ZeroClaw support matrix and rendered `config.toml` examples with schema v3, current v0.8.2 installs, aliased provider/agent/channel tables, and heartbeat binding (#984).

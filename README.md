@@ -28,7 +28,7 @@
 | **Control machine OS** | Ubuntu, macOS | Tested end-to-end |
 | **Target host OS** | Ubuntu, macOS | macOS hosts must enable Remote Login first ([host setup](docs/host-preparation.md)) |
 | **Agent runtimes** | OpenClaw ✅, Hermes ✅, ZeroClaw ✅, Claude Code ✅ | Claude Code is install-only (no daemon, chat, or web UI); IronClaw planned |
-| **Inference providers** | Anthropic, OpenAI, OpenRouter, Ollama | Claude Code accepts an Anthropic API key or explicitly supplied OAuth token |
+| **Inference providers** | Anthropic, OpenAI, OpenRouter, Ollama | Claude Code accepts an Anthropic API key or a locally imported Claude OAuth token |
 | **Messaging channels** | Discord, Slack | OpenClaw only |
 | **Container runtime** | None required | No Docker, no Kubernetes — SSH + Ansible |
 
@@ -208,9 +208,9 @@ Additional agent types are planned.
 ### 3. Is Claude Code authentication supported?
 
 Claude Code uses exactly one per-agent credential mode: an Anthropic API key
-or an OAuth token supplied from an explicitly exported supported local source.
-Clawrium does not read keychains, browser profiles, databases, or local
-`~/.claude` directories to find OAuth credentials. See [Claude Code
+or a Claude OAuth token imported from the controller's local Claude Code
+credential state. Clawrium does not read keychains, browser profiles, or
+databases to find OAuth credentials. See [Claude Code
 Support](docs/agent-support/claude.md#credentials-and-safe-sync).
 
 ### 4. Which channels are supported?
