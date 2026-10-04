@@ -1,0 +1,187 @@
+{
+  "atx_review": {
+    "version": "3",
+    "status": "reviewed",
+    "blocking": true,
+    "revision_id": "dfc2bb69-8904-479b-9f21-f0f64e226abf",
+    "review_id": "rev-69f069ac-106a-4378-9d05-249d4a99a05a",
+    "review_title": "Review full branch diff against main",
+    "summary": "{\"response_type\":\"text\",\"content\":\"\u003coutput\u003e\\n{\\\"rating\\\":2,\\\"summary\\\":\\\"The branch adds Herdr installation support and corrects Hermes health verification to use its API-server listener. The lifecycl...",
+    "rating": 2.5,
+    "agents": [
+      "leader",
+      "cli-ux",
+      "gui-routes",
+      "render-engine",
+      "lifecycle-core",
+      "security-reviewer",
+      "platform-playbooks",
+      "test-coverage"
+    ],
+    "agent_contributions": [
+      {
+        "name": "leader",
+        "status": "completed",
+        "cost_usd": 0.08533,
+        "delegated_to": [
+          "e5323802-3973-44c7-a934-53da9bea7eae",
+          "49fbebd6-8745-4b35-81b4-0bb0bf680f37",
+          "2b6bb653-42cd-4aa5-aac5-6edc8b274fd0",
+          "d79463ac-884b-4e03-b34f-fb6017c83027",
+          "e8462619-249e-41f6-8cb0-a7169ae20d74",
+          "2f559a42-9fca-4be1-a67d-1601b2edbe8b",
+          "96cf24db-1fca-48da-8f6f-2d799acb293a"
+        ]
+      },
+      {
+        "name": "cli-ux",
+        "status": "skipped"
+      },
+      {
+        "name": "gui-routes",
+        "status": "skipped"
+      },
+      {
+        "name": "render-engine",
+        "status": "skipped"
+      },
+      {
+        "name": "lifecycle-core",
+        "status": "completed",
+        "rating": 5,
+        "cost_usd": 0.037511600000000006
+      },
+      {
+        "name": "security-reviewer",
+        "status": "completed",
+        "rating": 1,
+        "cost_usd": 0.012015999999999999
+      },
+      {
+        "name": "platform-playbooks",
+        "status": "completed",
+        "rating": 2,
+        "cost_usd": 0.160178
+      },
+      {
+        "name": "test-coverage",
+        "status": "completed",
+        "rating": 3,
+        "cost_usd": 0.319734
+      }
+    ],
+    "models": [
+      "gpt-5.6-terra",
+      "gpt-5.6-luna",
+      "gpt-5.6-sol"
+    ],
+    "review_cost_usd": 0.6147696,
+    "duration_ms": 121617,
+    "findings": {
+      "parse_coverage": "complete",
+      "blocking": [
+        {
+          "severity": "blocking",
+          "location": "src/clawrium/platform/playbooks/herdr.yaml:14-20",
+          "issue": "The Linux Herdr playbook contains a Darwin OS-family conditional even though OS routing is already handled by the resolver. This violates the required dispatcher-only OS fork model.",
+          "suggestion": "Remove the Darwin guard from herdr.yaml. Route Darwin exclusively through resolve_herdr_playbook() to herdr_macos.yaml, keeping each sibling playbook platform-specific.",
+          "source_agent": "leader"
+        },
+        {
+          "severity": "blocking",
+          "location": "src/clawrium/platform/playbooks/herdr.yaml:14-20",
+          "issue": "The Linux playbook contains `when: ansible_os_family == \"Darwin\"` to reject Darwin hosts. OS selection belongs exclusively in `resolve_herdr_playbook`; putting platform branching in a non-`_macos.yaml` playbook violates the required parallel-playbook dispatch model.",
+          "suggestion": "Remove the Darwin guard from `herdr.yaml` and rely on `resolve_herdr_playbook()` to select `herdr.yaml` for Linux and `herdr_macos.yaml` for Darwin. Keep each sibling playbook platform-specific without OS-family conditionals.",
+          "source_agent": "platform-playbooks"
+        }
+      ],
+      "warnings": [
+        {
+          "severity": "warning",
+          "location": "tests/platform/test_herdr_install.py:174",
+          "issue": "The suite tests resolver FileNotFoundError directly but does not exercise run_installation() translating a missing Herdr playbook into InstallationError.",
+          "suggestion": "Add an installation-level test that makes _get_herdr_playbook_path raise FileNotFoundError, asserts the expected InstallationError, and verifies only the base playbook ran.",
+          "source_agent": "leader"
+        },
+        {
+          "severity": "warning",
+          "location": "tests/platform/test_herdr_install.py:174",
+          "issue": "Tests cover a Herdr Ansible runner failure and directly test that `resolve_herdr_playbook()` can raise `FileNotFoundError`, but do not test the new `run_installation()` branch that catches `_get_herdr_playbook_path()` failures and translates them to `InstallationError` (`src/clawrium/core/install.py:1329-1331`). A refactor could remove the wrapper, continue to the agent playbook, or emit the wrong operational error without failing this suite.",
+          "suggestion": "Add an installation-level test that monkeypatches `install._get_herdr_playbook_path` to raise `FileNotFoundError`, asserts `run_installation(\"hermes\", ...)` raises `InstallationError` matching `Herdr playbook not found`, and asserts only the base playbook ran.",
+          "source_agent": "test-coverage"
+        }
+      ],
+      "suggestions": []
+    },
+    "raw_markdown": "{\"response_type\":\"text\",\"content\":\"\u003coutput\u003e\\n{\\\"rating\\\":2,\\\"summary\\\":\\\"The branch adds Herdr installation support and corrects Hermes health verification to use its API-server listener. The lifecycle-focused review found the health-port change sound, but platform review identified a required dispatcher-model violation; test coverage also misses an installation-level error path. Security review could not inspect the repository in its session, so no security conclusion is available.\\\",\\\"findings\\\":[{\\\"severity\\\":\\\"blocking\\\",\\\"location\\\":\\\"src/clawrium/platform/playbooks/herdr.yaml:14-20\\\",\\\"issue\\\":\\\"The Linux Herdr playbook contains a Darwin OS-family conditional even though OS routing is already handled by the resolver. This violates the required dispatcher-only OS fork model.\\\",\\\"suggestion\\\":\\\"Remove the Darwin guard from herdr.yaml. Route Darwin exclusively through resolve_herdr_playbook() to herdr_macos.yaml, keeping each sibling playbook platform-specific.\\\"},{\\\"severity\\\":\\\"warning\\\",\\\"location\\\":\\\"tests/platform/test_herdr_install.py:174\\\",\\\"issue\\\":\\\"The suite tests resolver FileNotFoundError directly but does not exercise run_installation() translating a missing Herdr playbook into InstallationError.\\\",\\\"suggestion\\\":\\\"Add an installation-level test that makes _get_herdr_playbook_path raise FileNotFoundError, asserts the expected InstallationError, and verifies only the base playbook ran.\\\"}],\\\"recommendations\\\":[\\\"Resolve the dispatcher-only OS branching violation before merge.\\\",\\\"Add regression coverage for the installation-level missing-playbook error translation.\\\",\\\"Repeat the security review with repository access before relying on a security assessment.\\\"],\\\"metadata\\\":{\\\"files_reviewed\\\":12,\\\"domain\\\":\\\"lifecycle, platform playbooks, test coverage\\\"}}\\n\u003c/output\u003e\"}",
+    "pr_body": "\u003c!-- atx:pr-review-summary v3 --\u003e\n## ATX Review Summary\n\n**Current Revision Rating: 2.5/5** | **Cost: $0.61** | **Time: 2m 1s**\n**Agents: leader, cli-ux, gui-routes, render-engine, lifecycle-core, security-reviewer, platform-playbooks, test-coverage** | **Finding Parse Coverage: complete**\n\n## Blocking Issues\n\n| # | Source | Location | Issue | Suggested Fix |\n|---|--------|----------|-------|---------------|\n| B1 | leader | src/clawrium/platform/playbooks/herdr.yaml:14-20 | The Linux Herdr playbook contains a Darwin OS-family conditional even though OS routing is already handled by the resolver. This violates the required dispatcher-only OS fork model. | Remove the Darwin guard from herdr.yaml. Route Darwin exclusively through resolve_herdr_playbook() to herdr_macos.yaml, keeping each sibling playbook platform-specific. |\n| B2 | platform-playbooks | src/clawrium/platform/playbooks/herdr.yaml:14-20 | The Linux playbook contains \\`when: ansible_os_family == \"Darwin\"\\` to reject Darwin hosts. OS selection belongs exclusively in \\`resolve_herdr_playbook\\`; putting platform branching in a non-\\`_macos.yaml\\` playbook violates the required parallel-playbook dispatch model. | Remove the Darwin guard from \\`herdr.yaml\\` and rely on \\`resolve_herdr_playbook()\\` to select \\`herdr.yaml\\` for Linux and \\`herdr_macos.yaml\\` for Darwin. Keep each sibling playbook platform-specific without OS-family conditionals. |\n\n## Warnings\n\n| # | Source | Location | Issue | Suggested Fix |\n|---|--------|----------|-------|---------------|\n| W1 | leader | tests/platform/test_herdr_install.py:174 | The suite tests resolver FileNotFoundError directly but does not exercise run_installation() translating a missing Herdr playbook into InstallationError. | Add an installation-level test that makes _get_herdr_playbook_path raise FileNotFoundError, asserts the expected InstallationError, and verifies only the base playbook ran. |\n| W2 | test-coverage | tests/platform/test_herdr_install.py:174 | Tests cover a Herdr Ansible runner failure and directly test that \\`resolve_herdr_playbook()\\` can raise \\`FileNotFoundError\\`, but do not test the new \\`run_installation()\\` branch that catches \\`_get_herdr_playbook_path()\\` failures and translates them to \\`InstallationError\\` (\\`src/clawrium/core/install.py:1329-1331\\`). A refactor could remove the wrapper, continue to the agent playbook, or emit the wrong operational error without failing this suite. | Add an installation-level test that monkeypatches \\`install._get_herdr_playbook_path\\` to raise \\`FileNotFoundError\\`, asserts \\`run_installation(\"hermes\", ...)\\` raises \\`InstallationError\\` matching \\`Herdr playbook not found\\`, and asserts only the base playbook ran. |\n\n## Suggestions\n\n| # | Source | Location | Issue | Suggested Fix |\n|---|--------|----------|-------|---------------|\n| - | - | - | None | - |\n\nCo-Authored-By: @atx-ci \u003c269048218+atx-ci@users.noreply.github.com\u003e\n",
+    "pr_body_template": {
+      "name": "pr-review-summary",
+      "version": "3"
+    },
+    "review_render_status": "rendered",
+    "rendered_review_markdown": "# ATX Review\n\n**Rating: 2/5** | **Agents: lifecycle-core, platform-playbooks, security-reviewer, test-coverage, cli-ux, gui-routes, render-engine**\n\n## Summary\n\nThe branch adds Herdr installation support and corrects Hermes health verification to use its API-server listener. The lifecycle-focused review found the health-port change sound, but platform review identified a required dispatcher-model violation; test coverage also misses an installation-level error path. Security review could not inspect the repository in its session, so no security conclusion is available.\n\n## Blocking Issues\n\n| # | Source | Category | Location | Issue | Suggested Fix |\n|---|--------|----------|----------|-------|---------------|\n| B1 | - | - | src/clawrium/platform/playbooks/herdr.yaml:14-20 | The Linux Herdr playbook contains a Darwin OS-family conditional even though OS routing is already handled by the resolver. This violates the required dispatcher-only OS fork model. | Remove the Darwin guard from herdr.yaml. Route Darwin exclusively through resolve_herdr_playbook() to herdr_macos.yaml, keeping each sibling playbook platform-specific. |\n\n## Warnings\n\n| # | Source | Category | Location | Issue | Suggested Fix |\n|---|--------|----------|----------|-------|---------------|\n| W1 | - | - | tests/platform/test_herdr_install.py:174 | The suite tests resolver FileNotFoundError directly but does not exercise run_installation() translating a missing Herdr playbook into InstallationError. | Add an installation-level test that makes _get_herdr_playbook_path raise FileNotFoundError, asserts the expected InstallationError, and verifies only the base playbook ran. |\n\n## Suggestions\n\n| # | Source | Category | Location | Issue | Suggested Fix |\n|---|--------|----------|----------|-------|---------------|\n| - | - | - | - | None | - |\n\n## Recommendations\n\n- Resolve the dispatcher-only OS branching violation before merge.\n- Add regression coverage for the installation-level missing-playbook error translation.\n- Repeat the security review with repository access before relying on a security assessment.\n\n## Agent Status\n\n| Agent | Status | Reason |\n|-------|--------|--------|\n| lifecycle-core | completed | - |\n| platform-playbooks | completed | - |\n| security-reviewer | completed | - |\n| test-coverage | completed | - |\n| cli-ux | skipped | skipped:budget-prioritized-core-security-platform |\n| gui-routes | skipped | skipped:budget-prioritized-core-security-platform |\n| render-engine | skipped | skipped:budget-prioritized-core-security-platform |\n",
+    "normalized_review": {
+      "rating": 2,
+      "summary": "The branch adds Herdr installation support and corrects Hermes health verification to use its API-server listener. The lifecycle-focused review found the health-port change sound, but platform review identified a required dispatcher-model violation; test coverage also misses an installation-level error path. Security review could not inspect the repository in its session, so no security conclusion is available.",
+      "findings": [
+        {
+          "severity": "blocking",
+          "location": "src/clawrium/platform/playbooks/herdr.yaml:14-20",
+          "issue": "The Linux Herdr playbook contains a Darwin OS-family conditional even though OS routing is already handled by the resolver. This violates the required dispatcher-only OS fork model.",
+          "suggestion": "Remove the Darwin guard from herdr.yaml. Route Darwin exclusively through resolve_herdr_playbook() to herdr_macos.yaml, keeping each sibling playbook platform-specific."
+        },
+        {
+          "severity": "warning",
+          "location": "tests/platform/test_herdr_install.py:174",
+          "issue": "The suite tests resolver FileNotFoundError directly but does not exercise run_installation() translating a missing Herdr playbook into InstallationError.",
+          "suggestion": "Add an installation-level test that makes _get_herdr_playbook_path raise FileNotFoundError, asserts the expected InstallationError, and verifies only the base playbook ran."
+        }
+      ],
+      "recommendations": [
+        "Resolve the dispatcher-only OS branching violation before merge.",
+        "Add regression coverage for the installation-level missing-playbook error translation.",
+        "Repeat the security review with repository access before relying on a security assessment."
+      ],
+      "agents": [
+        {
+          "name": "lifecycle-core",
+          "status": "completed"
+        },
+        {
+          "name": "platform-playbooks",
+          "status": "completed"
+        },
+        {
+          "name": "security-reviewer",
+          "status": "completed"
+        },
+        {
+          "name": "test-coverage",
+          "status": "completed"
+        },
+        {
+          "name": "cli-ux",
+          "status": "skipped",
+          "reason": "skipped:budget-prioritized-core-security-platform"
+        },
+        {
+          "name": "gui-routes",
+          "status": "skipped",
+          "reason": "skipped:budget-prioritized-core-security-platform"
+        },
+        {
+          "name": "render-engine",
+          "status": "skipped",
+          "reason": "skipped:budget-prioritized-core-security-platform"
+        }
+      ]
+    }
+  },
+  "caller_instructions": {
+    "render_first": "Branch only on `atx_review.review_render_status`: render `atx_review.rendered_review_markdown` verbatim to the user for `rendered` or `legacy`; surface `atx_review.review_render_error_code` and `atx_review.review_render_error_message` for `error`; show no review for `absent`. Never render `atx_review.raw_markdown` — it is retained strictly for trace/debug and may contain unrendered model formatting (#889).",
+    "validate_before_acting": "For each finding, open the referenced file/line and confirm the issue exists in the current code. ATX reviews can hallucinate file paths, line numbers, or behavior. Treat every finding as a hypothesis, not a fact.",
+    "apply_selectively": "Act only on findings you were able to independently verify. Silently skip findings that don't reproduce against current code — do not surface them as work items, do not ask the user about each one, and do not retry the review to 'confirm'. When uncertain whether a finding reproduces, prefer skipping over surfacing it as a task.",
+    "pr_summary_template": "If `atx_review.pr_body` is present, append it verbatim to the PR body. Do not fetch a template, reconstruct the body, or infer review history. When it is absent, no completed review body is available."
+  }
+}
