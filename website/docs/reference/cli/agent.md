@@ -90,16 +90,19 @@ when invoked.
 `clawctl agent configure <name>` and `clawctl agent sync <name>` manage only
 the dedicated account's bounded global `~/.claude/settings.json` and selected
 credential environment; project `.claude/settings.json` and
-`.claude/settings.local.json` are untouched. Use a finite command with:
+`.claude/settings.local.json` are untouched. Run a finite native Claude command with structured arguments:
 
 ```bash
-clawctl agent shell <name> -- 'claude --version'
+clawctl agent exec <name> -- --version
 ```
 
-There is no interactive shell or PTY. `agent chat` is supported as a finite,
-on-demand Claude CLI process; `agent exec`, `agent open`, `start`, `stop`,
-`restart`, and `logs` are not Claude Code operations. Use the `agent shell`
-path for another terminating native command. See [Claude Code
+There is no interactive shell or PTY. `agent exec` runs the dedicated agent's
+pinned Claude binary with a 120-second runtime bound, returning stdout, stderr,
+and its exit code; user arguments are not shell-interpolated and selected
+credentials are redacted from returned output. `agent chat` is supported as a
+finite, on-demand Claude CLI process. `agent open`, `start`, `stop`, `restart`,
+and `logs` are not Claude Code operations. Use `agent shell` only for another
+terminating shell expression that needs pipes or redirects. See [Claude Code
 Support](../../agent-support/claude.md) for credential safety, chat behavior,
 and removal ownership.
 

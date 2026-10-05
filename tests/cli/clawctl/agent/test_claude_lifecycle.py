@@ -53,16 +53,18 @@ def test_claude_open_remains_manifest_capability_unavailable(fleet_dir) -> None:
     assert "no web ui" in result.output.lower()
 
 
-def test_claude_help_and_exec_error_point_to_the_supported_shell_path(
+def test_claude_help_and_exec_use_the_native_dedicated_binary(
     fleet_dir, monkeypatch
 ) -> None:
     _add_claude_agent(fleet_dir)
+    calls: list[dict] = []
 
-    def _unexpected_native_exec(*_args, **_kwargs):
-        raise AssertionError("Claude Code must not reach native exec")
+    def _native_exec(**kwargs):
+        calls.append(kwargs)
+        return "2.1.100\n", "", 0
 
     monkeypatch.setattr(
-        "clawrium.cli.clawctl.agent.exec.run_agent_exec", _unexpected_native_exec
+        "clawrium.cli.clawctl.agent.exec.run_agent_exec", _native_exec
     )
 
     help_result = runner.invoke(app, ["agent", "--help"])
@@ -93,16 +95,23 @@ def test_claude_help_and_exec_error_point_to_the_supported_shell_path(
         in " ".join(create_help_result.output.split())
     )
     assert (
-        "Execute a native CLI command; unavailable for Claude Code (use `agent shell`)."
+        "Execute a native CLI command on the agent host."
         in " ".join(exec_help_result.output.split())
     )
     assert (
-        "For daemonless Claude Code agents, this is the supported native command path."
+        "For daemonless Claude Code agents, structured native arguments use"
         in " ".join(shell_help_result.output.split())
     )
-    assert exec_result.exit_code == 2
-    assert "agent type 'claude' does not support exec" in exec_result.output
-    assert "clawctl agent shell <name> -- '<command that exits>'" in exec_result.output
+    assert exec_result.exit_code == 0, exec_result.output
+    assert exec_result.output == "2.1.100\n"
+    assert calls == [
+        {
+            "hostname": "10.0.0.1",
+            "agent_name": "claude-code",
+            "claw_type": "claude",
+            "cmd_argv": ["--version"],
+        }
+    ]
 
 
 @pytest.mark.parametrize("verb", ["start", "stop", "restart", "logs"])

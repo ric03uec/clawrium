@@ -4,8 +4,9 @@ on the agent's host in a finite, non-interactive login bash shell.
 Differs from `exec`: `exec` invokes an agent's native binary
 (`hermes`, `openclaw`, ...); `shell` runs a supplied command as the
 agent user, so configured shell environment, pipes, redirects, and
-`&&`/`||` work without allocating a terminal. `claude` intentionally
-uses this existing command path rather than adding native-exec support.
+`&&`/`||` work without allocating a terminal. Claude supports native
+`agent exec` for structured Claude arguments; use this shell path when a
+terminating shell expression is specifically needed.
 
 Self-contained — does NOT reuse `agent/exec.py` plumbing. The flow
 talks to `core.agent_shell.run_agent_shell` directly.
@@ -61,7 +62,7 @@ def shell(
         callback=_reject_negative_timeout,
     ),
 ) -> None:
-    """Run a supplied command in the agent user's finite login shell (Claude Code path).
+    """Run a supplied command in the agent user's finite login shell.
 
     The command runs as the agent's unix user via non-interactive
     `bash -lc`. Clawrium explicitly loads the supported login and
@@ -75,10 +76,11 @@ def shell(
     prompt is opened: the supplied command must terminate. Commands
     that prompt for input will hang; terminal-only UIs will not render.
 
-    For daemonless Claude Code agents, this is the supported native
-    command path. It requires an explicit command after `--`, activates
-    the managed per-agent credential hook before that command, and does
-    not start an interactive Claude Code session.
+    For daemonless Claude Code agents, structured native arguments use
+    `clawctl agent exec <name> -- <args...>`. This shell path remains for a
+    terminating shell expression. It requires an explicit command after `--`,
+    activates the managed per-agent credential hook before that command, and
+    does not start an interactive Claude Code session.
 
     Examples:
 

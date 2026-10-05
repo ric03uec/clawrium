@@ -45,7 +45,7 @@ def client() -> TestClient:
     return TestClient(app, base_url="http://localhost:36000")
 
 
-@pytest.mark.parametrize("agent_type", ["hermes", "zeroclaw", "openclaw"])
+@pytest.mark.parametrize("agent_type", ["claude", "hermes", "zeroclaw", "openclaw"])
 def test_exec_unpacks_resolve_agent_tuple(
     isolated_config: Path,
     monkeypatch: pytest.MonkeyPatch,

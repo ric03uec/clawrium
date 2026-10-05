@@ -87,6 +87,11 @@ cut. The `itx-release` skill archives this section into a new
   the dedicated agent user without starting a daemon, gateway, tunnel, or
   native web UI; OAuth and API-key modes reuse the selected private credential
   state (#989).
+- Add bounded native Claude Code execution through `clawctl agent exec <name>
+  -- <args...>`. It runs the dedicated agent-owned binary with structured argv,
+  activates the selected OAuth or API-key state only on the host, redacts the
+  selected credential from returned output, and never starts a daemon or web
+  UI (#989).
 - Add pinned, checksum-verified host-shared Herdr provisioning for Hermes and Claude Code. Hermes receives the native Herdr plugin and canonical config persistence; Claude remains binary-only, while OpenClaw, ZeroClaw, and Ethos are excluded (#1018).
 - Add `claude-oauth` as a selectable provider for Claude Code agents. It securely imports an allowlisted native OAuth document from the supported Linux controller artifact and activates it on the selected host without requiring a pre-exported token (#1013).
 - Activate the selected Claude Code OAuth token or Anthropic API key during `clawctl agent configure` and `sync`. Credentials are stored in private agent-owned files and available to finite `clawctl agent shell` commands without appearing in settings, diffs, or output (#998).
@@ -115,9 +120,10 @@ cut. The `itx-release` skill archives this section into a new
   finite `clawctl agent shell` commands; OAuth native credentials remain
   supported (#989).
 - Formalize `clawctl agent shell <name> -- <command>` as Claude Code's
-  completion-only, non-interactive native command path. The resolved Claude
+  completion-only, non-interactive shell-expression path. The resolved Claude
   record is carried to the shell runner before its private API-key activation
-  artifact is conditionally sourced; no native exec surface is added (#1000).
+  artifact is conditionally sourced; structured native Claude arguments now
+  use `clawctl agent exec <name> -- <args...>` (#1000, #989).
 - **zeroclaw**: manifest pins bumped from v0.8.2 → v0.8.5 across all five shipped arch rows (armv7l Debian 13, aarch64 Ubuntu 22.04/24.04, x86_64 Ubuntu 22.04/24.04). SHA256s sourced from the upstream `SHA256SUMS` for `v0.8.5`. `latest_version` resolves to `0.8.5` for fresh installs and `clawctl agent upgrade` on existing agents (#985).
 - ITX review workflows now select an ATX transport by capability instead of a
   Claude-specific MCP tool name, with stateless CLI and documented manual

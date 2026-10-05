@@ -21,6 +21,8 @@ to the local terminal once the playbook finishes.
 from __future__ import annotations
 
 import base64
+import binascii
+import json
 import logging
 import os
 import re
@@ -33,13 +35,16 @@ import ansible_runner
 
 from clawrium.core import keys as core_keys
 from clawrium.core.config import get_config_dir
+from clawrium.core.names import RESERVED_UNIX_NAMES
 from clawrium.core.playbook_resolver import normalize_os_family, resolve_agent_playbook
 
 logger = logging.getLogger(__name__)
 
 __all__ = ["AgentExecError", "SUPPORTED_CLAW_TYPES", "run_agent_exec"]
 
-SUPPORTED_CLAW_TYPES: frozenset[str] = frozenset({"ethos", "hermes", "zeroclaw", "openclaw"})
+SUPPORTED_CLAW_TYPES: frozenset[str] = frozenset(
+    {"claude", "ethos", "hermes", "zeroclaw", "openclaw"}
+)
 
 _REGISTRY_DIR = Path(__file__).parent.parent / "platform" / "registry"
 
@@ -47,6 +52,9 @@ _REGISTRY_DIR = Path(__file__).parent.parent / "platform" / "registry"
 # subcommands (e.g. an openclaw config dump) but short enough that a
 # hung remote can't pin the local CLI indefinitely.
 _DEFAULT_TIMEOUT = 120
+# Claude's per-OS playbooks enforce this same bound around the native process.
+# Leave time for their final redacted result event to get back to ansible-runner.
+_CLAUDE_RUNNER_GRACE_SECONDS = 30
 
 # Same shape playbooks enforce server-side; the Python-side check is
 # defense-in-depth so non-CLI callers (or a future playbook edit that
@@ -62,6 +70,72 @@ _LOG_DIR_SAFE_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
 
 class AgentExecError(Exception):
     """Raised for caller-recoverable errors before invoking ansible_runner."""
+
+
+def _effective_timeout(timeout: object) -> int:
+    """Clamp every exec caller to the documented finite command window."""
+    try:
+        requested = int(timeout)
+    except (TypeError, ValueError):
+        return _DEFAULT_TIMEOUT
+    if requested <= 0:
+        return _DEFAULT_TIMEOUT
+    return min(requested, _DEFAULT_TIMEOUT)
+
+
+def _claude_secret_values(agent_name: str) -> tuple[str, ...]:
+    """Return locally stored Claude secret values solely for output redaction.
+
+    Native exec deliberately activates credentials only on the host.  This
+    narrow, best-effort read is never sent remotely or logged; it prevents a
+    misbehaving Claude subcommand from reflecting a selected API key or fields
+    from its native OAuth document back to the operator's terminal.
+    """
+    try:
+        from clawrium.core.claude_credentials import get_active_claude_credential
+
+        _, credential = get_active_claude_credential(agent_name)
+    except Exception:
+        # Version and other unauthenticated commands remain useful before a
+        # credential is configured, and failure to load a redaction value must
+        # not change their native exit semantics.
+        return ()
+
+    values = {credential}
+    try:
+        document = json.loads(credential)
+    except (TypeError, json.JSONDecodeError):
+        document = None
+
+    def collect(value: object, key: str | None = None) -> None:
+        if isinstance(value, dict):
+            for child_key, child_value in value.items():
+                collect(child_value, child_key)
+        elif isinstance(value, list):
+            for child_value in value:
+                collect(child_value, key)
+        elif isinstance(value, str) and key in {
+            "accessToken",
+            "refreshToken",
+            "trustedDeviceToken",
+        }:
+            values.add(value)
+
+    collect(document)
+    # A three-character value is not a plausible Claude credential and would
+    # over-redact ordinary version/help text. Valid API/OAuth values are much
+    # longer; preserve output usability while still failing safe for secrets.
+    return tuple(sorted((value for value in values if len(value) >= 4), key=len, reverse=True))
+
+
+def _redact_claude_command_output(
+    stdout: str, stderr: str, agent_name: str
+) -> tuple[str, str]:
+    """Remove the selected Claude credential from returned native output."""
+    for secret in _claude_secret_values(agent_name):
+        stdout = stdout.replace(secret, "[REDACTED]")
+        stderr = stderr.replace(secret, "[REDACTED]")
+    return stdout, stderr
 
 
 def _playbook_path(claw_type: str, os_family: str = "linux") -> Path:
@@ -115,19 +189,50 @@ def _parse_events(result) -> tuple[str, str, int | None]:
         msg = event.get("event_data", {}).get("res", {}).get("msg")
         if not isinstance(msg, str):
             continue
-        if msg.startswith("EXEC_STDOUT="):
+        if msg.startswith("CLAUDE_EXEC_RESULT="):
+            # Claude playbooks redact on the agent host before their only
+            # result event is persisted. Its payload is a base64 JSON object,
+            # distinct from the legacy three-event EXEC_* transport.
+            try:
+                payload = json.loads(
+                    base64.b64decode(
+                        msg[len("CLAUDE_EXEC_RESULT=") :], validate=True
+                    ).decode("utf-8", errors="replace")
+                )
+                if not isinstance(payload, dict):
+                    raise ValueError("Claude exec result must be an object")
+                stdout_value = payload.get("stdout", "")
+                stderr_value = payload.get("stderr", "")
+                rc_value = payload.get("rc")
+                if not isinstance(stdout_value, str) or not isinstance(stderr_value, str):
+                    raise ValueError("Claude exec result output must be text")
+                if isinstance(rc_value, bool) or not isinstance(rc_value, int):
+                    raise ValueError("Claude exec result rc must be an integer")
+                stdout = stdout_value
+                stderr = stderr_value
+                rc = rc_value
+            except (
+                ValueError,
+                TypeError,
+                binascii.Error,
+                json.JSONDecodeError,
+            ):
+                stdout = ""
+                stderr = ""
+                rc = None
+        elif msg.startswith("EXEC_STDOUT="):
             try:
                 stdout = base64.b64decode(msg[len("EXEC_STDOUT=") :]).decode(
                     "utf-8", errors="replace"
                 )
-            except (ValueError, TypeError):
+            except (ValueError, TypeError, binascii.Error):
                 stdout = ""
         elif msg.startswith("EXEC_STDERR="):
             try:
                 stderr = base64.b64decode(msg[len("EXEC_STDERR=") :]).decode(
                     "utf-8", errors="replace"
                 )
-            except (ValueError, TypeError):
+            except (ValueError, TypeError, binascii.Error):
                 stderr = ""
         elif msg.startswith("EXEC_RC="):
             try:
@@ -170,10 +275,25 @@ def run_agent_exec(
             f"agent type '{claw_type}' does not support exec "
             f"(supported: {', '.join(sorted(SUPPORTED_CLAW_TYPES))})"
         )
-    if not isinstance(cmd_argv, list) or not cmd_argv:
-        raise AgentExecError("cmd_argv must be a non-empty list")
-    if not _AGENT_NAME_RE.match(agent_name):
+    if (
+        not isinstance(cmd_argv, list)
+        or not cmd_argv
+        or any(
+            not isinstance(item, str) or not item or "\x00" in item
+            for item in cmd_argv
+        )
+    ):
+        raise AgentExecError(
+            "cmd_argv must be a non-empty list of non-empty strings without NUL bytes"
+        )
+    if not _AGENT_NAME_RE.fullmatch(agent_name):
         raise AgentExecError(f"invalid agent_name: {agent_name!r}")
+    if agent_name in RESERVED_UNIX_NAMES:
+        raise AgentExecError(
+            f"refusing to run exec as reserved system user: {agent_name!r}"
+        )
+
+    effective_timeout = _effective_timeout(timeout)
 
     from clawrium.core.hosts import get_host
 
@@ -201,6 +321,11 @@ def run_agent_exec(
         )
 
     extra_vars = {"agent_name": agent_name, "cmd_argv": cmd_argv}
+    if claw_type == "claude":
+        # The remote wrapper owns the canonical kill path. Never pass
+        # credential contents: OAuth is native file state and API-key mode is
+        # sourced only from the private agent-home artifact on the host.
+        extra_vars["claude_exec_timeout"] = effective_timeout
 
     try:
         inventory = _build_inventory(host, ssh_key, extra_vars)
@@ -238,20 +363,31 @@ def run_agent_exec(
             inventory=inventory,
             playbook=str(playbook),
             quiet=True,
-            timeout=timeout,
+            timeout=(
+                effective_timeout + _CLAUDE_RUNNER_GRACE_SECONDS
+                if claw_type == "claude"
+                else effective_timeout
+            ),
         )
     except Exception as e:
         _cleanup_artifacts(log_dir)
-        return "", f"ansible-runner error: {e}", 255
+        stderr = f"ansible-runner error: {e}"
+        if claw_type == "claude":
+            _, stderr = _redact_claude_command_output("", stderr, agent_name)
+        return "", stderr, 255
 
     try:
         if result.status == "timeout":
-            return "", f"remote command timed out after {timeout}s", 255
+            return "", f"remote command timed out after {effective_timeout}s", 255
         if result.status != "successful":
             err = _extract_failure_message(result, f"playbook {result.status}")
+            if claw_type == "claude":
+                _, err = _redact_claude_command_output("", err, agent_name)
             return "", err, 255
 
         stdout, stderr, rc = _parse_events(result)
+        if claw_type == "claude":
+            stdout, stderr = _redact_claude_command_output(stdout, stderr, agent_name)
         if rc is None:
             return (
                 stdout,
