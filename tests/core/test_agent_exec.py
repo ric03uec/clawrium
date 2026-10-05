@@ -169,7 +169,7 @@ def test_invalid_agent_name_raises(patched_env):
         agent_exec.run_agent_exec("10.0.0.1", "Bad Name!", "openclaw", ["x"])
 
 
-@pytest.mark.parametrize("claw_type", ["hermes", "zeroclaw"])
+@pytest.mark.parametrize("claw_type", ["claude", "hermes", "zeroclaw"])
 def test_run_agent_exec_per_type_success(monkeypatch, patched_env, claw_type):
     captured = {}
 
@@ -271,6 +271,8 @@ def test_missing_rc_marker(monkeypatch, patched_env):
 @pytest.mark.parametrize(
     ("claw_type", "os_family", "expected_suffix"),
     [
+        ("claude", "linux", "claude/playbooks/exec.yaml"),
+        ("claude", "darwin", "claude/playbooks/exec_macos.yaml"),
         ("openclaw", "linux", "openclaw/playbooks/exec.yaml"),
         ("openclaw", "darwin", "openclaw/playbooks/exec_macos.yaml"),
         ("hermes", "linux", "hermes/playbooks/exec.yaml"),
@@ -367,6 +369,168 @@ def test_run_agent_exec_returns_file_not_found_when_supported_os_playbook_missin
     assert stdout == ""
     assert rc == 255
     assert "does not support os_family='darwin'" in stderr
+
+
+def test_claude_exec_parses_host_redacted_result_event(monkeypatch, patched_env):
+    """Claude playbooks emit only one already-redacted result event."""
+    payload = base64.b64encode(
+        b'{"stdout":"[REDACTED]","stderr":"","rc":7}'
+    ).decode()
+    monkeypatch.setattr(
+        agent_exec.ansible_runner,
+        "run",
+        lambda **kw: _make_result([_ok_event(f"CLAUDE_EXEC_RESULT={payload}")]),
+    )
+
+    assert agent_exec.run_agent_exec(
+        "10.0.0.1", "wolf-i", "claude", ["--print"]
+    ) == ("[REDACTED]", "", 7)
+
+
+def test_claude_exec_preserves_structured_injection_shaped_argv(
+    monkeypatch, patched_env
+):
+    """Claude arguments remain typed inventory values, never a shell fragment."""
+    captured = {}
+    injection_shaped_argv = [
+        "--setting",
+        "'; touch /tmp/pwn; {{ lookup('env', 'SECRET') }}",
+    ]
+
+    def fake_run(**kwargs):
+        captured.update(kwargs)
+        return _make_result(
+            [
+                _ok_event("EXEC_STDOUT=" + base64.b64encode(b"safe").decode()),
+                _ok_event("EXEC_STDERR=" + base64.b64encode(b"").decode()),
+                _ok_event("EXEC_RC=0"),
+            ]
+        )
+
+    monkeypatch.setattr(agent_exec.ansible_runner, "run", fake_run)
+    stdout, stderr, rc = agent_exec.run_agent_exec(
+        "10.0.0.1", "wolf-i", "claude", injection_shaped_argv, timeout=17
+    )
+
+    assert (stdout, stderr, rc) == ("safe", "", 0)
+    assert captured["inventory"]["all"]["vars"] == {
+        "agent_name": "wolf-i",
+        "cmd_argv": injection_shaped_argv,
+        "claude_exec_timeout": 17,
+    }
+    # The native command is killed on the host after 17s; the runner gets a
+    # short grace period only to collect the redacted result events.
+    assert captured["timeout"] == 47
+
+
+def test_claude_exec_clamps_remote_timeout_and_never_passes_credentials(
+    monkeypatch, patched_env
+):
+    captured = {}
+
+    def fake_run(**kwargs):
+        captured.update(kwargs)
+        return _make_result(
+            [
+                _ok_event("EXEC_STDOUT=" + base64.b64encode(b"Claude Code 2.1.100").decode()),
+                _ok_event("EXEC_STDERR=" + base64.b64encode(b"").decode()),
+                _ok_event("EXEC_RC=0"),
+            ]
+        )
+
+    monkeypatch.setattr(agent_exec.ansible_runner, "run", fake_run)
+    stdout, stderr, rc = agent_exec.run_agent_exec(
+        "10.0.0.1", "wolf-i", "claude", ["--version"], timeout=9999
+    )
+
+    assert (stdout, stderr, rc) == ("Claude Code 2.1.100", "", 0)
+    variables = captured["inventory"]["all"]["vars"]
+    assert variables["claude_exec_timeout"] == 120
+    assert not any("credential" in key or "token" in key for key in variables)
+    assert captured["timeout"] == 150
+
+
+def test_claude_exec_version_does_not_require_controller_credential(
+    monkeypatch, patched_env
+):
+    """Unauthenticated version parity stays available before configure/sync."""
+    from clawrium.core import claude_credentials
+
+    def no_credential(_agent_name):
+        raise claude_credentials.ClaudeCredentialError("credential is not configured")
+
+    monkeypatch.setattr(
+        claude_credentials, "get_active_claude_credential", no_credential
+    )
+    version = "2.1.100" + chr(10)
+    monkeypatch.setattr(
+        agent_exec.ansible_runner,
+        "run",
+        lambda **kw: _make_result(
+            [
+                _ok_event("EXEC_STDOUT=" + base64.b64encode(version.encode()).decode()),
+                _ok_event("EXEC_STDERR=" + base64.b64encode(b"").decode()),
+                _ok_event("EXEC_RC=0"),
+            ]
+        ),
+    )
+
+    assert agent_exec.run_agent_exec(
+        "10.0.0.1", "wolf-i", "claude", ["--version"]
+    ) == (version, "", 0)
+
+
+def test_claude_exec_redacts_selected_api_key_from_remote_failure(
+    monkeypatch, patched_env
+):
+    from clawrium.core import claude_credentials
+
+    secret = "sk-ant-api03-secret-value"
+    monkeypatch.setattr(
+        claude_credentials,
+        "get_active_claude_credential",
+        lambda _agent_name: ("ANTHROPIC_API_KEY", secret),
+    )
+    monkeypatch.setattr(
+        agent_exec.ansible_runner,
+        "run",
+        lambda **kw: _make_result(
+            [
+                _ok_event("EXEC_STDOUT=" + base64.b64encode(secret.encode()).decode()),
+                _ok_event(
+                    "EXEC_STDERR="
+                    + base64.b64encode(f"authentication failed: {secret}".encode()).decode()
+                ),
+                _ok_event("EXEC_RC=1"),
+            ]
+        ),
+    )
+
+    stdout, stderr, rc = agent_exec.run_agent_exec(
+        "10.0.0.1", "wolf-i", "claude", ["--print"]
+    )
+
+    assert rc == 1
+    assert secret not in stdout
+    assert secret not in stderr
+    assert "[REDACTED]" in stdout
+    assert "[REDACTED]" in stderr
+
+
+@pytest.mark.parametrize(
+    "cmd_argv",
+    [[], None, [""], [None], ["--version", "contains" + chr(0) + "nul"]],
+)
+def test_malformed_cmd_argv_raises_before_runner(patched_env, cmd_argv):
+    with pytest.raises(
+        agent_exec.AgentExecError, match="cmd_argv must be a non-empty list"
+    ):
+        agent_exec.run_agent_exec("10.0.0.1", "wolf-i", "claude", cmd_argv)
+
+
+def test_reserved_agent_name_is_rejected_before_runner(patched_env):
+    with pytest.raises(agent_exec.AgentExecError, match="reserved system user"):
+        agent_exec.run_agent_exec("10.0.0.1", "root", "claude", ["--version"])
 
 
 def test_run_agent_exec_returns_runner_exception(monkeypatch, patched_env):

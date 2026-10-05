@@ -1,12 +1,15 @@
 {
-  "session_id": "59e76ee9-7276-4a00-904e-a30af1583fcd",
+  "session_id": "217a3346-2cb9-4a9d-b6ac-553e913d5ce6",
   "transport": "cli",
-  "commit_sha": "a24c460061c9ab7888f9cb94e00fcac94cd28c2d",
-  "iteration": 3,
-  "last_rating": 2,
-  "last_blockers": [
-    "ATX test-coverage could not access the uncommitted/untracked diff in iteration 3; no source finding was reported"
-  ],
-  "started_at": "2026-10-04T23:46:36Z",
-  "updated_at": "2026-10-04T23:48:56Z"
+  "commit_sha": "93ebac7",
+  "iteration": 1,
+  "last_rating": 4,
+  "last_blockers": [],
+  "scope": "Post-live acceptance review of staged Claude chat safety tests and redacted real E2E evidence",
+  "started_at": "2026-10-05T01:55:53Z",
+  "updated_at": "2026-10-05T01:57:24Z",
+  "previous_premature_review": {
+    "revision_id": "38b34620-7efc-407e-b923-24cfc3c84b08",
+    "note": "Requested before both credential modes had succeeded; retained only as history and not used as acceptance evidence."
+  }
 }

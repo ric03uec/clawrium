@@ -161,22 +161,39 @@ the same Claude session; select **New chat** to cancel any pending turn and
 start a fresh session. Generic SSE errors never include prompts, credential
 values, remote stderr, or controller paths.
 
-## Run a finite command
+## Run a finite native command
 
-Use the normal command-shell path for Claude Code:
+Use the standard native-exec path for Claude Code:
+
+```bash
+clawctl agent exec <name> -- --version
+```
+
+`agent exec` runs the dedicated account's pinned Claude binary (not a binary
+found in a shared shell) as that agent Unix user with each supplied argument as
+a separate argv value. It starts in the agent home, has no TTY, and has a hard
+120-second remote runtime bound. Standard output, standard error, and the
+native exit code are returned after the command exits. The selected credential
+is redacted from returned output; the command transport and runner logs never
+receive a credential value.
+
+Before it starts Claude, the fixed host-side bootstrap clears inherited Claude
+credential variables and sources the private API-key artifact only when it
+exists. OAuth remains Claude Code's native agent-home file state. Thus
+`--version` works immediately after create without credentials, while commands
+that need authentication require a successful `clawctl agent configure <name>`
+or `clawctl agent sync <name>` first. User arguments are never interpolated
+into a shell command.
+
+`agent shell` remains available when a terminating shell expression needs
+pipes, redirects, or `&&` / `||`:
 
 ```bash
 clawctl agent shell <name> -- 'claude --version'
 ```
 
-`agent shell` runs the supplied command as the dedicated agent Unix user in a
-finite, non-interactive login shell. For Claude it clears inherited credential
-variables, then sources the private API-key artifact only when it exists;
-OAuth remains native Claude Code state. Every command must terminate: no TTY,
-interactive shell, prompt, or Claude Code chat session is created.
-
-`clawctl agent exec <name> ...` does not support `claude`; use `agent shell`
-with an explicit command after `--` instead.
+Both paths are finite and non-interactive: do not use them for a prompt,
+interactive shell, or Claude Code chat session.
 
 ## Available and unavailable operations
 
@@ -190,7 +207,7 @@ with an explicit command after `--` instead.
 | `open`, native web UI, tunnel, port, pairing | Unavailable: the manifest declares no web UI. |
 | `chat` | Supported on demand through `clawctl agent chat`; every turn is a finite Claude CLI process. |
 | GUI chat | Supported through the agent-page Chat tab; it reuses the same finite CLI backend and has no native web UI. |
-| `exec` | Unavailable for Claude Code; use `agent shell`. |
+| `exec <name> -- <args...>` | Supported finite native Claude CLI command path; runs the dedicated pinned binary with structured argv and a 120-second limit. |
 
 ## Removal ownership
 

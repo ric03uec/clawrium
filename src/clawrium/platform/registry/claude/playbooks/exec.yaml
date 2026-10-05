@@ -1,0 +1,52 @@
+---
+# Run one finite Claude Code native command. Claude itself is always the
+# dedicated account's pinned binary; caller values stay separate argv elements.
+# The fixed capture wrapper sources credentials only on the host, redirects all
+# raw child output into a mode-0700 temporary directory, redacts it there, and
+# emits one safe base64 JSON result. Raw output never enters an Ansible event.
+- hosts: all
+  gather_facts: false
+  vars:
+    claude_home: "/home/{{ agent_name }}"
+    claude_binary: "{{ claude_home }}/.local/claude/bin/claude"
+    claude_exec_timeout_wrapper: >-
+      use POSIX qw(setsid); my $timeout = shift @ARGV; my $pid = fork(); die "could not fork Claude Code" unless defined $pid; if ($pid == 0) { setsid() or die "could not create Claude Code session"; exec @ARGV; die "could not exec Claude Code"; } $SIG{ALRM} = sub { kill 'KILL', -$pid; waitpid($pid, 0); exit 124; }; alarm($timeout); waitpid($pid, 0); alarm(0); my $status = $?; exit($status & 127 ? 128 + ($status & 127) : $status >> 8);
+    claude_exec_capture_bootstrap: >-
+      umask 077; tmpdir="$(mktemp -d "${TMPDIR:-/tmp}/clawrium-claude-exec.XXXXXX")" || exit 125; trap 'rm -rf "$tmpdir"' EXIT HUP INT TERM; program=$1; credentials=$2; shift 2; unset CLAUDE_CODE_OAUTH_TOKEN ANTHROPIC_API_KEY; if [ -r "$HOME/.claude/clawrium-credentials.env" ]; then . "$HOME/.claude/clawrium-credentials.env"; fi; "$@" >"$tmpdir/stdout" 2>"$tmpdir/stderr"; rc=$?; /usr/bin/perl -e "$program" "$tmpdir/stdout" "$tmpdir/stderr" "$rc" "$credentials"
+    claude_exec_capture_program: >-
+      use strict; use warnings; use Encode qw(decode FB_DEFAULT); use MIME::Base64 qw(encode_base64); use JSON::PP qw(decode_json encode_json); sub read_text { my ($path) = @_; return '' unless -r $path; open my $fh, '<:raw', $path or return ''; local $/; my $raw = <$fh>; return decode('UTF-8', $raw // '', FB_DEFAULT); } my ($stdout_path, $stderr_path, $rc_raw, $credentials_path) = @ARGV; my $stdout = read_text($stdout_path); my $stderr = read_text($stderr_path); my @secrets = (); push @secrets, $ENV{ANTHROPIC_API_KEY} if defined $ENV{ANTHROPIC_API_KEY}; sub collect { my ($value, $key, $secrets) = @_; if (ref($value) eq 'HASH') { for my $child_key (keys %$value) { collect($value->{$child_key}, $child_key, $secrets); } } elsif (ref($value) eq 'ARRAY') { for my $child_value (@$value) { collect($child_value, $key, $secrets); } } elsif (defined($value) && !ref($value) && defined($key) && ($key eq 'accessToken' || $key eq 'refreshToken' || $key eq 'trustedDeviceToken')) { push @$secrets, $value; } } if (-r $credentials_path) { my $credentials = eval { decode_json(read_text($credentials_path)) }; collect($credentials, undef, \@secrets) if $credentials; } sub redact { my ($value, $secrets) = @_; my %seen; for my $secret (sort { length($b) <=> length($a) } grep { defined($_) && length($_) >= 4 && !$seen{$_}++ } @$secrets) { my $escaped = quotemeta($secret); $value =~ s/$escaped/[REDACTED]/g; } return $value; } my $rc = $rc_raw =~ /\A\d+\z/ ? int($rc_raw) : 255; print encode_base64(encode_json({ stdout => redact($stdout, \@secrets), stderr => redact($stderr, \@secrets), rc => $rc }), '');
+  tasks:
+    - name: Validate agent_name for Claude exec
+      ansible.builtin.fail:
+        msg: "Invalid agent_name"
+      when: agent_name is not match('^[a-z][a-z0-9_-]{0,31}$')
+
+    - name: Validate Claude exec argv and timeout
+      ansible.builtin.fail:
+        msg: "Claude exec requires a non-empty string argv and a timeout from 1 to 120 seconds"
+      when: >-
+        (cmd_argv is not defined) or (cmd_argv is string) or (cmd_argv | length == 0)
+        or (cmd_argv | reject('string') | list | length > 0)
+        or (cmd_argv | select('equalto', '') | list | length > 0)
+        or (claude_exec_timeout is not defined) or (claude_exec_timeout | int < 1)
+        or (claude_exec_timeout | int > 120)
+
+    - name: Run finite Claude Code exec command as dedicated agent user
+      ansible.builtin.command:
+        expand_argument_vars: false
+        argv: "{{ ['/bin/bash', '-c', claude_exec_capture_bootstrap, 'clawrium-claude-exec', claude_exec_capture_program, claude_home ~ '/.claude/.credentials.json', '/usr/bin/perl', '-e', claude_exec_timeout_wrapper, claude_exec_timeout | string, claude_binary] + cmd_argv }}"
+        chdir: "{{ claude_home }}"
+      environment:
+        HOME: "{{ claude_home }}"
+        PATH: "{{ claude_home }}/.local/claude/bin:/usr/local/bin:/usr/bin:/bin"
+        DISABLE_AUTOUPDATER: "1"
+      become: true
+      become_user: "{{ agent_name }}"
+      register: claude_exec_safe_result
+      failed_when: false
+      changed_when: false
+      no_log: true
+
+    - name: Emit redacted Claude exec result
+      ansible.builtin.debug:
+        msg: "CLAUDE_EXEC_RESULT={{ claude_exec_safe_result.stdout | default('') }}"
