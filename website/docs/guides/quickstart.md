@@ -48,7 +48,7 @@ uv tool install clawrium
 ```
 Resolved 1 package in 523ms
 Installed 1 package in 12ms
- + clawrium==26.7.3
+ + clawrium==26.8.0
 ```
 
 Verify installation:
