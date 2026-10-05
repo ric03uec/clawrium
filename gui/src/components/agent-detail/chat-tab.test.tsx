@@ -44,6 +44,7 @@ describe("ChatTab", () => {
     chatInfoState.data = { supported: true, type: "zeroclaw" };
     chatInfoState.isLoading = false;
     chatInfoState.error = null;
+    sendChatMessage.mockReset();
     sendChatMessage.mockResolvedValue("Hello from agent!");
   });
 
@@ -72,6 +73,62 @@ describe("ChatTab", () => {
       screen.getByText(/Chat is not supported for this agent type/),
     ).toBeInTheDocument();
     expect(document.querySelector("textarea")).not.toBeInTheDocument();
+  });
+
+  it("treats Claude as chat-supported and resets to a fresh browser session", async () => {
+    chatInfoState.data = { supported: true, type: "claude" };
+    render(<ChatTab {...defaultProps} />);
+    const textarea = document.querySelector("textarea")!;
+
+    await act(async () => {
+      fireEvent.change(textarea, { target: { value: "first Claude turn" } });
+      fireEvent.keyDown(textarea, { key: "Enter" });
+      await Promise.resolve();
+    });
+    const firstSession = sendChatMessage.mock.calls[0][2].session as string;
+    expect(firstSession).toMatch(/^gui:/);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "New chat" }));
+    });
+    expect(screen.queryByText("first Claude turn")).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/Start a conversation with/i),
+    ).toBeInTheDocument();
+
+    await act(async () => {
+      fireEvent.change(textarea, { target: { value: "fresh Claude turn" } });
+      fireEvent.keyDown(textarea, { key: "Enter" });
+      await Promise.resolve();
+    });
+    const secondSession = sendChatMessage.mock.calls[1][2].session as string;
+    expect(secondSession).toMatch(/^gui:/);
+    expect(secondSession).not.toBe(firstSession);
+  });
+
+  it("aborts an active turn on reset without adding a stale stopped marker", async () => {
+    let rejectFn: (reason?: unknown) => void;
+    sendChatMessage.mockReturnValue(
+      new Promise<never>((_resolve, reject) => { rejectFn = reject; }),
+    );
+    render(<ChatTab {...defaultProps} />);
+    const textarea = document.querySelector("textarea")!;
+
+    await act(async () => {
+      fireEvent.change(textarea, { target: { value: "cancel me" } });
+      fireEvent.keyDown(textarea, { key: "Enter" });
+    });
+    const signal = sendChatMessage.mock.calls[0][2].signal as AbortSignal;
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "New chat" }));
+      rejectFn!(new DOMException("The operation was aborted", "AbortError"));
+      await Promise.resolve();
+    });
+
+    expect(signal.aborted).toBe(true);
+    expect(screen.queryByText(/Stopped by user/)).not.toBeInTheDocument();
+    expect(screen.queryByText("cancel me")).not.toBeInTheDocument();
   });
 
   it("the textarea is NOT disabled while sending is true", async () => {

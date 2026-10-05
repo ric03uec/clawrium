@@ -96,6 +96,22 @@ def test_web_ui_returns_unavailable_when_manifest_lacks_feature(
     assert "openclaw" in (body["reason"] or "").lower()
 
 
+def test_claude_web_ui_stays_unavailable_while_gui_chat_is_supported(
+    isolated_config: Path,
+):
+    """Claude has a Chat tab, not an upstream dashboard or tunnel."""
+    _seed_hosts(isolated_config, "claude")
+    with TestClient(app, base_url="http://localhost:36000") as client:
+        resp = client.get("/api/fleet/agents/demo/web-ui")
+
+    assert resp.status_code == 200
+    assert resp.json() == {
+        "available": False,
+        "local_url": None,
+        "reason": "Agent type 'claude' does not expose a native web UI.",
+    }
+
+
 def test_web_ui_returns_tunnel_url_for_remote_hermes(isolated_config: Path):
     _seed_hosts(isolated_config, "hermes")
     resolved = ResolvedUI(

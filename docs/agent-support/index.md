@@ -21,7 +21,7 @@ Clawrium supports multiple agent types, each designed for different use cases. T
 
 | Agent | Description | Status |
 |-------|-------------|--------|
-| **[Claude Code](claude.md)** | Isolated per-agent Claude Code environment with on-demand CLI chat; no daemon or web UI | ✅ Supported contract |
+| **[Claude Code](claude.md)** | Isolated per-agent Claude Code environment with on-demand CLI and GUI chat; no daemon or native web UI | ✅ Supported contract |
 
 ## Legend
 
@@ -38,7 +38,7 @@ Clawrium supports multiple agent types, each designed for different use cases. T
 |--------|:--------:|:------:|:--------:|:-----------:|
 | **Status** | ✅ Production Ready | 🚧 In Development | 🚧 In Development | ✅ Install-only |
 | **Transport** | Native daemon | Local OpenAI-compatible HTTP API (`127.0.0.1:8642`) | CLI process | Per-agent CLI environment |
-| **`clawctl agent chat <name>` support** | ✅ | ✅ (OpenAI-compatible HTTP backend) | 🚧 | ❌ |
+| **`clawctl agent chat <name>` support** | ✅ | ✅ (OpenAI-compatible HTTP backend) | 🚧 | ✅ (finite CLI backend) |
 | **Multi-Provider** | ✅ (OpenAI, Anthropic, OpenRouter, Bedrock, Vertex, ZAI, Ollama) | ✅ (OpenRouter, Anthropic, OpenAI, Ollama / custom) | 🚧 (OpenAI, Anthropic, Ollama planned) | ❌ — one OAuth or Anthropic API-key credential |
 | **Memory model** | Daily files + identity files | Two fixed files: `MEMORY.md` (≤ 2200 chars), `USER.md` (≤ 1375 chars) | ❌ | ❌ |
 | **Identity management** | clawctl-managed `SOUL.md` / `IDENTITY.md` | Hermes-managed `SOUL.md` / `AGENTS.md` inside `~/.hermes/` (accessible via `clawctl agent memory`) | ❌ | Project-owned `.claude` settings untouched |
@@ -73,7 +73,7 @@ Clawrium supports multiple agent types, each designed for different use cases. T
 **Use Claude Code when:**
 
 - You need an isolated, pinned Claude Code installation on a fleet host
-- You will run finite commands through `clawctl agent shell <name> -- <command>` or chat on demand through `clawctl agent chat <name>`
+- You will run finite commands through `clawctl agent shell <name> -- <command>` or chat on demand through `clawctl agent chat <name>` or the GUI Chat tab
 - You do not need a Clawrium-managed gateway, daemon, or native web UI
 - You need Clawrium to own only the per-agent account, bounded global settings,
   selected credential environment, and installation prefix

@@ -6,7 +6,7 @@ keywords: [cli, agent, command reference, configure, install, start, stop]
 
 # clawctl agent
 
-Manage agent installation and configuration, plus lifecycle operations for types that provide a managed daemon. Claude Code is install-only; see [Claude Code: install-only command environment](#claude-code-install-only-command-environment) before using daemon commands.
+Manage agent installation and configuration, plus lifecycle operations for types that provide a managed daemon. Claude Code is install-only; see [Claude Code: no-daemon command environment](#claude-code-no-daemon-command-environment) before using daemon commands.
 
 ## Synopsis
 
