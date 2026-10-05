@@ -75,7 +75,7 @@ jobs:
         run: make test-cov
 
       - name: Publish to PyPI
-        # v1.14.0 — SHA-pinned to the COMMIT SHA the tag points to, NOT
+        # v1.14.2 — SHA-pinned to the COMMIT SHA the tag points to, NOT
         # the annotated-tag object SHA. GitHub Actions resolves `uses:
         # ...@<sha>` literally to a ghcr.io image tag, and the action's
         # release process publishes images under the commit SHA, not the
@@ -85,6 +85,6 @@ jobs:
         # `@release/v1` is a mutable branch ref; with `id-token: write`
         # in scope, a force-push or compromise of that branch could
         # publish a malicious wheel to PyPI under our identity.
-        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33
         with:
           skip-existing: true
