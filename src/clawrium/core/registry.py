@@ -130,7 +130,7 @@ class WorkspaceConfig(TypedDict):
 class ChatFeatureConfig(TypedDict):
     """Chat capability descriptor."""
 
-    type: Literal["openai", "websocket", "zeroclaw"]
+    type: Literal["openai", "websocket", "zeroclaw", "claude"]
 
 
 class WebUIFeatureConfig(TypedDict):
@@ -558,7 +558,7 @@ def _validate_workspace(workspace_value: object, agent_type: str) -> WorkspaceCo
     return validated
 
 
-_ALLOWED_CHAT_TYPES = ("openai", "websocket", "zeroclaw")
+_ALLOWED_CHAT_TYPES = ("openai", "websocket", "zeroclaw", "claude")
 _ALLOWED_WEB_UI_BINDS = ("loopback", "wildcard")
 
 # `port_field` is a dotted path that downstream code uses both as a config

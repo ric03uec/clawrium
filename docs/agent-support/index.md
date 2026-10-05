@@ -21,7 +21,7 @@ Clawrium supports multiple agent types, each designed for different use cases. T
 
 | Agent | Description | Status |
 |-------|-------------|--------|
-| **[Claude Code](claude.md)** | Isolated per-agent Claude Code command environment; no daemon, chat, or web UI | ✅ Supported contract |
+| **[Claude Code](claude.md)** | Isolated per-agent Claude Code environment with on-demand CLI chat; no daemon or web UI | ✅ Supported contract |
 
 ## Legend
 
@@ -73,8 +73,8 @@ Clawrium supports multiple agent types, each designed for different use cases. T
 **Use Claude Code when:**
 
 - You need an isolated, pinned Claude Code installation on a fleet host
-- You will run finite commands through `clawctl agent shell <name> -- <command>`
-- You do not need Clawrium-managed chat, a gateway, a daemon, or a web UI
+- You will run finite commands through `clawctl agent shell <name> -- <command>` or chat on demand through `clawctl agent chat <name>`
+- You do not need a Clawrium-managed gateway, daemon, or native web UI
 - You need Clawrium to own only the per-agent account, bounded global settings,
   selected credential environment, and installation prefix
 

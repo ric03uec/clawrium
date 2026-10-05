@@ -1,0 +1,63 @@
+---
+# Run one finite Claude Code print-mode turn. This is an on-demand CLI chat
+# transport only: it creates no daemon, gateway, listener, tunnel, or service.
+# Prompt text is delivered through stdin and Claude arguments use command.argv;
+# neither prompts nor session UUIDs are interpolated into a shell command.
+- hosts: all
+  gather_facts: false
+  vars:
+    claude_home: "/home/{{ agent_name }}"
+    claude_binary: "{{ claude_home }}/.local/claude/bin/claude"
+    # This is fixed bootstrap text, not user-controlled data. "$@" preserves
+    # every argv element exactly, including the session UUID; stdin stays with
+    # the executed Claude process. The API-key artifact is sourced only on the
+    # host as the dedicated user. Native OAuth remains Claude Code file state.
+    claude_chat_bootstrap: >-
+      unset CLAUDE_CODE_OAUTH_TOKEN ANTHROPIC_API_KEY;
+      if [ -r "$HOME/.claude/clawrium-credentials.env" ]; then
+      . "$HOME/.claude/clawrium-credentials.env";
+      fi;
+      exec "$@"
+  tasks:
+    - name: Validate agent_name for Claude chat
+      ansible.builtin.fail:
+        msg: "Invalid agent_name"
+      when: agent_name is not match('^[a-z][a-z0-9_-]{0,31}$')
+
+    - name: Validate Claude chat argv and prompt transport
+      ansible.builtin.fail:
+        msg: "Claude chat requires argv, prompt, and a positive timeout"
+      when: >-
+        (claude_chat_argv is not defined) or (claude_chat_argv | length == 0)
+        or (claude_chat_prompt_b64 is not defined)
+        or (claude_chat_prompt_b64 | length == 0)
+        or (claude_chat_timeout is not defined) or (claude_chat_timeout | int < 1)
+
+    - name: Run finite Claude Code chat command as dedicated agent user
+      ansible.builtin.command:
+        argv: "{{ ['/usr/bin/timeout', '--kill-after=5', claude_chat_timeout | string, '/bin/bash', '-c', claude_chat_bootstrap, 'clawrium-claude-chat', claude_binary] + claude_chat_argv }}"
+        chdir: "{{ claude_home }}"
+        stdin: "{{ claude_chat_prompt_b64 | b64decode }}"
+        stdin_add_newline: false
+      environment:
+        HOME: "{{ claude_home }}"
+        PATH: "{{ claude_home }}/.local/claude/bin:/usr/local/bin:/usr/bin:/bin"
+        DISABLE_AUTOUPDATER: "1"
+      become: true
+      become_user: "{{ agent_name }}"
+      register: claude_chat_result
+      failed_when: false
+      changed_when: false
+      no_log: true
+
+    - name: Emit Claude chat stdout
+      ansible.builtin.debug:
+        msg: "CLAUDE_CHAT_STDOUT={{ claude_chat_result.stdout | default('') | b64encode }}"
+
+    - name: Emit Claude chat stderr
+      ansible.builtin.debug:
+        msg: "CLAUDE_CHAT_STDERR={{ claude_chat_result.stderr | default('') | b64encode }}"
+
+    - name: Emit Claude chat exit status
+      ansible.builtin.debug:
+        msg: "CLAUDE_CHAT_RC={{ claude_chat_result.rc | default(255) }}"

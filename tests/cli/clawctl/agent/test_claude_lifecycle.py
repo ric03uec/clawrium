@@ -81,7 +81,7 @@ def test_claude_help_and_exec_error_point_to_the_supported_shell_path(
         "stop Stop a daemon-backed agent (not Claude Code).",
         "restart Restart a daemon-backed agent (not Claude Code).",
         "logs Stream logs from a daemon-backed agent (not Claude Code).",
-        "chat Chat with a chat-enabled agent (not Claude Code).",
+        "chat Chat with a chat-enabled agent.",
         "open Open a native web UI (not available for Claude Code).",
     ):
         assert text in normalized_help

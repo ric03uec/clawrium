@@ -27,7 +27,7 @@
 |------|-----------------|-------|
 | **Control machine OS** | Ubuntu, macOS | Tested end-to-end |
 | **Target host OS** | Ubuntu, macOS | macOS hosts must enable Remote Login first ([host setup](docs/host-preparation.md)) |
-| **Agent runtimes** | OpenClaw ✅, Hermes ✅, ZeroClaw ✅, Claude Code ✅ | Claude Code is install-only (no daemon, chat, or web UI); IronClaw planned |
+| **Agent runtimes** | OpenClaw ✅, Hermes ✅, ZeroClaw ✅, Claude Code ✅ | Claude Code has on-demand CLI chat (no daemon or web UI); IronClaw planned |
 | **Inference providers** | Anthropic, OpenAI, OpenRouter, Ollama | Claude Code accepts an Anthropic API key or explicitly supplied OAuth token |
 | **Messaging channels** | Discord, Slack | OpenClaw only |
 | **Container runtime** | None required | No Docker, no Kubernetes — SSH + Ansible |
