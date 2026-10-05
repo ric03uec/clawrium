@@ -84,9 +84,7 @@ def _agent_type(claw_record: dict) -> str:
     return str(claw_record.get("type") or "")
 
 
-def _get_attachments(
-    host: dict, agent_key: str, agent_type: str
-) -> list:
+def _get_attachments(host: dict, agent_key: str, agent_type: str) -> list:
     """Read the normalized attachment list for an agent.
 
     Returns list-of-dicts for hermes (per provider_attachments.normalize)
@@ -202,8 +200,9 @@ def _attach_claude_oauth_provider(
         emit_error(
             "Claude agents require a claude-oauth provider",
             hint=(
-                "create one with: clawctl provider registry create <name> "
-                "--type claude-oauth"
+                "use a claude-oauth provider, or set an API key with: "
+                "clawctl agent secret create ANTHROPIC_API_KEY --agent <name> "
+                "--value-stdin"
             ),
         )
 
@@ -427,9 +426,7 @@ def attach(
         emit_error(f"failed to attach provider {name!r} to agent {agent!r}")
 
     if multi:
-        typer.echo(
-            f"agent/{agent}: attached provider {name!r} with role {role!r}"
-        )
+        typer.echo(f"agent/{agent}: attached provider {name!r} with role {role!r}")
     else:
         typer.echo(f"agent/{agent}: attached provider {name!r}")
 
@@ -465,11 +462,7 @@ def detach(
     # Primary-detach guard on hermes: refuse when aux slots are filled.
     if multi and isinstance(target, dict) and target.get("role") == PRIMARY_ROLE:
         if len(current) > 1:
-            aux_names = [
-                _attachment_name(e) or ""
-                for e in current
-                if e is not target
-            ]
+            aux_names = [_attachment_name(e) or "" for e in current if e is not target]
             aux_hint = ", ".join(
                 f"clawctl agent provider detach {n} --agent {agent}"
                 for n in aux_names

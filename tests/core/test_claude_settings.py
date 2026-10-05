@@ -44,7 +44,15 @@ def _unexpected(*_args, **_kwargs):
 
 
 def _playbook_task(playbook: dict, name: str) -> dict:
-    return next(task for task in playbook[0]["tasks"] if task["name"] == name)
+    def walk(tasks: list[dict]):
+        for task in tasks:
+            yield task
+            for key in ("block", "rescue"):
+                nested = task.get(key)
+                if isinstance(nested, list):
+                    yield from walk(nested)
+
+    return next(task for task in walk(playbook[0]["tasks"]) if task["name"] == name)
 
 
 def test_render_claude_settings_is_typed_deterministic_and_global_only():
@@ -185,15 +193,20 @@ def test_configure_renders_native_files_without_daemon_or_secrets(
     }
 
 
-def test_configure_rejects_api_key_credential_before_remote_io(
+def test_configure_transports_api_key_without_oauth_inventory_value(
     monkeypatch, tmp_path: Path
 ):
     host = _claude_host()
+    captured: dict[str, object] = {}
     monkeypatch.setattr(lifecycle, "get_host", lambda _: host)
     monkeypatch.setattr(lifecycle, "get_host_private_key", lambda _: tmp_path / "key")
     monkeypatch.setattr(lifecycle, "_get_logs_dir", lambda: tmp_path / "logs")
-    monkeypatch.setattr(lifecycle.ansible_runner, "run", _unexpected)
-    monkeypatch.setattr(lifecycle, "update_host", _unexpected)
+    monkeypatch.setattr(
+        lifecycle.ansible_runner,
+        "run",
+        lambda **kwargs: captured.update(kwargs) or SimpleNamespace(status="successful"),
+    )
+    monkeypatch.setattr(lifecycle, "update_host", lambda *_args: True)
     monkeypatch.setattr(
         "clawrium.core.claude_credentials.get_active_claude_credential",
         lambda _: ("ANTHROPIC_API_KEY", "api-value"),
@@ -203,9 +216,11 @@ def test_configure_rejects_api_key_credential_before_remote_io(
         "claude-host", "claude", {}, agent_name="claude-code"
     )
 
-    assert ok is False
-    assert "OAuth only" in (error or "")
-    assert "api-value" not in (error or "")
+    assert (ok, error) == (True, None)
+    variables = captured["inventory"]["all"]["vars"]
+    assert variables["claude_credential_mode"] == "api_key"
+    assert variables["claude_api_key_environment"] == "export ANTHROPIC_API_KEY=api-value\n"
+    assert "claude_oauth_credentials" not in variables
 
 
 def test_configure_rejects_unknown_claude_settings_before_ansible(monkeypatch):
@@ -288,10 +303,20 @@ def test_canonical_sync_writes_native_files_and_oauth_credentials(monkeypatch):
     monkeypatch.setattr(lifecycle_canonical, "_atomic_write", fake_atomic_write)
     monkeypatch.setattr(
         lifecycle_canonical,
+        "_remove_stale_claude_credential_artifacts",
+        lambda *_args, **kwargs: captured.setdefault("stale_cleanup", []).append(kwargs),
+    )
+    monkeypatch.setattr(
+        lifecycle_canonical,
         "_remove_retired_claude_artifacts",
         lambda *_args, **kwargs: captured.setdefault(
             "retired_cleanup", []
         ).append(kwargs),
+    )
+    monkeypatch.setattr(
+        lifecycle_canonical,
+        "_promote_staged_claude_credential_artifact",
+        lambda *_args, **kwargs: captured.setdefault("promotion", []).append(kwargs),
     )
 
     result = lifecycle_canonical.sync_agent_canonical("claude-code")
@@ -306,17 +331,28 @@ def test_canonical_sync_writes_native_files_and_oauth_credentials(monkeypatch):
     assert [write["remote_path"] for write in captured["writes"]] == [
         "/Users/claude-code/.claude/settings.json",
         "/Users/claude-code/.claude.json",
-        "/Users/claude-code/.claude/.credentials.json",
+        "/Users/claude-code/.claude/.credentials.json.clawrium-stage",
     ]
-    # Retired env/profile hook cleanup runs after the native credentials
-    # write — exactly once per sync, with both legacy paths listed.
+    # The stale credential artifact is cleaned and verified before the
+    # unrelated retired profile hook is removed.
+    assert captured["stale_cleanup"] == [
+        {
+            "agent_name": "claude-code",
+            "selected_path": "/Users/claude-code/.claude/.credentials.json.clawrium-stage",
+            "stale_paths": ("/Users/claude-code/.claude/clawrium-credentials.env",),
+        }
+    ]
+    assert captured["promotion"] == [
+        {
+            "agent_name": "claude-code",
+            "staged_path": "/Users/claude-code/.claude/.credentials.json.clawrium-stage",
+            "destination_path": "/Users/claude-code/.claude/.credentials.json",
+        }
+    ]
     assert captured["retired_cleanup"] == [
         {
             "agent_name": "claude-code",
-            "retired_paths": (
-                "/Users/claude-code/.claude/clawrium-credentials.env",
-                "/Users/claude-code/.profile.d/clawrium-claude.sh",
-            ),
+            "retired_paths": ("/Users/claude-code/.profile.d/clawrium-claude.sh",),
         }
     ]
     assert json.loads(captured["writes"][-1]["body"]) == {
@@ -411,7 +447,21 @@ def test_claude_settings_playbooks_only_write_native_files(
     assert "ansible.builtin.shell" not in serialized
     assert "systemctl" not in serialized
     assert "launchctl" not in serialized
-    # Retired artifacts appear only in explicit ``state: absent`` cleanup
-    # tasks; nothing else in the playbook references the legacy env hook.
-    assert "clawrium-credentials.env" in serialized
+    api_environment = _playbook_task(
+        playbook, "Atomically replace Claude API-key environment"
+    )["ansible.builtin.copy"]
+    assert api_environment == {
+        "content": "{{ claude_api_key_environment }}",
+        "dest": f"{expected_home}/clawrium-credentials.env",
+        "owner": "{{ agent_name }}",
+        "group": expected_group,
+        "mode": "0600",
+        "unsafe_writes": False,
+    }
+    assert _playbook_task(playbook, "Atomically replace Claude API-key environment")[
+        "no_log"
+    ] is True
+    assert _playbook_task(playbook, "Atomically replace Claude API-key environment")[
+        "diff"
+    ] is False
     assert "clawrium-claude.sh" in serialized

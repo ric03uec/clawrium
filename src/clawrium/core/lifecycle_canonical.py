@@ -722,20 +722,15 @@ def _remove_retired_claude_artifacts(
     retired_paths: tuple[str, ...],
     timeout: int = 30,
 ) -> None:
-    """Remove the pre-#1021 Claude credential env file and profile hook.
+    """Remove retired Claude artifacts, accepting paths already absent.
 
-    The removal is best-effort by design: ``rm -f`` returns 0 when the
-    path is already absent, so a fresh install (no prior artifacts) and
-    a successful migration both exit cleanly. A failure to remove
-    (filesystem error, revoked sudo, etc.) raises so the operator
-    notices — the native credentials file is already in place, so the
-    agent is never left without an active credential.
+    ``rm -f`` makes fresh installs and completed migrations idempotent. A
+    filesystem or privilege failure is surfaced to the caller so credential
+    mode cleanup can fail closed rather than silently retain both modes.
     """
     quoted_agent = shlex.quote(agent_name)
     for path in retired_paths:
-        command = (
-            f"sudo -n -H -u {quoted_agent} rm -f {shlex.quote(path)}"
-        )
+        command = f"sudo -n -H -u {quoted_agent} rm -f {shlex.quote(path)}"
         _, stdout, stderr = client.exec_command(command, timeout=timeout)
         rc = stdout.channel.recv_exit_status()
         if rc != 0:
@@ -749,15 +744,109 @@ def _remove_retired_claude_artifacts(
             )
 
 
+def _assert_claude_artifact_absent(
+    client: paramiko.SSHClient,
+    *,
+    agent_name: str,
+    path: str,
+    timeout: int = 30,
+) -> None:
+    """Confirm a stale credential path is absent, including dangling links."""
+    quoted_agent = shlex.quote(agent_name)
+    quoted_path = shlex.quote(path)
+    command = (
+        f"sudo -n -H -u {quoted_agent} test ! -e {quoted_path} && "
+        f"sudo -n -H -u {quoted_agent} test ! -L {quoted_path}"
+    )
+    _, stdout, stderr = client.exec_command(command, timeout=timeout)
+    rc = stdout.channel.recv_exit_status()
+    if rc != 0:
+        detail = (
+            stderr.read().decode("utf-8", errors="replace").strip()
+            or stdout.read().decode("utf-8", errors="replace").strip()
+        )
+        raise CanonicalSyncError(
+            f"Claude credential artifact {path!r} is still present"
+            + (f": {detail}" if detail else "")
+        )
+
+
+def _remove_stale_claude_credential_artifacts(
+    client: paramiko.SSHClient,
+    *,
+    agent_name: str,
+    selected_path: str,
+    stale_paths: tuple[str, ...],
+    timeout: int = 30,
+) -> None:
+    """Fail closed if removal of an inactive Claude credential cannot finish.
+
+    The incoming credential is staged before this helper runs, leaving an
+    existing selected artifact untouched. If deletion or absence verification
+    of the inactive mode fails, remove that stage before raising: one stale
+    credential is safer than two active credential sources whose precedence
+    depends on invocation.
+    """
+    try:
+        _remove_retired_claude_artifacts(
+            client,
+            agent_name=agent_name,
+            retired_paths=stale_paths,
+            timeout=timeout,
+        )
+        for path in stale_paths:
+            _assert_claude_artifact_absent(
+                client,
+                agent_name=agent_name,
+                path=path,
+                timeout=timeout,
+            )
+    except Exception:
+        try:
+            _remove_retired_claude_artifacts(
+                client,
+                agent_name=agent_name,
+                retired_paths=(selected_path,),
+                timeout=timeout,
+            )
+        except Exception:
+            raise CanonicalSyncError(
+                "could not restore exclusive Claude credential activation"
+            ) from None
+        raise CanonicalSyncError(
+            "could not activate Claude credentials exclusively"
+        ) from None
+
+
+def _promote_staged_claude_credential_artifact(
+    client: paramiko.SSHClient,
+    *,
+    agent_name: str,
+    staged_path: str,
+    destination_path: str,
+    timeout: int = 30,
+) -> None:
+    """Atomically promote a verified staged credential into its active path."""
+    command = (
+        f"sudo -n -H -u {shlex.quote(agent_name)} mv -f "
+        f"{shlex.quote(staged_path)} {shlex.quote(destination_path)}"
+    )
+    _, stdout, _ = client.exec_command(command, timeout=timeout)
+    rc = stdout.channel.recv_exit_status()
+    if rc != 0:
+        raise CanonicalSyncError("could not activate staged Claude credential")
+
+
 def _validate_claude_credential_activation(agent_name: str) -> tuple[str, str]:
     """Resolve one selected credential without placing it in sync output.
 
-    Only OAuth is accepted. The sync path renders the native
-    ``~/.claude/.credentials.json`` file, which Claude Code reads only for
-    subscription OAuth; an active Anthropic API key is rejected before any
-    remote I/O so a half-applied config is never written.
+    Claude Code accepts either its native OAuth document or an Anthropic API
+    key supplied through the environment.  The credentials module enforces
+    that exactly one mode is present; this bridge returns only that selected
+    key and value before any remote I/O begins.
     """
     from clawrium.core.claude_credentials import (
+        ANTHROPIC_API_KEY,
         CLAUDE_CODE_OAUTH_TOKEN,
         ClaudeCredentialError,
         get_active_claude_credential,
@@ -767,11 +856,8 @@ def _validate_claude_credential_activation(agent_name: str) -> tuple[str, str]:
         key, value = get_active_claude_credential(agent_name)
     except ClaudeCredentialError as exc:
         raise CanonicalSyncError(f"Claude credential activation failed: {exc}") from exc
-    if key != CLAUDE_CODE_OAUTH_TOKEN:
-        raise CanonicalSyncError(
-            "Claude native configuration supports OAuth only; "
-            f"found {key} active instead of {CLAUDE_CODE_OAUTH_TOKEN}"
-        )
+    if key not in {CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY}:
+        raise CanonicalSyncError("Claude credential activation failed")
     return key, value
 
 
@@ -789,14 +875,15 @@ def _sync_claude_settings(
     This bypasses provider assembly, install probes, restart, and health
     checks: Claude is an installed CLI. The non-secret files
     (``~/.claude/settings.json`` and ``~/.claude.json``) use the canonical
-    diff path. The OAuth credential body bypasses rendering and diff
-    output entirely and lands at the native
-    ``~/.claude/.credentials.json`` path.
+    diff path. The selected credential bypasses that path entirely: OAuth
+    lands in native ``~/.claude/.credentials.json`` while an API key lands
+    in the private shell-activation environment file.
     """
     from clawrium.core.playbook_resolver import normalize_os_family
     from clawrium.core.render import (
         AgentConfigError,
         parse_claude_settings,
+        render_claude_api_key_environment,
         render_claude_native_files,
         render_claude_oauth_credentials,
     )
@@ -827,7 +914,9 @@ def _sync_claude_settings(
     # Resolve exactly once before diff_files opens SSH. This makes dry-run
     # reject a bad credential without remote I/O and prevents a concurrent
     # local mode switch from validating one secret then writing another.
-    _, credential_value = _validate_claude_credential_activation(agent_name)
+    credential_key, credential_value = _validate_claude_credential_activation(
+        agent_name
+    )
 
     os_family = normalize_os_family(host)
     # `diff_files` owns remote-path construction. Feed it the normalized family
@@ -853,21 +942,34 @@ def _sync_claude_settings(
     # Do not put the credential into `rendered.files` or a FileDiff:
     # dry-run output must remain safe to display. The body moves directly to a
     # private SFTP temp file and is never interpolated into a remote command.
-    try:
-        credential_body = render_claude_oauth_credentials(credential_value)
-    except AgentConfigError as exc:
-        raise CanonicalSyncError(
-            f"Claude credential activation failed: {exc}"
-        ) from exc
-    home = f"{home_root_for(os_family)}/{agent_name}"
-    credential_path = f"{home}/.claude/.credentials.json"
-    # Retired artifacts from the pre-#1021 env-file flow. These are
-    # removed ONLY after the native credentials file is in place so a
-    # host is never left without an active credential.
-    retired_paths = (
-        f"{home}/.claude/clawrium-credentials.env",
-        f"{home}/.profile.d/clawrium-claude.sh",
+    from clawrium.core.claude_credentials import (
+        ANTHROPIC_API_KEY,
+        CLAUDE_CODE_OAUTH_TOKEN,
     )
+
+    home = f"{home_root_for(os_family)}/{agent_name}"
+    native_oauth_path = f"{home}/.claude/.credentials.json"
+    api_key_environment_path = f"{home}/.claude/clawrium-credentials.env"
+    try:
+        if credential_key == CLAUDE_CODE_OAUTH_TOKEN:
+            credential_body = render_claude_oauth_credentials(credential_value)
+            credential_path = native_oauth_path
+            stale_paths = (api_key_environment_path,)
+            credential_mode_label = "OAuth"
+        elif credential_key == ANTHROPIC_API_KEY:
+            credential_body = render_claude_api_key_environment(credential_value)
+            credential_path = api_key_environment_path
+            stale_paths = (native_oauth_path,)
+            credential_mode_label = "API-key"
+        else:
+            raise CanonicalSyncError("Claude credential activation failed")
+    except AgentConfigError as exc:
+        raise CanonicalSyncError(f"Claude credential activation failed: {exc}") from exc
+    # The selected credential is staged before cleanup. Stale-mode cleanup
+    # removes that stage if it cannot prove the opposite artifact absent; the
+    # profile hook is unrelated to credential exclusivity and is retired
+    # separately afterward.
+    retired_paths = (f"{home}/.profile.d/clawrium-claude.sh",)
 
     files_written: list[str] = []
     files_unchanged: list[str] = []
@@ -897,17 +999,44 @@ def _sync_claude_settings(
             )
             files_written.append(diff.path)
 
+        # Stage the new artifact first so stale-mode cleanup failure leaves a
+        # previous selected credential untouched. The stage is promoted only
+        # after the opposite mode has been removed and verified absent.
+        credential_stage_path = f"{credential_path}.clawrium-stage"
         try:
             _atomic_write(
                 client,
                 agent_name=agent_name,
-                remote_path=credential_path,
+                remote_path=credential_stage_path,
                 body=credential_body,
                 host=diff_host,
             )
         except Exception:
             raise CanonicalSyncError("Claude credential activation failed") from None
 
+        _remove_stale_claude_credential_artifacts(
+            client,
+            agent_name=agent_name,
+            selected_path=credential_stage_path,
+            stale_paths=stale_paths,
+        )
+        try:
+            _promote_staged_claude_credential_artifact(
+                client,
+                agent_name=agent_name,
+                staged_path=credential_stage_path,
+                destination_path=credential_path,
+            )
+        except Exception:
+            try:
+                _remove_retired_claude_artifacts(
+                    client,
+                    agent_name=agent_name,
+                    retired_paths=(credential_stage_path,),
+                )
+            except Exception:
+                pass
+            raise CanonicalSyncError("Claude credential activation failed") from None
         _remove_retired_claude_artifacts(
             client, agent_name=agent_name, retired_paths=retired_paths
         )
@@ -918,8 +1047,8 @@ def _sync_claude_settings(
         on_event(
             "sync",
             f"synced native Claude files: {len(files_written)} written, "
-            f"{len(files_unchanged)} unchanged; OAuth credentials refreshed; "
-            "no daemon restart",
+            f"{len(files_unchanged)} unchanged; {credential_mode_label} credentials "
+            "refreshed; no daemon restart",
         )
     return CanonicalSyncResult(
         success=True,

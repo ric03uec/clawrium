@@ -71,7 +71,7 @@ CLAUDE_CODE_OAUTH_TOKEN = "CLAUDE_CODE_OAUTH_TOKEN"
 ANTHROPIC_API_KEY = "ANTHROPIC_API_KEY"
 OAUTH_TOKEN_ENVIRONMENT_VARIABLE = CLAUDE_CODE_OAUTH_TOKEN
 
-# Claude Code 2.1.139 stores the local subscription credential in exactly
+# The pinned Claude Code version stores the local subscription credential in exactly
 # this private JSON artifact. The reader below accepts only the documented
 # ``claudeAiOauth.accessToken`` field from that file; it does not search,
 # copy, or enumerate ~/.claude, a browser profile, a keychain, or a database.

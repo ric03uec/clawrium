@@ -14,9 +14,10 @@ cut. The `itx-release` skill archives this section into a new
 
 ### BREAKING
 
-- **Claude Code agents use native configuration files** instead of a
-  Clawrium-specific credential environment hook (#1021). This applies to
-  every Claude agent — pre-existing agents transition on the next
+- **Claude Code OAuth agents use native configuration files**, while
+  Anthropic API-key agents use a dedicated private environment artifact
+  (#1021, #989). This applies to every Claude agent — pre-existing agents
+  transition on the next
   `clawctl agent configure` or `clawctl agent sync`. Lifecycle changes:
   - `clawctl agent configure <claude-agent>` and `clawctl agent sync
     <claude-agent>` render Claude's standard files directly on the
@@ -41,32 +42,21 @@ cut. The `itx-release` skill archives this section into a new
     or any subscription-scoped call) will fail with "Not logged in"
     even though `claude --version` and other unauthenticated commands
     still work.
-  - Both lifecycle paths **actively remove** the retired
-    `~/.claude/clawrium-credentials.env` and
-    `~/.profile.d/clawrium-claude.sh` after the new native credentials
-    file is in place, so an upgraded host never retains a second
-    credential-bearing copy. Removal is best-effort against a fresh
-    install (no prior artifact to delete) and ordered strictly after
-    the native credentials write (never leaves the host without an
-    active credential).
+  - Both lifecycle paths write the selected credential artifact before
+    clearing the opposite mode: OAuth writes `~/.claude/.credentials.json`
+    before removing the API-key `~/.claude/clawrium-credentials.env`; API-key
+    mode does the inverse. Cleanup verifies the inactive artifact is absent
+    and fails closed by restoring the prior selected artifact (or removing a
+    newly introduced one if no prior state existed) when it cannot do so.
+    The obsolete `~/.profile.d/clawrium-claude.sh` is removed in either mode. A fresh
+    install safely treats absent stale artifacts as no-ops.
   - Creating a Claude agent adds a marker-delimited block to the new
     agent user's `~/.bashrc` that exposes the agent-owned Claude binary
     on `PATH` and sets `DISABLE_AUTOUPDATER=1` so the upstream
     self-updater never fights the pinned npm install.
-  - `clawctl agent shell <claude-agent>` no longer injects a
-    Claude-specific credential prelude; Claude is a plain installed
-    CLI from the shell's point of view.
-  - **Only OAuth is supported** for the native-file flow. An
-    `ANTHROPIC_API_KEY`-mode credential is rejected with
-    `"Claude native configuration supports OAuth only"` before any
-    remote I/O. **Recovery for existing API-key agents**: switch the
-    agent to OAuth before the next configure/sync — either rotate the
-    stored credential to an OAuth token via the Claude provider flow
-    (`clawctl agent provider attach <oauth-provider> --agent <agent>`
-    after importing an OAuth token), or recreate the agent with
-    `clawctl agent delete --yes <name>` followed by `clawctl agent create
-    <name> --type claude --host <host>` and configure OAuth. There is no
-    automated API-key migration path.
+  - `clawctl agent shell <claude-agent>` clears inherited Claude
+    credential variables and sources the private API-key artifact only
+    when it exists; OAuth remains Claude Code's native file state.
 - **zeroclaw upstream pin bumped to v0.8.5** (previously v0.8.2). Three config sections were retired upstream between v0.8.3 and v0.8.5; the clawrium renderer no longer emits any of them, and operators MUST NOT hand-add the retired root-level forms to `~/.zeroclaw/config.toml`:
   - **`[node_transport]`** — removed in v0.8.5 (upstream #10289). Retired legacy HMAC node transport. `[nodes]` remains the supported peer-discovery surface.
   - **`[providers]` root with inline `fallback = "..."`** — no longer accepted. The daemon silently resets the entire `[providers]` section to defaults when the malformed inline key is present, **which wipes the LLM provider binding and breaks chat**. Provider selection now lives entirely on `[agents.<alias>].model_provider = "<type>.<alias>"`.
@@ -93,7 +83,7 @@ cut. The `itx-release` skill archives this section into a new
 ### Added
 
 - Add pinned, checksum-verified host-shared Herdr provisioning for Hermes and Claude Code. Hermes receives the native Herdr plugin and canonical config persistence; Claude remains binary-only, while OpenClaw, ZeroClaw, and Ethos are excluded (#1018).
-- Add `claude-oauth` as a selectable provider for Claude Code agents. It securely imports a locally authorized Claude Code token through the supported Linux `claude setup-token` path and activates it on the selected host without requiring a pre-exported token (#1013).
+- Add `claude-oauth` as a selectable provider for Claude Code agents. It securely imports an allowlisted native OAuth document from the supported Linux controller artifact and activates it on the selected host without requiring a pre-exported token (#1013).
 - Activate the selected Claude Code OAuth token or Anthropic API key during `clawctl agent configure` and `sync`. Credentials are stored in private agent-owned files and available to finite `clawctl agent shell` commands without appearing in settings, diffs, or output (#998).
 - Add bounded global Claude Code settings management for the dedicated agent account. `clawctl agent configure` and `sync` now render only `~/.claude/settings.json` with the approved model, effort, and permission settings — never credentials, project settings, or a daemon restart (#997).
 - Add no-daemon lifecycle handling for the install-only `claude` agent type: lifecycle and log commands report as not applicable, while fleet views show the installed CLI as ready without probing a process, gateway, or port (#996).
@@ -114,10 +104,15 @@ cut. The `itx-release` skill archives this section into a new
 
 ### Changed
 
+- Restore Anthropic API-key configure and sync for Claude Code agents. The
+  selected API key is stored only in the encrypted per-agent secret scope,
+  atomically rendered to a private agent-owned file, and activated only for
+  finite `clawctl agent shell` commands; OAuth native credentials remain
+  supported (#989).
 - Formalize `clawctl agent shell <name> -- <command>` as Claude Code's
   completion-only, non-interactive native command path. The resolved Claude
-  record is carried to the shell runner before its managed credential hook is
-  sourced; no native exec surface is added (#1000).
+  record is carried to the shell runner before its private API-key activation
+  artifact is conditionally sourced; no native exec surface is added (#1000).
 - **zeroclaw**: manifest pins bumped from v0.8.2 → v0.8.5 across all five shipped arch rows (armv7l Debian 13, aarch64 Ubuntu 22.04/24.04, x86_64 Ubuntu 22.04/24.04). SHA256s sourced from the upstream `SHA256SUMS` for `v0.8.5`. `latest_version` resolves to `0.8.5` for fresh installs and `clawctl agent upgrade` on existing agents (#985).
 - ITX review workflows now select an ATX transport by capability instead of a
   Claude-specific MCP tool name, with stateless CLI and documented manual

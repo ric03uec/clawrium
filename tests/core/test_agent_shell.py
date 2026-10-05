@@ -85,14 +85,15 @@ def test_K1_event_parsing_and_isolation_from_exec_events(monkeypatch, patched_en
     assert (stdout, stderr, rc) == ("hi", "", 0)
 
 
-def test_agent_shell_has_no_claude_specific_prelude(monkeypatch, patched_env):
-    """Native Claude Code configuration removed the Claude-only prelude.
+def test_agent_shell_sources_only_the_private_claude_api_key_environment(
+    monkeypatch, patched_env
+):
+    """Claude shell activation is path-only and never carries a secret.
 
-    PATH + auto-update policy are in the dedicated agent user's own
-    ``~/.bashrc`` and OAuth state lives in native
-    ``~/.claude/.credentials.json``. ``agent shell`` therefore builds the
-    same command for a Claude agent as for any other agent — no
-    credential unset, no managed-snippet source, no fail-closed check.
+    OAuth remains native ``.credentials.json`` state. API-key mode is sourced
+    from the agent-owned private environment file after both ambient
+    credential variables are cleared, so finite shell commands cannot mix
+    modes or expose a value to the controller.
     """
     from clawrium.core import hosts as hosts_module
 
@@ -121,9 +122,8 @@ def test_agent_shell_has_no_claude_specific_prelude(monkeypatch, patched_env):
 
     command = commands[0]
     assert "clawrium-claude.sh" not in command
-    assert "clawrium-credentials.env" not in command
-    assert "CLAUDE_CODE_OAUTH_TOKEN" not in command
-    assert "ANTHROPIC_API_KEY" not in command
+    assert "unset CLAUDE_CODE_OAUTH_TOKEN ANTHROPIC_API_KEY" in command
+    assert "clawrium-credentials.env" in command
     assert command.endswith("echo done")
 
 

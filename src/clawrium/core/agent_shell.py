@@ -83,6 +83,17 @@ _AGENT_NAME_RE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
 # otherwise escape the logs root.
 _LOG_DIR_SAFE_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
 
+# This constant is intentionally credential-free. API-key activation writes the
+# secret into the dedicated account's mode-0600 environment file; the finite
+# Claude shell command sources that file only on the host. Clearing both
+# variables first prevents a caller's inherited environment from mixing a
+# stale API key with native OAuth state.
+_CLAUDE_CREDENTIAL_ACTIVATION_PRELUDE = (
+    "unset CLAUDE_CODE_OAUTH_TOKEN ANTHROPIC_API_KEY; "
+    'if [ -r "$HOME/.claude/clawrium-credentials.env" ]; then '
+    '. "$HOME/.claude/clawrium-credentials.env"; fi;'
+)
+
 
 class AgentShellError(Exception):
     """Raised for caller-recoverable errors before invoking ansible_runner."""
@@ -267,12 +278,15 @@ def run_agent_shell(
     # module stays free of OS literals (dispatcher-only OS-fork
     # invariant — `playbook_resolver.py` docstring).
     rc_prepend = playbook_resolver.shell_rc_prepend(os_family)
-    # Claude Code is a plain installed CLI from the shell's point of view:
-    # PATH + auto-update policy live in the agent user's own ~/.bashrc, and
-    # OAuth state lives in native ~/.claude/.credentials.json. The shell
-    # path therefore performs no credential-aware prelude for Claude.
-    _ = agent_type
-    cmd_str = f"{rc_prepend} {user_cmd}"
+    # OAuth lives in native ~/.claude/.credentials.json, while API-key mode
+    # uses a private environment file. The latter must be sourced for every
+    # finite Claude shell command, without putting its content in an argv,
+    # runner event, or controller-side log. Clearing both variables first
+    # also prevents an inherited controller environment from mixing modes.
+    activation_prelude = (
+        f" {_CLAUDE_CREDENTIAL_ACTIVATION_PRELUDE}" if agent_type == "claude" else ""
+    )
+    cmd_str = f"{rc_prepend}{activation_prelude} {user_cmd}"
     # The command runs through ansible's templating layer, so a user
     # command of `echo {{ lookup('env','SECRET') }}` would otherwise
     # expand the lookup on the controller and ship the secret to the

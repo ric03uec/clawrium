@@ -1,6 +1,7 @@
 ---
-# Render the dedicated Claude Code account's native global files. This
-# playbook never invokes Claude Code, creates a service, or touches
+# Render the dedicated Claude Code account's bounded global files and selected
+# private credential artifact. This playbook never invokes Claude Code, creates
+# a service, or touches
 # project-local .claude files. Platform dispatch is owned by
 # ``core.playbook_resolver`` — this runbook never branches on
 # ``ansible_os_family`` (parallels the sibling install.yaml precedent).
@@ -12,12 +13,27 @@
         msg: "Invalid agent_name"
       when: agent_name is not match('^[a-z][a-z0-9_-]{0,31}$')
 
+    - name: Validate selected Claude credential mode
+      ansible.builtin.assert:
+        that:
+          - claude_credential_mode in ['oauth', 'api_key']
+      no_log: true
+
     - name: Validate rendered Claude OAuth credential body
       ansible.builtin.assert:
         that:
           - claude_oauth_credentials is string
           - claude_oauth_credentials | length > 0
       no_log: true
+      when: claude_credential_mode == 'oauth'
+
+    - name: Validate rendered Claude API-key environment body
+      ansible.builtin.assert:
+        that:
+          - claude_api_key_environment is string
+          - claude_api_key_environment | length > 0
+      no_log: true
+      when: claude_credential_mode == 'api_key'
 
     - name: Create dedicated Claude global settings directory
       ansible.builtin.file:
@@ -43,24 +59,181 @@
         group: "{{ agent_name }}"
         mode: "0600"
 
-    - name: Atomically replace native Claude OAuth credentials
-      ansible.builtin.copy:
-        content: "{{ claude_oauth_credentials }}"
-        dest: "/home/{{ agent_name }}/.claude/.credentials.json"
-        owner: "{{ agent_name }}"
-        group: "{{ agent_name }}"
-        mode: "0600"
-        unsafe_writes: false
+    - name: Inspect native Claude OAuth credentials before replacement
+      ansible.builtin.stat:
+        path: "/home/{{ agent_name }}/.claude/.credentials.json"
+      register: claude_oauth_credentials_original
       no_log: true
-      diff: false
+      when: claude_credential_mode == 'oauth'
 
-    # Retired env/profile hook cleanup. Removal runs ONLY after the native
-    # credentials file is in place so the host is never left without an
-    # active credential.
-    - name: Remove retired Claude credential env file
-      ansible.builtin.file:
+    - name: Replace native Claude OAuth credentials exclusively
+      block:
+        - name: Back up native Claude OAuth credentials before replacement
+          ansible.builtin.copy:
+            remote_src: true
+            src: "/home/{{ agent_name }}/.claude/.credentials.json"
+            dest: "/home/{{ agent_name }}/.claude/.credentials.json.clawrium-backup"
+            owner: "{{ agent_name }}"
+            group: "{{ agent_name }}"
+            mode: "0600"
+            unsafe_writes: false
+          no_log: true
+          diff: false
+          when: claude_oauth_credentials_original.stat.exists
+
+        - name: Atomically replace native Claude OAuth credentials
+          ansible.builtin.copy:
+            content: "{{ claude_oauth_credentials }}"
+            dest: "/home/{{ agent_name }}/.claude/.credentials.json"
+            owner: "{{ agent_name }}"
+            group: "{{ agent_name }}"
+            mode: "0600"
+            unsafe_writes: false
+          no_log: true
+          diff: false
+
+        - name: Remove stale Claude API-key environment
+          ansible.builtin.file:
+            path: "/home/{{ agent_name }}/.claude/clawrium-credentials.env"
+            state: absent
+
+        - name: Verify stale Claude API-key environment is absent
+          ansible.builtin.stat:
+            path: "/home/{{ agent_name }}/.claude/clawrium-credentials.env"
+          register: claude_stale_api_key_environment
+
+        - name: Assert stale Claude API-key environment is absent
+          ansible.builtin.assert:
+            that:
+              - not claude_stale_api_key_environment.stat.exists
+
+        - name: Remove native Claude OAuth rollback backup after successful cleanup
+          ansible.builtin.file:
+            path: "/home/{{ agent_name }}/.claude/.credentials.json.clawrium-backup"
+            state: absent
+          no_log: true
+      rescue:
+        - name: Restore prior native Claude OAuth credentials
+          ansible.builtin.copy:
+            remote_src: true
+            src: "/home/{{ agent_name }}/.claude/.credentials.json.clawrium-backup"
+            dest: "/home/{{ agent_name }}/.claude/.credentials.json"
+            owner: "{{ agent_name }}"
+            group: "{{ agent_name }}"
+            mode: "0600"
+            unsafe_writes: false
+          no_log: true
+          diff: false
+          ignore_errors: true
+          when: claude_oauth_credentials_original.stat.exists
+
+        - name: Remove selected native Claude OAuth credentials without prior state
+          ansible.builtin.file:
+            path: "/home/{{ agent_name }}/.claude/.credentials.json"
+            state: absent
+          no_log: true
+          ignore_errors: true
+          when: not claude_oauth_credentials_original.stat.exists
+
+        - name: Remove native Claude OAuth rollback backup
+          ansible.builtin.file:
+            path: "/home/{{ agent_name }}/.claude/.credentials.json.clawrium-backup"
+            state: absent
+          no_log: true
+          ignore_errors: true
+
+        - name: Fail closed when Claude API-key cleanup cannot complete
+          ansible.builtin.fail:
+            msg: Could not establish exclusive Claude credential activation
+      when: claude_credential_mode == 'oauth'
+
+    - name: Inspect Claude API-key environment before replacement
+      ansible.builtin.stat:
         path: "/home/{{ agent_name }}/.claude/clawrium-credentials.env"
-        state: absent
+      register: claude_api_key_environment_original
+      no_log: true
+      when: claude_credential_mode == 'api_key'
+
+    - name: Replace Claude API-key environment exclusively
+      block:
+        - name: Back up Claude API-key environment before replacement
+          ansible.builtin.copy:
+            remote_src: true
+            src: "/home/{{ agent_name }}/.claude/clawrium-credentials.env"
+            dest: "/home/{{ agent_name }}/.claude/clawrium-credentials.env.clawrium-backup"
+            owner: "{{ agent_name }}"
+            group: "{{ agent_name }}"
+            mode: "0600"
+            unsafe_writes: false
+          no_log: true
+          diff: false
+          when: claude_api_key_environment_original.stat.exists
+
+        - name: Atomically replace Claude API-key environment
+          ansible.builtin.copy:
+            content: "{{ claude_api_key_environment }}"
+            dest: "/home/{{ agent_name }}/.claude/clawrium-credentials.env"
+            owner: "{{ agent_name }}"
+            group: "{{ agent_name }}"
+            mode: "0600"
+            unsafe_writes: false
+          no_log: true
+          diff: false
+
+        - name: Remove stale native Claude OAuth credentials
+          ansible.builtin.file:
+            path: "/home/{{ agent_name }}/.claude/.credentials.json"
+            state: absent
+
+        - name: Verify stale native Claude OAuth credentials are absent
+          ansible.builtin.stat:
+            path: "/home/{{ agent_name }}/.claude/.credentials.json"
+          register: claude_stale_oauth_credentials
+
+        - name: Assert stale native Claude OAuth credentials are absent
+          ansible.builtin.assert:
+            that:
+              - not claude_stale_oauth_credentials.stat.exists
+
+        - name: Remove Claude API-key rollback backup after successful cleanup
+          ansible.builtin.file:
+            path: "/home/{{ agent_name }}/.claude/clawrium-credentials.env.clawrium-backup"
+            state: absent
+          no_log: true
+      rescue:
+        - name: Restore prior Claude API-key environment
+          ansible.builtin.copy:
+            remote_src: true
+            src: "/home/{{ agent_name }}/.claude/clawrium-credentials.env.clawrium-backup"
+            dest: "/home/{{ agent_name }}/.claude/clawrium-credentials.env"
+            owner: "{{ agent_name }}"
+            group: "{{ agent_name }}"
+            mode: "0600"
+            unsafe_writes: false
+          no_log: true
+          diff: false
+          ignore_errors: true
+          when: claude_api_key_environment_original.stat.exists
+
+        - name: Remove selected Claude API-key environment without prior state
+          ansible.builtin.file:
+            path: "/home/{{ agent_name }}/.claude/clawrium-credentials.env"
+            state: absent
+          no_log: true
+          ignore_errors: true
+          when: not claude_api_key_environment_original.stat.exists
+
+        - name: Remove Claude API-key rollback backup
+          ansible.builtin.file:
+            path: "/home/{{ agent_name }}/.claude/clawrium-credentials.env.clawrium-backup"
+            state: absent
+          no_log: true
+          ignore_errors: true
+
+        - name: Fail closed when Claude OAuth cleanup cannot complete
+          ansible.builtin.fail:
+            msg: Could not establish exclusive Claude credential activation
+      when: claude_credential_mode == 'api_key'
 
     - name: Remove retired Claude profile hook
       ansible.builtin.file:

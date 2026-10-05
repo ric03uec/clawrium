@@ -141,6 +141,36 @@ def test_claude_oauth_provider_is_selected_with_fake_reader_and_available_to_syn
     assert local_token not in synced.output
 
 
+def test_claude_api_key_secret_create_switches_from_oauth_without_leaking(
+    fleet_dir, stdin_not_tty
+) -> None:
+    _add_claude_agent(fleet_dir)
+    oauth_value = "oauth-" + secrets.token_urlsafe(24)
+    api_value = "api-" + secrets.token_urlsafe(24)
+    configure_claude_credentials("claude-code", oauth_token=oauth_value)
+
+    result = runner.invoke(
+        app,
+        [
+            "agent",
+            "secret",
+            "create",
+            ANTHROPIC_API_KEY,
+            "--agent",
+            "claude-code",
+            "--value-stdin",
+        ],
+        input=api_value + "\n",
+    )
+
+    assert result.exit_code == 0, result.output
+    assert api_value not in result.output
+    assert oauth_value not in result.output
+    entries = get_instance_secrets(_instance_key())
+    assert set(entries) == {ANTHROPIC_API_KEY}
+    assert entries[ANTHROPIC_API_KEY]["value"] == api_value
+
+
 def test_claude_oauth_reader_error_is_redacted_and_restores_attachment(
     fleet_dir, stdin_not_tty, monkeypatch
 ) -> None:

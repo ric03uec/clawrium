@@ -38,6 +38,12 @@ from clawrium.cli.output import (
     emit_error,
     render_table,
 )
+from clawrium.core.claude_credentials import (
+    ANTHROPIC_API_KEY,
+    CLAUDE_CODE_OAUTH_TOKEN,
+    ClaudeCredentialError,
+    configure_claude_credentials,
+)
 from clawrium.core.secrets import (
     AgentNotFoundError,
     InvalidSecretKeyError,
@@ -54,11 +60,14 @@ __all__ = ["secret_app"]
 
 secret_app = typer.Typer(
     name="secret",
-    help="Manage per-agent secrets.",
+    help="Manage per-agent secrets (Claude credential keys select one auth mode).",
     no_args_is_help=True,
     rich_markup_mode=None,
     add_completion=False,
 )
+
+
+_CLAUDE_CREDENTIAL_KEYS = frozenset({ANTHROPIC_API_KEY, CLAUDE_CODE_OAUTH_TOKEN})
 
 
 def _resolve_instance_key(agent: str) -> tuple[str, str]:
@@ -124,6 +133,34 @@ def _parse_env_file(text: str) -> dict[str, str]:
     return out
 
 
+def _store_claude_credential_if_selected(
+    agent: str,
+    key: str,
+    value: str,
+) -> bool:
+    """Store one Claude credential mode and remove the other atomically.
+
+    ``agent secret create`` is the supported API-key entry point. Routing both
+    reserved Claude credential keys through the credential model keeps direct
+    CLI use from creating an ambiguous two-secret state; generic agent secrets
+    retain their existing behavior.
+    """
+    try:
+        _, agent_type, _ = get_installed_claw(agent)
+    except AgentNotFoundError as exc:
+        emit_error(str(exc), hint="clawctl agent get")
+    if agent_type != "claude" or key not in _CLAUDE_CREDENTIAL_KEYS:
+        return False
+    try:
+        if key == ANTHROPIC_API_KEY:
+            configure_claude_credentials(agent, anthropic_api_key=value)
+        else:
+            configure_claude_credentials(agent, oauth_token=value)
+    except ClaudeCredentialError as exc:
+        emit_error(str(exc), hint="configure exactly one Claude credential mode")
+    return True
+
+
 def _secret_to_row(entry: dict) -> dict:
     return {
         "kind": "secret",
@@ -157,7 +194,12 @@ def create(
         False, "--yes", "-y", help="Skip overwrite confirmation if key exists."
     ),
 ) -> None:
-    """Create or overwrite a per-agent secret."""
+    """Create or overwrite a per-agent secret.
+
+    For Claude agents, ``ANTHROPIC_API_KEY`` and
+    ``CLAUDE_CODE_OAUTH_TOKEN`` select one exclusive credential mode and
+    atomically remove the other reserved key.
+    """
     sources = [bool(value), value_stdin, bool(from_file)]
     chosen = sum(sources)
     if chosen > 1:
@@ -194,7 +236,14 @@ def create(
         )
 
     try:
-        created = set_instance_secret(instance_key, key, value, description or "")
+        stored_as_claude_mode = _store_claude_credential_if_selected(
+            canonical, key, value
+        )
+        created = (
+            key not in existing
+            if stored_as_claude_mode
+            else set_instance_secret(instance_key, key, value, description or "")
+        )
     except InvalidSecretKeyError as exc:
         emit_error(
             str(exc),
@@ -355,6 +404,16 @@ def import_cmd(
 
     instance_key, canonical = _resolve_instance_key(agent)
     try:
+        _, agent_type, _ = get_installed_claw(canonical)
+    except AgentNotFoundError as exc:
+        emit_error(str(exc), hint="clawctl agent get")
+    claude_modes = set(pairs) & _CLAUDE_CREDENTIAL_KEYS
+    if agent_type == "claude" and len(claude_modes) > 1:
+        emit_error(
+            "a Claude secret import may contain only one credential mode",
+            hint="import either CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY, not both",
+        )
+    try:
         existing = get_instance_secrets(instance_key)
     except SecretsFileCorruptedError as exc:
         emit_error(str(exc), hint="check ~/.config/clawrium/secrets.json")
@@ -374,7 +433,14 @@ def import_cmd(
     updated = 0
     for key, value in pairs.items():
         try:
-            was_new = set_instance_secret(instance_key, key, value, "")
+            stored_as_claude_mode = _store_claude_credential_if_selected(
+                canonical, key, value
+            )
+            was_new = (
+                key not in existing
+                if stored_as_claude_mode
+                else set_instance_secret(instance_key, key, value, "")
+            )
         except InvalidSecretKeyError as exc:
             emit_error(
                 f"invalid secret key {key!r}: {exc}",

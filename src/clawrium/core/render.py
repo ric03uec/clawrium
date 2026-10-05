@@ -27,6 +27,7 @@ from __future__ import annotations
 import functools as _functools
 import json
 import re
+import shlex
 from dataclasses import dataclass, field, replace
 from typing import Mapping
 
@@ -46,6 +47,7 @@ __all__ = [
     "parse_claude_settings",
     "render_claude_settings",
     "render_claude_native_files",
+    "render_claude_api_key_environment",
     "render_claude_oauth_credentials",
     "build_render_inputs",
     "render_hermes",
@@ -556,6 +558,21 @@ def _coerce_claude_oauth_document(stored: str) -> dict:
     # reader; ``claude --version`` and other unauthenticated commands
     # still succeed because they never touch the OAuth document.
     return {"claudeAiOauth": {"accessToken": stored}}
+
+
+def render_claude_api_key_environment(api_key: str) -> str:
+    """Render the private API-key environment file for a Claude agent.
+
+    Claude Code reads an Anthropic Console key from ``ANTHROPIC_API_KEY``.
+    This renderer keeps that key out of settings and diffs while producing a
+    shell-safe body for the dedicated account's private credential file. The
+    caller writes it only through the no-log, atomic credential transport.
+    """
+    if not isinstance(api_key, str) or not api_key:
+        raise AgentConfigError(
+            "render_claude_api_key_environment requires a non-empty API key"
+        )
+    return f"export ANTHROPIC_API_KEY={shlex.quote(api_key)}\n"
 
 
 def render_claude_oauth_credentials(stored_oauth: str) -> str:
