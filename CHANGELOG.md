@@ -22,4 +22,7 @@ cut. The `itx-release` skill archives this section into a new
 
 ### Documentation
 
+- Mirror the #1019 Herdr documentation onto the website: `website/docs/agent-support/hermes.md` gained the "Herdr integration" section and `website/docs/agent-support/claude.md` the "Herdr runtime" section (the canonical `docs/` sections shipped with #1019 but were never mirrored).
+- Correct the Claude Code credential-mode table to the shipped artifact-based credential state (#1022, #1023): OAuth mode renders Claude's native `~/.claude/.credentials.json` document and API-key mode renders `~/.claude/clawrium-credentials.env`; also fixed the README's remaining "explicitly supplied OAuth token" wording (#1020, #1023).
+
 ### Internal

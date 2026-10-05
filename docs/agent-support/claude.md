@@ -59,12 +59,16 @@ on-demand chat turn can receive it.
 
 ## Credentials and safe sync
 
-A Claude agent has exactly one active credential mode:
+A Claude agent has exactly one active credential mode. Each mode materializes
+its own private artifact in the agent's home (OAuth: Claude's native
+configuration files; API key: a private activation file); the mode is
+selected on the controller side and the opposite mode's artifacts are
+removed:
 
-| Mode | Active remote variable |
-|------|------------------------|
-| Claude OAuth | `CLAUDE_CODE_OAUTH_TOKEN` |
-| Anthropic API key | `ANTHROPIC_API_KEY` |
+| Mode | Active remote artifact (agent home) |
+|------|-------------------------------------|
+| Claude OAuth | `~/.claude/.credentials.json` (native OAuth document) |
+| Anthropic API key | `~/.claude/clawrium-credentials.env` (`ANTHROPIC_API_KEY` activation) |
 
 For an API key, prefer stdin rather than a command-line value:
 
