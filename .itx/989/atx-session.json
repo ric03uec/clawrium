@@ -1,13 +1,15 @@
 {
-  "session_id": "4438e95a-4520-4293-800d-847fd5576bed",
+  "session_id": "217a3346-2cb9-4a9d-b6ac-553e913d5ce6",
   "transport": "cli",
-  "commit_sha": "9bcb617",
-  "iteration": 3,
-  "last_rating": 2.5,
-  "last_blockers": [
-    "B1: Linux process-group timeout cleanup (fixed after review; covered by a real background-child regression).",
-    "B2/B3: ATX requested broader provisioning and public-route coverage beyond this bounded native-exec phase; existing focused CLI, GUI, core, and playbook tests cover this phase."
-  ],
-  "started_at": "2026-10-04T23:46:36Z",
-  "updated_at": "2026-10-05T00:37:04Z"
+  "commit_sha": "93ebac7",
+  "iteration": 1,
+  "last_rating": 4,
+  "last_blockers": [],
+  "scope": "Post-live acceptance review of staged Claude chat safety tests and redacted real E2E evidence",
+  "started_at": "2026-10-05T01:55:53Z",
+  "updated_at": "2026-10-05T01:57:24Z",
+  "previous_premature_review": {
+    "revision_id": "38b34620-7efc-407e-b923-24cfc3c84b08",
+    "note": "Requested before both credential modes had succeeded; retained only as history and not used as acceptance evidence."
+  }
 }

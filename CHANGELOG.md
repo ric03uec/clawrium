@@ -133,6 +133,10 @@ cut. The `itx-release` skill archives this section into a new
 
 ### Fixed
 
+- **Claude Code**: Reset the private upstream Claude session UUID after a browser
+  disconnect so retrying the same GUI conversation cannot fail on a duplicate
+  session ID. Authentication diagnostics emitted on Claude's stdout now map to
+  the same safe credential error as stderr diagnostics (#989).
 - **gui**: Harden static-file handler against path traversal — all candidate
   paths in the catch-all frontend route are now resolved and verified to
   stay inside the frontend directory via `Path.resolve()` +

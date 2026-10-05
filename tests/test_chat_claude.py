@@ -190,12 +190,18 @@ def test_malformed_claude_output_is_a_protocol_error(stdout: str) -> None:
 
 
 @pytest.mark.parametrize(
-    "stderr",
-    ["OAuth credential invalid", "ANTHROPIC_API_KEY unauthorized"],
+    ("stdout", "stderr"),
+    [
+        ("", "OAuth credential invalid"),
+        ("", "ANTHROPIC_API_KEY unauthorized"),
+        ("Invalid API key", ""),
+    ],
 )
-def test_oauth_and_api_key_auth_failures_have_the_same_safe_error(stderr: str) -> None:
+def test_oauth_and_api_key_auth_failures_have_the_same_safe_error(
+    stdout: str, stderr: str
+) -> None:
     def runner(*_args: Any) -> tuple[str, str, int]:
-        return "", stderr, 1
+        return stdout, stderr, 1
 
     backend = ClaudeCodeChatBackend("wolf", "claude-agent", command_runner=runner)
     _run(backend.connect())
@@ -248,6 +254,69 @@ def test_timeout_and_cancellation_are_not_recast_as_protocol_errors() -> None:
     _run(cancel_active_turn())
     assert cancelled.is_set()
     assert cancelling.is_connected is False
+
+
+def test_cancelled_turn_retries_with_fresh_claude_uuid() -> None:
+    """A browser retry must not reuse a UUID created by its cancelled turn."""
+    started = threading.Event()
+    argv_calls: list[list[str]] = []
+    ids = iter(
+        [
+            uuid.UUID("11111111-1111-4111-8111-111111111111"),
+            uuid.UUID("22222222-2222-4222-8222-222222222222"),
+        ]
+    )
+
+    def runner(
+        _host: str,
+        _agent: str,
+        argv: list[str],
+        _prompt: str,
+        _timeout: int,
+        cancel_event: threading.Event,
+    ) -> tuple[str, str, int]:
+        argv_calls.append(argv)
+        if len(argv_calls) == 1:
+            started.set()
+            assert cancel_event.wait(2), "backend did not signal the runner to cancel"
+            return "", "", 124
+        return _result(argv[-1], "retry succeeded"), "", 0
+
+    backend = ClaudeCodeChatBackend(
+        "wolf",
+        "claude-agent",
+        command_runner=runner,
+        session_id_factory=lambda: next(ids),
+    )
+
+    async def cancel_active_turn() -> None:
+        await backend.connect()
+        task = asyncio.create_task(backend.send_message("cancel", "gui:one"))
+        while not started.is_set():
+            await asyncio.sleep(0.01)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    _run(cancel_active_turn())
+    _run(backend.connect())
+    assert _run(backend.send_message("retry", "gui:one")) == "retry succeeded"
+    assert argv_calls == [
+        [
+            "--print",
+            "--output-format",
+            "json",
+            "--session-id",
+            "11111111-1111-4111-8111-111111111111",
+        ],
+        [
+            "--print",
+            "--output-format",
+            "json",
+            "--session-id",
+            "22222222-2222-4222-8222-222222222222",
+        ],
+    ]
 
 
 def test_transport_keeps_prompt_out_of_argv_and_private_artifacts(

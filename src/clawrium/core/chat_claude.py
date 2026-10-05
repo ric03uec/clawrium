@@ -406,6 +406,12 @@ class ClaudeCodeChatBackend:
                     await asyncio.sleep(0.05)
                 except asyncio.CancelledError:
                     continue
+            # A disconnect can race after the remote CLI created its UUID but
+            # before we received its result. Reusing that UUID with
+            # ``--session-id`` makes the retry fail as a duplicate, while
+            # blindly resuming it could retain a turn the browser abandoned.
+            # Start the same browser key over with a fresh upstream UUID.
+            self.clear_history()
             self._connected = False
             raise
 
@@ -424,7 +430,11 @@ class ClaudeCodeChatBackend:
                 f"Timed out waiting for Claude Code response after {timeout}s"
             )
         if rc != 0:
-            if _AUTH_FAILURE_RE.search(stderr):
+            # Claude's print mode may write an authentication diagnostic to
+            # stdout before returning non-zero (the native exec path observes
+            # this for rejected API keys); classify either stream without
+            # relaying its content to CLI or GUI callers.
+            if _AUTH_FAILURE_RE.search(stdout) or _AUTH_FAILURE_RE.search(stderr):
                 raise ChatAuthenticationError(
                     "Claude Code rejected the configured credential"
                 )
