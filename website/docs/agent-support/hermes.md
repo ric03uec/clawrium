@@ -101,6 +101,19 @@ What happens:
 
 The full install takes about 10-12 minutes (uv venv, pip install, npm install, Playwright). Wrapped in an Ansible `async` poll so the SSH connection is reused per-poll.
 
+### Herdr integration
+
+Hermes and Claude Code are the only Clawrium agent types that provision the
+pinned, host-shared [Herdr](https://herdr.dev/) binary. For Hermes, the install
+playbook runs the official `herdr integration install hermes` command as the
+agent user after the Hermes runtime exists. It installs
+`~/.hermes/plugins/herdr-agent-state/` and enables `herdr-agent-state` in
+`~/.hermes/config.yaml`; Clawrium's canonical renderer preserves that exact
+plugin configuration through later configure and sync operations.
+
+The shared binary is intentionally retained when an individual Hermes agent is
+removed. OpenClaw, ZeroClaw, and Ethos never provision or integrate Herdr.
+
 ### 2. Configure the agent
 
 ```bash

@@ -30,6 +30,15 @@ The installed record is shown by `clawctl agent get` and `clawctl agent
 describe`. Its ready state means the installation completed; it is not a
 process-health result.
 
+## Herdr runtime
+
+Claude installs the pinned, host-shared [Herdr](https://herdr.dev/) binary at
+`/usr/local/bin/herdr` on Linux and macOS. The verified runtime is shared with
+Hermes agents on that host and remains after this Claude agent is removed.
+Claude receives **no** Herdr plugin or configuration integration.
+
+Herdr is not provisioned for OpenClaw, ZeroClaw, or Ethos agents.
+
 ## Configuration and settings ownership
 
 `clawctl agent configure <name>` and `clawctl agent sync <name>` reconcile the
@@ -56,12 +65,16 @@ on-demand chat turn can receive it.
 
 ## Credentials and safe sync
 
-A Claude agent has exactly one active credential mode:
+A Claude agent has exactly one active credential mode. Each mode materializes
+its own private artifact in the agent's home (OAuth: Claude's native
+configuration files; API key: a private activation file); the mode is
+selected on the controller side and the opposite mode's artifacts are
+removed:
 
-| Mode | Active remote variable |
-|------|------------------------|
-| Claude OAuth | `CLAUDE_CODE_OAUTH_TOKEN` |
-| Anthropic API key | `ANTHROPIC_API_KEY` |
+| Mode | Active remote artifact (agent home) |
+|------|-------------------------------------|
+| Claude OAuth | `~/.claude/.credentials.json` (native OAuth document) |
+| Anthropic API key | `~/.claude/clawrium-credentials.env` (`ANTHROPIC_API_KEY` activation) |
 
 For an API key, prefer stdin rather than a command-line value:
 
