@@ -297,7 +297,7 @@ wheels = [
 
 [[package]]
 name = "clawrium"
-version = "26.7.3"
+version = "26.8.0"
 source = { editable = "." }
 dependencies = [
     { name = "ansible-runner" },
