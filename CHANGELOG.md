@@ -28,4 +28,4 @@ cut. The `itx-release` skill archives this section into a new
   `Metadata-Version: 2.5`, which the previous `pypa/gh-action-pypi-publish`
   SHA rejected) and bumping `pypa/gh-action-pypi-publish` from v1.14.0 to
   v1.14.2 (bundled twine v7 accepts metadata 2.5). The v26.8.0 publish run
-  failed on this; v26.8.1 is the republish.
+  failed on this; the next patch cut republishes.
