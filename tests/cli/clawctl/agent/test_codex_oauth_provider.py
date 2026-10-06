@@ -10,6 +10,7 @@ from clawrium.cli import app
 from clawrium.cli.clawctl.agent import provider as agent_provider
 from clawrium.core import codex_credentials
 from clawrium.core.codex_credentials import CODEX_OAUTH_DOCUMENT, CodexOAuthSourceError
+from clawrium.core.providers.storage import get_provider
 from clawrium.core.secrets import (
     get_instance_key,
     get_instance_secrets,
@@ -46,6 +47,10 @@ def _create_provider() -> None:
         ],
     )
     assert result.exit_code == 0, result.output
+    record = get_provider("local-codex-oauth")
+    assert record is not None
+    assert record["name"] == "local-codex-oauth"
+    assert record["type"] == "codex-oauth"
 
 
 def _document() -> str:

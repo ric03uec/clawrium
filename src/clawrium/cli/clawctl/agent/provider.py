@@ -664,7 +664,13 @@ def detach(
             )
 
     remaining = [e for e in current if e is not target]
+    provider_record = _safe_get_provider(name)
     if agent_type == "codex":
+        if provider_record.get("type") != CODEX_OAUTH_PROVIDER_TYPE:
+            emit_error(
+                "Codex OAuth credential can only be removed with a codex-oauth provider",
+                hint="repair the provider attachment metadata before detaching",
+            )
         confirm_destructive(
             prompt=(
                 f"Detach provider {sanitize_passthrough(name)!r} and delete the imported "
