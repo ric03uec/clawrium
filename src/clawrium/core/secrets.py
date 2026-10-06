@@ -25,6 +25,7 @@ __all__ = [
     "get_instance_secrets",
     "set_instance_secret",
     "replace_instance_secret",
+    "replace_instance_secrets",
     "remove_instance_secret",
     "remove_instance_secret_if_matches",
     "replace_instance_secret_if_matches",
@@ -440,6 +441,50 @@ def replace_instance_secret(
         config_dir = init_config_dir()
         _save_secrets_atomic(secrets, config_dir)
         return created
+
+
+def replace_instance_secrets(
+    instance_key: str,
+    replacements: dict[str, str | None],
+    *,
+    descriptions: dict[str, str] | None = None,
+) -> None:
+    """Atomically apply several secret replacements/removals for one instance.
+
+    The complete mapping is committed in a single rename.  This is used for
+    durable operation journals whose state and credential update must never be
+    torn within ``secrets.json``.
+    """
+    for key in replacements:
+        validate_secret_key(key)
+    descriptions = descriptions or {}
+
+    with _secrets_lock():
+        secrets = load_secrets()
+        instance_secrets = secrets.setdefault(instance_key, {})
+        now = datetime.now(timezone.utc).isoformat()
+        for key, value in replacements.items():
+            if value is None:
+                instance_secrets.pop(key, None)
+                continue
+            existing = instance_secrets.get(key)
+            instance_secrets[key] = SecretEntry(
+                key=key,
+                value=value,
+                created_at=(
+                    existing.get("created_at", now)
+                    if isinstance(existing, dict)
+                    else now
+                ),
+                updated_at=now,
+                description=(
+                    descriptions.get(key)
+                    or (existing.get("description", "") if isinstance(existing, dict) else "")
+                ),
+            )
+        if not instance_secrets:
+            secrets.pop(instance_key, None)
+        _save_secrets_atomic(secrets, init_config_dir())
 
 
 def remove_instance_secret_if_matches(instance_key: str, key: str, value: str) -> bool:

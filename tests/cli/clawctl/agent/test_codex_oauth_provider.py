@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 
+import pytest
 from typer.testing import CliRunner
 
 from clawrium.cli import app
@@ -195,6 +196,32 @@ def test_metadata_failure_removes_new_document_without_prior_secret(
     assert CODEX_OAUTH_DOCUMENT not in get_instance_secrets(key)
 
 
+def test_attach_secret_transaction_failure_cannot_select_provider_when_error_handler_returns(
+    fleet_dir, stdin_not_tty, monkeypatch
+):
+    _add_codex_agent(fleet_dir)
+    _create_provider()
+    monkeypatch.setattr(codex_credentials, "read_local_codex_oauth_document", _document)
+    monkeypatch.setattr(
+        agent_provider,
+        "replace_instance_secrets",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("private failure")),
+    )
+    messages = []
+    monkeypatch.setattr(
+        agent_provider, "emit_error", lambda message, **_kwargs: messages.append(message)
+    )
+
+    result = runner.invoke(
+        app, ["agent", "provider", "attach", "local-codex-oauth", "--agent", "codex-cli"]
+    )
+
+    assert result.exit_code == 0
+    assert messages == ["could not import the local Codex OAuth credential"]
+    hosts = json.loads((fleet_dir / "hosts.json").read_text())
+    assert "providers" not in hosts[0]["agents"]["codex-cli"]
+
+
 def test_codex_oauth_rejects_non_codex_agent_before_reader(
     fleet_dir, stdin_not_tty, monkeypatch
 ):
@@ -304,9 +331,10 @@ def test_detach_secret_removal_failure_preserves_selection_and_redacts_error(
     )
     key = get_instance_key("10.0.0.1", "codex", "codex-cli")
     before = get_instance_secrets(key)
-    monkeypatch.setattr(
-        agent_provider, "remove_instance_secret_if_matches", lambda *_: False
-    )
+    def fail_secret_transaction(*_args, **_kwargs):
+        raise OSError("private secret store failure")
+
+    monkeypatch.setattr(agent_provider, "replace_instance_secrets", fail_secret_transaction)
 
     result = runner.invoke(
         app,
@@ -532,3 +560,132 @@ def test_detach_metadata_rollback_does_not_overwrite_concurrent_reattach(
 
     assert result.exit_code != 0
     assert get_instance_secrets(key)[CODEX_OAUTH_DOCUMENT]["value"] == refreshed
+
+
+@pytest.mark.parametrize("interrupt_step", ["attach_secret", "attach_metadata"])
+def test_attach_recovers_durable_journal_after_interruption(
+    fleet_dir, stdin_not_tty, monkeypatch, interrupt_step
+):
+    _add_codex_agent(fleet_dir)
+    _create_provider()
+    document = _document().replace("access-test-token", "recovered-token")
+    monkeypatch.setattr(codex_credentials, "read_local_codex_oauth_document", lambda: document)
+    key = get_instance_key("10.0.0.1", "codex", "codex-cli")
+
+    interrupted = False
+
+    def interrupt_after_secret(step: str) -> None:
+        nonlocal interrupted
+        if step == interrupt_step and not interrupted:
+            interrupted = True
+            raise KeyboardInterrupt()
+
+    monkeypatch.setattr(
+        agent_provider, "_after_codex_oauth_durable_step", interrupt_after_secret
+    )
+    failed = runner.invoke(
+        app, ["agent", "provider", "attach", "local-codex-oauth", "--agent", "codex-cli"]
+    )
+    assert failed.exit_code != 0
+    assert agent_provider.CODEX_OAUTH_PENDING_TRANSACTION in get_instance_secrets(key)
+    hosts = json.loads((fleet_dir / "hosts.json").read_text())
+    if interrupt_step == "attach_secret":
+        assert "providers" not in hosts[0]["agents"]["codex-cli"]
+    else:
+        assert hosts[0]["agents"]["codex-cli"]["providers"] == ["local-codex-oauth"]
+
+    recovered = runner.invoke(
+        app, ["agent", "provider", "attach", "local-codex-oauth", "--agent", "codex-cli"]
+    )
+    assert recovered.exit_code == 0, recovered.output
+    entries = get_instance_secrets(key)
+    assert agent_provider.CODEX_OAUTH_PENDING_TRANSACTION not in entries
+    assert json.loads(entries[CODEX_OAUTH_DOCUMENT]["value"]) == json.loads(document)
+    hosts = json.loads((fleet_dir / "hosts.json").read_text())
+    assert hosts[0]["agents"]["codex-cli"]["providers"] == ["local-codex-oauth"]
+
+
+@pytest.mark.parametrize("interrupt_step", ["detach_secret", "detach_metadata"])
+def test_detach_recovers_durable_journal_after_interruption(
+    fleet_dir, stdin_not_tty, monkeypatch, interrupt_step
+):
+    _add_codex_agent(fleet_dir)
+    _create_provider()
+    monkeypatch.setattr(codex_credentials, "read_local_codex_oauth_document", _document)
+    assert runner.invoke(
+        app, ["agent", "provider", "attach", "local-codex-oauth", "--agent", "codex-cli"]
+    ).exit_code == 0
+    key = get_instance_key("10.0.0.1", "codex", "codex-cli")
+
+    interrupted = False
+
+    def interrupt_after_metadata(step: str) -> None:
+        nonlocal interrupted
+        if step == interrupt_step and not interrupted:
+            interrupted = True
+            raise KeyboardInterrupt()
+
+    monkeypatch.setattr(
+        agent_provider, "_after_codex_oauth_durable_step", interrupt_after_metadata
+    )
+    failed = runner.invoke(
+        app,
+        [
+            "agent", "provider", "detach", "local-codex-oauth", "--agent", "codex-cli", "--yes"
+        ],
+    )
+    assert failed.exit_code != 0
+    assert agent_provider.CODEX_OAUTH_PENDING_TRANSACTION in get_instance_secrets(key)
+    hosts = json.loads((fleet_dir / "hosts.json").read_text())
+    if interrupt_step == "detach_secret":
+        assert hosts[0]["agents"]["codex-cli"]["providers"] == ["local-codex-oauth"]
+    else:
+        assert hosts[0]["agents"]["codex-cli"]["providers"] == []
+
+    # The next operation reconciles the journal before reporting that the
+    # provider is already detached, leaving both durable stores detached.
+    recovered = runner.invoke(
+        app,
+        [
+            "agent", "provider", "detach", "local-codex-oauth", "--agent", "codex-cli", "--yes"
+        ],
+    )
+    assert recovered.exit_code == (0 if interrupt_step == "detach_secret" else 1)
+    entries = get_instance_secrets(key)
+    assert agent_provider.CODEX_OAUTH_PENDING_TRANSACTION not in entries
+    assert CODEX_OAUTH_DOCUMENT not in entries
+
+
+def test_failed_cas_recovery_never_overwrites_newer_document(
+    fleet_dir, stdin_not_tty, monkeypatch
+):
+    _add_codex_agent(fleet_dir)
+    _create_provider()
+    imported = _document().replace("access-test-token", "imported-token")
+    newer = _document().replace("access-test-token", "newer-token")
+    monkeypatch.setattr(
+        codex_credentials, "read_local_codex_oauth_document", lambda: imported
+    )
+    key = get_instance_key("10.0.0.1", "codex", "codex-cli")
+    cas_results = []
+    original_cas = agent_provider.replace_instance_secret_if_matches
+
+    def record_cas(*args, **kwargs):
+        result = original_cas(*args, **kwargs)
+        cas_results.append(result)
+        return result
+
+    def fail_metadata(*_args, **_kwargs):
+        set_instance_secret(key, CODEX_OAUTH_DOCUMENT, newer)
+        return False
+
+    monkeypatch.setattr(agent_provider, "replace_instance_secret_if_matches", record_cas)
+    monkeypatch.setattr(agent_provider, "_set_attachments", fail_metadata)
+    result = runner.invoke(
+        app, ["agent", "provider", "attach", "local-codex-oauth", "--agent", "codex-cli"]
+    )
+    assert result.exit_code != 0
+    # The rollback's CAS fails because another writer replaced the imported
+    # value; recovery clears its marker but never overwrites the newer secret.
+    assert False in cas_results
+    assert get_instance_secrets(key)[CODEX_OAUTH_DOCUMENT]["value"] == newer

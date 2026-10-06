@@ -38,6 +38,7 @@ __all__ = [
     "get_codex_oauth_instance_key",
     "get_codex_credential_state",
     "import_codex_oauth_from_local_reader",
+    "normalize_codex_oauth_document",
     "read_local_codex_oauth_document",
 ]
 
@@ -233,17 +234,22 @@ def get_codex_credential_state(agent_name: str) -> CodexCredentialState:
     return CodexCredentialState(configured=CODEX_OAUTH_DOCUMENT in entries)
 
 
-def configure_codex_oauth(agent_name: str, *, document: object) -> CodexCredentialState:
-    """Validate and atomically store one full native Codex OAuth document."""
+def normalize_codex_oauth_document(document: object) -> str:
+    """Validate and canonically serialize an OAuth document without storing it."""
     if not isinstance(document, str):
         raise CodexCredentialError("Codex OAuth document must be a string")
     try:
         parsed = json.loads(document)
     except (TypeError, json.JSONDecodeError):
         raise CodexCredentialError("Codex OAuth document is invalid") from None
-    serialized = _serialize_oauth_document_for_storage(
+    return _serialize_oauth_document_for_storage(
         _validate_native_codex_oauth_document(parsed)
     )
+
+
+def configure_codex_oauth(agent_name: str, *, document: object) -> CodexCredentialState:
+    """Validate and atomically store one full native Codex OAuth document."""
+    serialized = normalize_codex_oauth_document(document)
     replace_instance_secret(
         _resolve_codex_instance_key(agent_name),
         CODEX_OAUTH_DOCUMENT,

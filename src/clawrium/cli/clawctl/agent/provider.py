@@ -21,6 +21,7 @@ non-secret attachment and its OAuth token stays in per-instance secrets.
 
 from __future__ import annotations
 
+import json
 from typing import Optional
 
 import typer
@@ -37,6 +38,7 @@ from clawrium.cli.output import (
     stream_action,
 )
 from clawrium.core.hosts import update_host
+from clawrium.core import codex_credentials
 from clawrium.core.claude_credentials import (
     ClaudeCredentialError,
     import_claude_oauth_from_local_reader,
@@ -45,12 +47,12 @@ from clawrium.core.codex_credentials import (
     CODEX_OAUTH_DOCUMENT,
     CodexCredentialError,
     codex_oauth_operation_lock,
-    get_codex_oauth_document,
     get_codex_oauth_instance_key,
-    import_codex_oauth_from_local_reader,
+    normalize_codex_oauth_document,
 )
 from clawrium.core.secrets import (
     get_instance_secrets,
+    replace_instance_secrets,
     remove_instance_secret_if_matches,
     replace_instance_secret_if_matches,
     restore_instance_secret_if_absent,
@@ -325,26 +327,136 @@ def _attach_codex_oauth_provider(
         )
 
 
-def _rollback_codex_import(
-    secret_key: str, previous_document: str | None, imported_document: str
-) -> bool:
-    """Compare-and-swap a failed metadata write back to its prior secret."""
+CODEX_OAUTH_PENDING_TRANSACTION = "CODEX_OAUTH_PENDING_TRANSACTION"
+
+
+def _after_codex_oauth_durable_step(_step: str) -> None:
+    """Test seam for interruption immediately after each durable boundary."""
+
+
+def _pending_transaction(
+    operation: str, provider_name: str, previous_document: str | None, document: str
+) -> str:
+    return json.dumps(
+        {
+            "document": document,
+            "operation": operation,
+            "previous_document": previous_document,
+            "provider_name": provider_name,
+        },
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+
+
+def _load_codex_pending_transaction(secret_key: str) -> tuple[str, dict] | None:
+    entry = get_instance_secrets(secret_key).get(CODEX_OAUTH_PENDING_TRANSACTION)
+    value = entry.get("value") if isinstance(entry, dict) else None
+    if not isinstance(value, str):
+        return None
     try:
-        return replace_instance_secret_if_matches(
+        transaction = json.loads(value)
+    except json.JSONDecodeError:
+        return None
+    if (
+        not isinstance(transaction, dict)
+        or transaction.get("operation") not in {"attach", "detach"}
+        or not isinstance(transaction.get("provider_name"), str)
+        or not isinstance(transaction.get("document"), str)
+        or transaction.get("previous_document") is not None
+        and not isinstance(transaction.get("previous_document"), str)
+    ):
+        return None
+    return value, transaction
+
+
+def _clear_codex_pending_transaction(secret_key: str, serialized: str) -> None:
+    # Compare-and-delete avoids erasing a future transaction if a caller that
+    # does not use the per-agent operation lock writes one concurrently.
+    remove_instance_secret_if_matches(
+        secret_key, CODEX_OAUTH_PENDING_TRANSACTION, serialized
+    )
+
+
+def _set_document_if_prior_matches(
+    secret_key: str, previous_document: str | None, document: str
+) -> None:
+    if previous_document is None:
+        restore_instance_secret_if_absent(
             secret_key,
             CODEX_OAUTH_DOCUMENT,
-            imported_document,
-            previous_document,
+            document,
             description="Codex OAuth credential document",
         )
-    except Exception:
-        return False
+    elif previous_document != document:
+        replace_instance_secret_if_matches(
+            secret_key,
+            CODEX_OAUTH_DOCUMENT,
+            previous_document,
+            document,
+            description="Codex OAuth credential document",
+        )
+
+
+def _restore_document_if_operation_matches(
+    secret_key: str, previous_document: str | None, document: str
+) -> None:
+    replace_instance_secret_if_matches(
+        secret_key,
+        CODEX_OAUTH_DOCUMENT,
+        document,
+        previous_document,
+        description="Codex OAuth credential document",
+    )
+
+
+def _reconcile_codex_oauth_transaction(
+    *, host: dict, agent_key: str, agent: str
+) -> None:
+    """Resolve an interrupted credential operation without exposing its document.
+
+    The journal and credential mutation share one atomic secrets-file write.
+    Hosts metadata is a distinct file, so recovery uses its observed selection:
+    selected means complete the intent; unselected means restore the prior
+    credential.  All document writes are compare-and-swap/absent-only, so a
+    newer credential always wins over stale recovery.
+    """
+    secret_key = get_codex_oauth_instance_key(agent)
+    pending = _load_codex_pending_transaction(secret_key)
+    if pending is None:
+        return
+    serialized, transaction = pending
+    provider_name = transaction["provider_name"]
+    document = transaction["document"]
+    previous_document = transaction["previous_document"]
+    selected = _find_attachment(
+        _get_attachments(host, agent_key, "codex"), provider_name
+    ) is not None
+    if transaction["operation"] == "attach":
+        if selected:
+            _set_document_if_prior_matches(secret_key, previous_document, document)
+        else:
+            _restore_document_if_operation_matches(
+                secret_key, previous_document, document
+            )
+    elif selected:
+        if previous_document is not None:
+            restore_instance_secret_if_absent(
+                secret_key,
+                CODEX_OAUTH_DOCUMENT,
+                previous_document,
+                description="Codex OAuth credential document",
+            )
+    else:
+        remove_instance_secret_if_matches(secret_key, CODEX_OAUTH_DOCUMENT, document)
+    _clear_codex_pending_transaction(secret_key, serialized)
 
 
 def _attach_codex_oauth_provider_locked(
     *, provider_record: dict, host: dict, agent: str, hostname: str, agent_key: str
 ) -> None:
     """Attach Codex OAuth metadata and import its private native snapshot."""
+    _reconcile_codex_oauth_transaction(host=host, agent_key=agent_key, agent=agent)
     if provider_record.get("type") != CODEX_OAUTH_PROVIDER_TYPE:
         emit_error(
             "Codex agents require a codex-oauth provider",
@@ -366,42 +478,51 @@ def _attach_codex_oauth_provider_locked(
     if not isinstance(previous_document, str):
         previous_document = None
     try:
-        # Commit the encrypted credential first. If the process stops before
-        # metadata selection, the snapshot is unreachable and cannot activate
-        # either a stale or newly imported credential. The opposite ordering
-        # could revive a stale snapshot after a crash.
-        import_codex_oauth_from_local_reader(agent)
+        document = normalize_codex_oauth_document(
+            codex_credentials.read_local_codex_oauth_document()
+        )
     except CodexCredentialError as exc:
         emit_error("could not import the local Codex OAuth credential", hint=str(exc))
+        return
     except Exception:
         emit_error(
             "could not import the local Codex OAuth credential",
             hint="local Codex OAuth credential import failed",
         )
-    imported_document = get_codex_oauth_document(agent)
+        return
+    transaction = _pending_transaction(
+        "attach", provider_name, previous_document, document
+    )
+    try:
+        replace_instance_secrets(
+            secret_key,
+            {CODEX_OAUTH_PENDING_TRANSACTION: transaction, CODEX_OAUTH_DOCUMENT: document},
+            descriptions={
+                CODEX_OAUTH_PENDING_TRANSACTION: "Codex OAuth operation journal",
+                CODEX_OAUTH_DOCUMENT: "Codex OAuth credential document",
+            },
+        )
+    except Exception:
+        emit_error(
+            "could not import the local Codex OAuth credential",
+            hint="local Codex OAuth credential import failed",
+        )
+        return
+    _after_codex_oauth_durable_step("attach_secret")
     try:
         metadata_written = not attached_now or _set_attachments(
             hostname, agent_key, "codex", [provider_name]
         )
     except BaseException:
-        _rollback_codex_import(secret_key, previous_document, imported_document)
+        _reconcile_codex_oauth_transaction(host=host, agent_key=agent_key, agent=agent)
         raise
+    _after_codex_oauth_durable_step("attach_metadata")
     if not metadata_written:
-        rollback_succeeded = _rollback_codex_import(
-            secret_key, previous_document, imported_document
-        )
-        hint = None
-        if not rollback_succeeded:
-            hint = (
-                "credential rollback could not be confirmed; re-attach before retrying"
-            )
-        emit_error(
-            f"failed to attach provider {provider_name!r} to agent {agent!r}", hint=hint
-        )
+        _reconcile_codex_oauth_transaction(host=host, agent_key=agent_key, agent=agent)
+        emit_error(f"failed to attach provider {provider_name!r} to agent {agent!r}")
+    _clear_codex_pending_transaction(secret_key, transaction)
     if attached_now:
-        stream_action(
-            resource=f"agent/{agent}", message=f"attached provider {provider_name!r}"
-        )
+        stream_action(resource=f"agent/{agent}", message=f"attached provider {provider_name!r}")
     else:
         stream_action(
             resource=f"agent/{agent}",
@@ -571,6 +692,7 @@ def _detach_codex_oauth_provider(*, agent: str, name: str) -> None:
         host, _unused, claw = safe_resolve_agent(agent)
         hostname = host["hostname"]
         agent_key = resolve_agent_key(host, agent)
+        _reconcile_codex_oauth_transaction(host=host, agent_key=agent_key, agent=agent)
         current = _get_attachments(host, agent_key, _agent_type(claw))
         target = _find_attachment(current, name)
         if target is None:
@@ -579,34 +701,39 @@ def _detach_codex_oauth_provider(*, agent: str, name: str) -> None:
                 hint=f"clawctl agent provider get --agent {agent}",
             )
         remaining = [entry for entry in current if entry is not target]
+        secret_key = get_codex_oauth_instance_key(agent)
+        entry = get_instance_secrets(secret_key).get(CODEX_OAUTH_DOCUMENT)
+        document = entry.get("value") if isinstance(entry, dict) else None
+        if not isinstance(document, str):
+            emit_error(
+                f"could not remove Codex OAuth credential for agent {agent!r} "
+                f"and provider {name!r}: secret removal was not confirmed"
+            )
+            return
+        transaction = _pending_transaction("detach", name, document, document)
         try:
-            secret_key = get_codex_oauth_instance_key(agent)
-            entry = get_instance_secrets(secret_key).get(CODEX_OAUTH_DOCUMENT)
-            document = entry.get("value") if isinstance(entry, dict) else None
-            if not isinstance(document, str) or not remove_instance_secret_if_matches(
-                secret_key, CODEX_OAUTH_DOCUMENT, document
-            ):
-                raise OSError("secret removal was not confirmed")
+            replace_instance_secrets(
+                secret_key,
+                {CODEX_OAUTH_PENDING_TRANSACTION: transaction, CODEX_OAUTH_DOCUMENT: None},
+                descriptions={CODEX_OAUTH_PENDING_TRANSACTION: "Codex OAuth operation journal"},
+            )
         except Exception:
             emit_error(
                 f"could not remove Codex OAuth credential for agent {agent!r} "
                 f"and provider {name!r}: secret removal was not confirmed"
             )
             return
-        if not _set_attachments(hostname, agent_key, "codex", remaining):
-            try:
-                restore_instance_secret_if_absent(
-                    secret_key,
-                    CODEX_OAUTH_DOCUMENT,
-                    document,
-                    description="Codex OAuth credential document",
-                )
-            except Exception:
-                emit_error(
-                    "Codex OAuth rollback could not restore the credential",
-                    hint="verify the provider attachment and re-attach the local codex-oauth provider",
-                )
+        _after_codex_oauth_durable_step("detach_secret")
+        try:
+            metadata_written = _set_attachments(hostname, agent_key, "codex", remaining)
+        except BaseException:
+            _reconcile_codex_oauth_transaction(host=host, agent_key=agent_key, agent=agent)
+            raise
+        _after_codex_oauth_durable_step("detach_metadata")
+        if not metadata_written:
+            _reconcile_codex_oauth_transaction(host=host, agent_key=agent_key, agent=agent)
             emit_error(f"failed to detach provider {name!r} from agent {agent!r}")
+        _clear_codex_pending_transaction(secret_key, transaction)
         stream_action(
             resource=f"agent/{agent}",
             message=f"detached provider {name!r} and removed imported Codex OAuth credential",
@@ -637,6 +764,22 @@ def detach(
     multi = supports_multi_provider(agent_type)
 
     current = _get_attachments(host, agent_key, agent_type)
+    if agent_type == "codex":
+        provider_record = _safe_get_provider(name)
+        if provider_record.get("type") != CODEX_OAUTH_PROVIDER_TYPE:
+            emit_error(
+                "Codex OAuth credential can only be removed with a codex-oauth provider",
+                hint="repair the provider attachment metadata before detaching",
+            )
+        confirm_destructive(
+            prompt=(
+                f"Detach provider {sanitize_passthrough(name)!r} and delete the imported "
+                f"Codex OAuth credential for agent {sanitize_passthrough(agent)!r}?"
+            ),
+            yes=yes,
+        )
+        _detach_codex_oauth_provider(agent=agent, name=name)
+        return
     target = _find_attachment(current, name)
     if target is None:
         emit_error(
@@ -665,21 +808,6 @@ def detach(
 
     remaining = [e for e in current if e is not target]
     provider_record = _safe_get_provider(name)
-    if agent_type == "codex":
-        if provider_record.get("type") != CODEX_OAUTH_PROVIDER_TYPE:
-            emit_error(
-                "Codex OAuth credential can only be removed with a codex-oauth provider",
-                hint="repair the provider attachment metadata before detaching",
-            )
-        confirm_destructive(
-            prompt=(
-                f"Detach provider {sanitize_passthrough(name)!r} and delete the imported "
-                f"Codex OAuth credential for agent {sanitize_passthrough(agent)!r}?"
-            ),
-            yes=yes,
-        )
-        _detach_codex_oauth_provider(agent=agent, name=name)
-        return
     if not _set_attachments(hostname, agent_key, agent_type, remaining):
         emit_error(f"failed to detach provider {name!r} from agent {agent!r}")
     stream_action(resource=f"agent/{agent}", message=f"detached provider {name!r}")
