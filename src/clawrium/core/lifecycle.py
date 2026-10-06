@@ -5,10 +5,12 @@ running on remote hosts via systemd service management.
 """
 
 import json
+import hashlib
 import logging
 import os
 import re
 import shutil
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, TypedDict
@@ -1806,7 +1808,7 @@ def sync_agent(
     if not has_daemon_lifecycle(agent_type):
         if not has_completed_install(claw_record):
             raise LifecycleError(incomplete_install_message(agent_type, "sync"))
-        if agent_type == "claude":
+        if agent_type in {"claude", "codex"}:
             from clawrium.core.lifecycle_canonical import (
                 CanonicalSyncError,
                 sync_agent_canonical,
@@ -1815,6 +1817,7 @@ def sync_agent(
             try:
                 result = sync_agent_canonical(
                     claw_record.get("agent_name") or agent_key,
+                    agent_key=agent_key,
                     restart=False,
                     verify=False,
                     push_workspace=False,
@@ -2318,6 +2321,142 @@ def _hydrate_channels_from_canonical(
     return True, None
 
 
+def _codex_interrupted_receipt_failure(result: object) -> bool:
+    """Whether Ansible rejected the safe interrupted-receipt guard."""
+    for event in getattr(result, "events", ()) or ():
+        if not isinstance(event, dict) or event.get("event") != "runner_on_failed":
+            continue
+        data = event.get("event_data")
+        if isinstance(data, dict) and data.get("task") == (
+            "Refuse interrupted Codex activation without a committed receipt"
+        ):
+            return True
+    return False
+
+
+def _configure_codex_credentials(
+    *,
+    hostname: str,
+    host: dict,
+    agent_key: str,
+    unix_agent_name: str,
+    config_data: dict,
+    extra_vars: dict | None,
+) -> tuple[bool, str | None]:
+    """Activate Codex OAuth without overwriting an in-place token refresh."""
+    if not isinstance(config_data, dict) or extra_vars:
+        return False, "Codex configuration does not accept extra variables"
+    from clawrium.core.codex_credentials import (
+        CodexCredentialError,
+        codex_oauth_activation_id,
+        codex_oauth_operation_lock,
+        get_codex_oauth_document,
+        mark_codex_oauth_activated,
+    )
+    from clawrium.core.playbook_resolver import (
+        home_root_for,
+        normalize_os_family,
+        resolve_agent_playbook,
+    )
+    from clawrium.core.render import AgentConfigError, render_codex_oauth_credentials
+    # Reconcile the provider's journal before reading its selected snapshot.
+    # Import is local to avoid making the core lifecycle module a CLI import at
+    # startup; both operations share this per-agent lock.
+    from clawrium.cli.clawctl.agent.provider import _reconcile_codex_oauth_transaction
+
+    try:
+        with codex_oauth_operation_lock(unix_agent_name):
+            _reconcile_codex_oauth_transaction(
+                host=host, agent_key=agent_key, agent=unix_agent_name
+            )
+            activation_id = codex_oauth_activation_id(unix_agent_name)
+            replace_auth = activation_id is not None
+            credentials = render_codex_oauth_credentials(
+                get_codex_oauth_document(unix_agent_name)
+            )
+            os_family = normalize_os_family(host)
+            playbook_path = resolve_agent_playbook("codex", "configure", os_family)
+            key_id = host.get("key_id") or hostname
+            ssh_key = get_host_private_key(key_id)
+            if not ssh_key:
+                return False, "SSH key not found"
+            inventory = {
+                "all": {"hosts": {hostname: {
+                    "ansible_host": hostname, "ansible_user": host.get("user", "xclm"),
+                    "ansible_port": host.get("port", 22),
+                    "ansible_ssh_private_key_file": str(ssh_key),
+                }}, "vars": {
+                    "agent_name": unix_agent_name,
+                    "codex_oauth_credentials": credentials,
+                    "codex_activation_fingerprint": hashlib.sha256(
+                        credentials.encode("utf-8")
+                    ).hexdigest(),
+                    "codex_activation_id": activation_id or "",
+                    "codex_replace_auth": replace_auth,
+                }}
+            }
+            logs_dir = _get_logs_dir()
+            operation_log_dir = logs_dir / (
+                f"configure-codex-{_safe_host_display(host, hostname)}-"
+                f"{unix_agent_name}-{uuid.uuid4().hex}"
+            )
+            operation_log_dir.mkdir(parents=True, exist_ok=True)
+            os.chmod(operation_log_dir, 0o700)
+            try:
+                result = ansible_runner.run(
+                    private_data_dir=str(operation_log_dir), inventory=inventory,
+                    playbook=str(playbook_path),
+                    envvars={"ANSIBLE_HOST_KEY_CHECKING": "False"}, quiet=True, timeout=60,
+                )
+                if result.status != "successful":
+                    # The runner result may carry private task output. Only
+                    # expose a fixed category, except for the non-secret
+                    # interrupted-receipt task whose recovery path is safe to
+                    # surface verbatim.
+                    if _codex_interrupted_receipt_failure(result):
+                        home = f"{home_root_for(os_family)}/{unix_agent_name}"
+                        return False, (
+                            "Codex activation is interrupted; preserve the current auth. "
+                            f"After verifying the agent can authenticate, remove only {home}/.codex/"
+                            ".clawrium-oauth-fingerprint as the agent user, then run "
+                            f"clawctl agent provider attach <provider> --agent {agent_key} and "
+                            f"clawctl agent sync {agent_key}."
+                        )
+                    return False, (
+                        "Codex activation playbook did not complete successfully; "
+                        "inspect agent-host Ansible logs"
+                    )
+                if replace_auth:
+                    try:
+                        mark_codex_oauth_activated(unix_agent_name)
+                    except Exception:
+                        # The remote atomic activation completed. Keep the
+                        # marker for reconciliation rather than falsely
+                        # reporting that the private remote write failed.
+                        logger.error("Could not finalize Codex OAuth activation state")
+                return True, None
+            finally:
+                if operation_log_dir.exists():
+                    for attempt in range(2):
+                        try:
+                            shutil.rmtree(operation_log_dir)
+                            break
+                        except OSError:
+                            if attempt:
+                                # The remote write already completed; retain
+                                # the successful result rather than expose
+                                # credentials through an error path. The
+                                # directory remains mode 0700 for secure
+                                # controller-side cleanup.
+                                logger.error("Could not remove private Codex activation artifacts")
+    except (CodexCredentialError, AgentConfigError):
+        return False, "Codex credential activation failed; re-attach the codex-oauth provider"
+    except FileNotFoundError:
+        return False, "Codex activation playbook is unavailable"
+    except Exception:
+        return False, "Codex activation encountered an internal error"
+
+
 def _configure_claude_settings(
     *,
     hostname: str,
@@ -2564,6 +2703,15 @@ def configure_agent(
     if not has_daemon_lifecycle(resolved_type):
         if not has_completed_install(agent_record):
             return False, incomplete_install_message(resolved_type, "configure")
+        if resolved_type == "codex":
+            return _configure_codex_credentials(
+                hostname=hostname,
+                host=host,
+                agent_key=agent_key,
+                unix_agent_name=unix_agent_name,
+                config_data=config_data,
+                extra_vars=extra_vars,
+            )
         if resolved_type == "claude":
             return _configure_claude_settings(
                 hostname=hostname,

@@ -2388,6 +2388,7 @@ def _openclaw_nemoclaw_onboard(
 def sync_agent_canonical(
     agent_name: str,
     *,
+    agent_key: str | None = None,
     force: bool = False,
     restart: bool = True,
     verify: bool = True,
@@ -2399,7 +2400,10 @@ def sync_agent_canonical(
     """Sync `agent_name` via the canonical pipeline.
 
     Args:
-        agent_name: The agent instance name (as recorded in hosts.json).
+        agent_name: The Unix agent name used for remote account and path operations.
+        agent_key: Optional hosts.json agents-record key. Callers that already
+            resolved a record must pass it so local attachment reconciliation
+            uses the same key; otherwise ``agent_name`` is used.
         force: Allow writes that remove a host-side secret line. Without
             this, `SecretRemovalRefused` is raised before any host write.
         restart: When True (default), restart the agent's systemd unit
@@ -2424,6 +2428,7 @@ def sync_agent_canonical(
         logger.info("[%s] %s", stage, message)
 
     _validate_agent_name(agent_name)
+    record_key = agent_key or agent_name
 
     resolved = get_agent_by_name(agent_name)
     if resolved is not None:
@@ -2447,6 +2452,32 @@ def sync_agent_canonical(
         if not has_daemon_lifecycle(agent_type):
             if not has_completed_install(_claw_record):
                 raise CanonicalSyncError(incomplete_install_message(agent_type, "sync"))
+            if agent_type == "codex":
+                if workspace_only:
+                    return CanonicalSyncResult(
+                        success=True, agent=agent_name, host=hostname,
+                        files_written=(), files_unchanged=(), diffs=(),
+                    )
+                if dry_run:
+                    # Never inspect or expose the private native auth document
+                    # in a canonical diff.
+                    return CanonicalSyncResult(
+                        success=True, agent=agent_name, host=hostname,
+                        files_written=(), files_unchanged=(), diffs=(),
+                    )
+                from clawrium.core.lifecycle import _configure_codex_credentials
+
+                success, error = _configure_codex_credentials(
+                    hostname=hostname, host=host, agent_key=record_key,
+                    unix_agent_name=_claw_record.get("agent_name") or agent_name,
+                    config_data=_claw_record.get("config", {}), extra_vars=None,
+                )
+                if not success:
+                    raise CanonicalSyncError(error or "Codex credential activation failed")
+                return CanonicalSyncResult(
+                    success=True, agent=agent_name, host=hostname,
+                    files_written=(".codex/auth.json",), files_unchanged=(), diffs=(),
+                )
             if agent_type == "claude":
                 return _sync_claude_settings(
                     agent_name=agent_name,
