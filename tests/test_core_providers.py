@@ -779,6 +779,7 @@ class TestProviderModelsConstant:
             "ollama",
             "litellm",
             "claude-oauth",
+            "codex-oauth",
         }
         assert set(PROVIDER_MODELS.keys()) == expected
 

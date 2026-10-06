@@ -26,6 +26,9 @@ __all__ = [
     "set_instance_secret",
     "replace_instance_secret",
     "remove_instance_secret",
+    "remove_instance_secret_if_matches",
+    "replace_instance_secret_if_matches",
+    "restore_instance_secret_if_absent",
     "remove_instance_secrets",
     "list_instances_with_secrets",
     "AgentNotFoundError",
@@ -437,6 +440,85 @@ def replace_instance_secret(
         config_dir = init_config_dir()
         _save_secrets_atomic(secrets, config_dir)
         return created
+
+
+def remove_instance_secret_if_matches(instance_key: str, key: str, value: str) -> bool:
+    """Remove a secret only when its current value is the expected value.
+
+    Credential rollback uses this compare-and-delete primitive so an older
+    operation cannot delete a credential refreshed concurrently by re-attach.
+    """
+    validate_secret_key(key)
+
+    with _secrets_lock():
+        secrets = load_secrets()
+        entry = secrets.get(instance_key, {}).get(key)
+        if not isinstance(entry, dict) or entry.get("value") != value:
+            return False
+
+        del secrets[instance_key][key]
+        if not secrets[instance_key]:
+            del secrets[instance_key]
+        _save_secrets_atomic(secrets, init_config_dir())
+        return True
+
+
+def replace_instance_secret_if_matches(
+    instance_key: str,
+    key: str,
+    expected_value: str,
+    replacement_value: str | None,
+    description: str = "",
+) -> bool:
+    """Atomically replace/remove a secret only when its value still matches."""
+    validate_secret_key(key)
+    with _secrets_lock():
+        secrets = load_secrets()
+        entry = secrets.get(instance_key, {}).get(key)
+        if not isinstance(entry, dict) or entry.get("value") != expected_value:
+            return False
+        if replacement_value is None:
+            del secrets[instance_key][key]
+            if not secrets[instance_key]:
+                del secrets[instance_key]
+        else:
+            now = datetime.now(timezone.utc).isoformat()
+            secrets[instance_key][key] = SecretEntry(
+                key=key,
+                value=replacement_value,
+                created_at=entry.get("created_at", now),
+                updated_at=now,
+                description=description or entry.get("description", ""),
+            )
+        _save_secrets_atomic(secrets, init_config_dir())
+        return True
+
+
+def restore_instance_secret_if_absent(
+    instance_key: str, key: str, value: str, description: str = ""
+) -> bool:
+    """Restore a secret only if no newer value has appeared.
+
+    Returns ``False`` if another operation has already installed a value for
+    the key.  Callers must leave that newer value untouched.
+    """
+    validate_secret_key(key)
+
+    with _secrets_lock():
+        secrets = load_secrets()
+        instance_secrets = secrets.setdefault(instance_key, {})
+        if key in instance_secrets:
+            return False
+        now = datetime.now(timezone.utc).isoformat()
+        instance_secrets[key] = SecretEntry(
+            key=key,
+            value=value,
+            created_at=now,
+            updated_at=now,
+            description=description,
+        )
+        _save_secrets_atomic(secrets, init_config_dir())
+        return True
 
 
 def remove_instance_secret(instance_key: str, key: str) -> bool:
