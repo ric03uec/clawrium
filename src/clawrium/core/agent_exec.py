@@ -43,7 +43,7 @@ logger = logging.getLogger(__name__)
 __all__ = ["AgentExecError", "SUPPORTED_CLAW_TYPES", "run_agent_exec"]
 
 SUPPORTED_CLAW_TYPES: frozenset[str] = frozenset(
-    {"claude", "ethos", "hermes", "zeroclaw", "openclaw"}
+    {"claude", "codex", "ethos", "hermes", "zeroclaw", "openclaw"}
 )
 
 _REGISTRY_DIR = Path(__file__).parent.parent / "platform" / "registry"
@@ -52,9 +52,9 @@ _REGISTRY_DIR = Path(__file__).parent.parent / "platform" / "registry"
 # subcommands (e.g. an openclaw config dump) but short enough that a
 # hung remote can't pin the local CLI indefinitely.
 _DEFAULT_TIMEOUT = 120
-# Claude's per-OS playbooks enforce this same bound around the native process.
+# Native CLI playbooks enforce this same bound around their child process.
 # Leave time for their final redacted result event to get back to ansible-runner.
-_CLAUDE_RUNNER_GRACE_SECONDS = 30
+_NATIVE_CLI_RUNNER_GRACE_SECONDS = 30
 
 # Same shape playbooks enforce server-side; the Python-side check is
 # defense-in-depth so non-CLI callers (or a future playbook edit that
@@ -189,14 +189,22 @@ def _parse_events(result) -> tuple[str, str, int | None]:
         msg = event.get("event_data", {}).get("res", {}).get("msg")
         if not isinstance(msg, str):
             continue
-        if msg.startswith("CLAUDE_EXEC_RESULT="):
-            # Claude playbooks redact on the agent host before their only
+        native_result_prefix = next(
+            (
+                prefix
+                for prefix in ("CLAUDE_EXEC_RESULT=", "CODEX_EXEC_RESULT=")
+                if msg.startswith(prefix)
+            ),
+            None,
+        )
+        if native_result_prefix:
+            # Native CLI playbooks redact on the agent host before their only
             # result event is persisted. Its payload is a base64 JSON object,
             # distinct from the legacy three-event EXEC_* transport.
             try:
                 payload = json.loads(
                     base64.b64decode(
-                        msg[len("CLAUDE_EXEC_RESULT=") :], validate=True
+                        msg[len(native_result_prefix) :], validate=True
                     ).decode("utf-8", errors="replace")
                 )
                 if not isinstance(payload, dict):
@@ -321,11 +329,11 @@ def run_agent_exec(
         )
 
     extra_vars = {"agent_name": agent_name, "cmd_argv": cmd_argv}
-    if claw_type == "claude":
+    if claw_type in {"claude", "codex"}:
         # The remote wrapper owns the canonical kill path. Never pass
-        # credential contents: OAuth is native file state and API-key mode is
-        # sourced only from the private agent-home artifact on the host.
-        extra_vars["claude_exec_timeout"] = effective_timeout
+        # credential contents: native auth is private agent-home state on the
+        # host.
+        extra_vars[f"{claw_type}_exec_timeout"] = effective_timeout
 
     try:
         inventory = _build_inventory(host, ssh_key, extra_vars)
@@ -364,8 +372,8 @@ def run_agent_exec(
             playbook=str(playbook),
             quiet=True,
             timeout=(
-                effective_timeout + _CLAUDE_RUNNER_GRACE_SECONDS
-                if claw_type == "claude"
+                effective_timeout + _NATIVE_CLI_RUNNER_GRACE_SECONDS
+                if claw_type in {"claude", "codex"}
                 else effective_timeout
             ),
         )
