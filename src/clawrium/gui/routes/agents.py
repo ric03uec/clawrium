@@ -22,6 +22,7 @@ from typing import Literal
 from pydantic import BaseModel
 
 from clawrium.core.chat_claude import ClaudeCodeChatBackend
+from clawrium.core.chat_codex import CodexChatBackend
 from clawrium.core.keys import get_host_private_key
 from clawrium.gui.routes._common import resolve_agent as _resolve_agent
 from clawrium.core.memory import (
@@ -93,6 +94,14 @@ _CLAUDE_BROWSER_SESSION_MAX = 128
 _CLAUDE_RESPONSE_TIMEOUT_SECONDS = 120.0
 _CLAUDE_SESSION_KEY_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 _CLAUDE_MAX_PROMPT_CHARS = 100_000
+# Codex uses the same finite-process and browser-session rules as Claude,
+# but keeps a separate cache so a browser conversation can never cross agent
+# types or native session protocols.
+_CODEX_BROWSER_SESSION_TTL_SECONDS = 30 * 60
+_CODEX_BROWSER_SESSION_MAX = 128
+_CODEX_RESPONSE_TIMEOUT_SECONDS = 120.0
+_CODEX_SESSION_KEY_RE = _CLAUDE_SESSION_KEY_RE
+_CODEX_MAX_PROMPT_CHARS = 100_000
 
 
 @dataclass
@@ -103,6 +112,61 @@ class _ClaudeBrowserSession:
 
 
 _CLAUDE_BROWSER_SESSIONS: dict[tuple[str, str], _ClaudeBrowserSession] = {}
+
+
+@dataclass
+class _CodexBrowserSession:
+    backend: CodexChatBackend
+    lock: asyncio.Lock
+    last_used: float
+
+
+_CODEX_BROWSER_SESSIONS: dict[tuple[str, str], _CodexBrowserSession] = {}
+
+
+class _CodexSessionCapacityError(Exception):
+    """Raised before streaming when every bounded browser session is active."""
+
+
+def _get_codex_browser_session(
+    *, agent_key: str, session_key: str, hostname: str, agent_name: str
+) -> _CodexBrowserSession:
+    now = time.monotonic()
+    cache_key = (agent_key, session_key)
+    cached = _CODEX_BROWSER_SESSIONS.get(cache_key)
+    if cached is not None:
+        cached.last_used = now
+        return cached
+    for key, value in tuple(_CODEX_BROWSER_SESSIONS.items()):
+        if (
+            not value.lock.locked()
+            and now - value.last_used > _CODEX_BROWSER_SESSION_TTL_SECONDS
+        ):
+            _CODEX_BROWSER_SESSIONS.pop(key, None)
+    while len(_CODEX_BROWSER_SESSIONS) >= _CODEX_BROWSER_SESSION_MAX:
+        evictable = [
+            (value.last_used, key)
+            for key, value in _CODEX_BROWSER_SESSIONS.items()
+            if not value.lock.locked()
+        ]
+        if not evictable:
+            # Do not exceed the advertised bound under concurrent requests.
+            # This is raised before StreamingResponse construction, so callers
+            # receive a normal bounded HTTP failure rather than a late SSE frame.
+            raise _CodexSessionCapacityError
+        _, oldest_key = min(evictable)
+        _CODEX_BROWSER_SESSIONS.pop(oldest_key, None)
+    session = _CodexBrowserSession(
+        backend=CodexChatBackend(
+            hostname=hostname,
+            agent_name=agent_name,
+            timeout_seconds=_CODEX_RESPONSE_TIMEOUT_SECONDS,
+        ),
+        lock=asyncio.Lock(),
+        last_used=now,
+    )
+    _CODEX_BROWSER_SESSIONS[cache_key] = session
+    return session
 
 
 def _get_claude_browser_session(
@@ -297,6 +361,8 @@ async def chat_send(agent_key: str, body: ChatRequest):
         return await _chat_openclaw(host_record, agent_type, agent_record, body)
     if chat_type == "claude":
         return await _chat_claude(host_record, agent_record, agent_key, body)
+    if chat_type == "codex":
+        return await _chat_codex(host_record, agent_record, agent_key, body)
     raise HTTPException(status_code=400, detail=f"Unknown chat type: {chat_type}")
 
 
@@ -764,7 +830,9 @@ async def add_agent_skill(agent_key: str, payload: AddSkillBody):
     def _add() -> dict[str, object]:
         resolved = _resolve_agent(agent_key)
         if not resolved:
-            raise HTTPException(status_code=404, detail=f"Agent '{agent_key}' not found")
+            raise HTTPException(
+                status_code=404, detail=f"Agent '{agent_key}' not found"
+            )
         _host_record, agent_type, agent_record = resolved
         agent_name = agent_record.get("agent_name") or agent_key
 
@@ -883,7 +951,9 @@ async def get_local_agent_skill(agent_key: str, name: str):
 
         resolved = _resolve_agent(agent_key)
         if not resolved:
-            raise HTTPException(status_code=404, detail=f"Agent '{agent_key}' not found")
+            raise HTTPException(
+                status_code=404, detail=f"Agent '{agent_key}' not found"
+            )
         _host_record, _agent_type, agent_record = resolved
         agent_name = agent_record.get("agent_name") or agent_key
 
@@ -920,7 +990,9 @@ async def edit_agent_skill(agent_key: str, name: str, payload: EditSkillBody):
 
         resolved = _resolve_agent(agent_key)
         if not resolved:
-            raise HTTPException(status_code=404, detail=f"Agent '{agent_key}' not found")
+            raise HTTPException(
+                status_code=404, detail=f"Agent '{agent_key}' not found"
+            )
         _host_record, agent_type, agent_record = resolved
         agent_name = agent_record.get("agent_name") or agent_key
 
@@ -980,7 +1052,9 @@ async def delete_local_agent_skill(agent_key: str, name: str):
 
         resolved = _resolve_agent(agent_key)
         if not resolved:
-            raise HTTPException(status_code=404, detail=f"Agent '{agent_key}' not found")
+            raise HTTPException(
+                status_code=404, detail=f"Agent '{agent_key}' not found"
+            )
         _host_record, _agent_type, agent_record = resolved
         agent_name = agent_record.get("agent_name") or agent_key
 
@@ -1146,9 +1220,7 @@ async def _chat_claude(
                     # credentials, or remote stderr through GUI logs or SSE.
                     events = [
                         "data: "
-                        + json.dumps(
-                            {"type": "error", "message": _CHAT_GENERIC_ERROR}
-                        )
+                        + json.dumps({"type": "error", "message": _CHAT_GENERIC_ERROR})
                         + "\n\n",
                         "data: [DONE]\n\n",
                     ]
@@ -1156,6 +1228,72 @@ async def _chat_claude(
                     session.last_used = time.monotonic()
                     await session.backend.close()
 
+                for event in events:
+                    yield event
+        except asyncio.CancelledError:
+            raise
+
+    return StreamingResponse(generate(), media_type="text/event-stream")
+
+
+async def _chat_codex(
+    host_record: dict, agent_record: dict, agent_key: str, body: ChatRequest
+):
+    """Run a finite Codex JSONL turn through the shared CLI backend.
+
+    Browser session keys select isolated native-thread backends. Credentials,
+    prompts, stderr, and remote diagnostics never enter the SSE stream.
+    """
+    if not body.message.strip():
+        raise HTTPException(status_code=422, detail="Chat message must not be blank")
+    if len(body.message) > _CODEX_MAX_PROMPT_CHARS:
+        raise HTTPException(status_code=422, detail="Chat message is too long")
+    if not _CODEX_SESSION_KEY_RE.fullmatch(body.session):
+        raise HTTPException(status_code=422, detail="Invalid chat session")
+    hostname = host_record.get("hostname")
+    agent_name = agent_record.get("agent_name") or agent_record.get("name") or agent_key
+    if not isinstance(hostname, str) or not hostname.strip():
+        raise HTTPException(status_code=500, detail=_CHAT_GENERIC_ERROR)
+    if not isinstance(agent_name, str) or not agent_name.strip():
+        raise HTTPException(status_code=500, detail=_CHAT_GENERIC_ERROR)
+    try:
+        session = _get_codex_browser_session(
+            agent_key=agent_key,
+            session_key=body.session,
+            hostname=hostname,
+            agent_name=agent_name,
+        )
+    except _CodexSessionCapacityError as exc:
+        raise HTTPException(status_code=503, detail="Chat is busy; try again") from exc
+
+    async def generate():
+        try:
+            async with session.lock:
+                try:
+                    await session.backend.connect()
+                    response_text = await session.backend.send_message(
+                        message=body.message,
+                        session_key=body.session,
+                        response_timeout_seconds=_CODEX_RESPONSE_TIMEOUT_SECONDS,
+                    )
+                    events = [
+                        "data: "
+                        + json.dumps({"type": "content", "text": response_text})
+                        + "\n\n",
+                        "data: [DONE]\n\n",
+                    ]
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    events = [
+                        "data: "
+                        + json.dumps({"type": "error", "message": _CHAT_GENERIC_ERROR})
+                        + "\n\n",
+                        "data: [DONE]\n\n",
+                    ]
+                finally:
+                    session.last_used = time.monotonic()
+                    await session.backend.close()
                 for event in events:
                     yield event
         except asyncio.CancelledError:

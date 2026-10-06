@@ -1,0 +1,78 @@
+---
+# Darwin counterpart to chat.yaml. It runs one finite Codex JSONL turn as the
+# dedicated user, never a daemon or gateway. Prompt text reaches stdin; native
+# thread IDs remain individual argv values.
+- hosts: all
+  gather_facts: false
+  vars:
+    codex_home: "/Users/{{ agent_name }}"
+    codex_binary: "{{ codex_home }}/.local/codex/bin/codex"
+    codex_chat_bootstrap: >-
+      exec "$@"
+    # macOS does not include GNU timeout. Its bundled Perl and POSIX extension
+    # provide the equivalent host-side bound: the child calls setsid(), then
+    # the parent kills that whole process group and reports 124 on expiry.
+    # This program is fixed, and all user data remains positional argv/stdin.
+    codex_chat_timeout_wrapper: >-
+      use POSIX qw(setsid); my $timeout = shift @ARGV; pipe(my $ready_r, my $ready_w)
+      or die "could not create Codex readiness pipe"; my $pid = fork();
+      die "could not fork Codex" unless defined $pid;
+      if ($pid == 0) { close $ready_r; setsid() or die "could not create Codex session";
+      print {$ready_w} "1"; close $ready_w; exec @ARGV; die "could not exec Codex"; }
+      close $ready_w; $SIG{ALRM} = sub { kill 'KILL', -$pid; kill 'KILL', $pid;
+      waitpid($pid, 0); exit 124; }; alarm($timeout); my $ready = read($ready_r, my $byte, 1);
+      alarm(0); close $ready_r; die "Codex child did not create a process group" unless $ready;
+      alarm($timeout); waitpid($pid, 0); alarm(0); my $status = $?;
+      exit($status & 127 ? 128 + ($status & 127) : $status >> 8);
+  tasks:
+    - name: Refuse to run Codex chat on non-Darwin host
+      ansible.builtin.fail:
+        msg: "Codex macOS chat playbook requires Darwin"
+      when: ansible_os_family is defined and ansible_os_family != 'Darwin'
+
+    - name: Validate agent_name for Codex chat
+      ansible.builtin.fail:
+        msg: "Invalid agent_name"
+      when: agent_name is not match('^[a-z][a-z0-9_-]{0,31}$')
+
+    - name: Validate Codex chat argv and prompt transport
+      ansible.builtin.fail:
+        msg: "Codex chat requires argv, prompt, and a positive timeout"
+      when: >-
+        (codex_chat_argv is not defined) or (codex_chat_argv | length == 0)
+        or (codex_chat_prompt_b64 is not defined)
+        or (codex_chat_prompt_b64 | length == 0)
+        or (codex_chat_timeout is not defined) or (codex_chat_timeout | int < 1)
+
+    - name: Run finite Codex chat command as dedicated agent user
+      ansible.builtin.command:
+        argv: "{{ ['/usr/bin/perl', '-e', codex_chat_timeout_wrapper, codex_chat_timeout | string, '/bin/bash', '-c', codex_chat_bootstrap, 'clawrium-codex-chat', codex_binary] + codex_chat_argv }}"
+        chdir: "{{ codex_home }}"
+        stdin: "{{ codex_chat_prompt_b64 | b64decode }}"
+        stdin_add_newline: false
+      environment:
+        HOME: "{{ codex_home }}"
+        CODEX_HOME: "{{ codex_home }}/.codex"
+        PATH: "{{ codex_home }}/.local/codex/bin:/opt/homebrew/bin:/usr/local/bin:/opt/local/bin:/usr/bin:/bin"
+        DISABLE_AUTOUPDATER: "1"
+      become: true
+      become_user: "{{ agent_name }}"
+      register: codex_chat_result
+      failed_when: false
+      changed_when: false
+      no_log: true
+
+    - name: Emit Codex chat stdout
+      ansible.builtin.debug:
+        msg: "CODEX_CHAT_STDOUT={{ codex_chat_result.stdout | default('') | b64encode }}"
+
+    # Never export raw stderr: Codex authentication diagnostics can contain
+    # secrets. The controller needs only a non-sensitive classification.
+    - name: Emit Codex chat authentication classification
+      ansible.builtin.debug:
+        msg: >-
+          CODEX_CHAT_AUTH_FAILURE={{ 'true' if (codex_chat_result.stderr | default('') | lower) is search('auth|unauthori[sz]ed|forbidden|not logged in|api[ _-]?key|oauth|credential') else 'false' }}
+
+    - name: Emit Codex chat exit status
+      ansible.builtin.debug:
+        msg: "CODEX_CHAT_RC={{ codex_chat_result.rc | default(255) }}"

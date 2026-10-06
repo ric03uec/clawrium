@@ -558,7 +558,7 @@ def _validate_workspace(workspace_value: object, agent_type: str) -> WorkspaceCo
     return validated
 
 
-_ALLOWED_CHAT_TYPES = ("openai", "websocket", "zeroclaw", "claude")
+_ALLOWED_CHAT_TYPES = ("openai", "websocket", "zeroclaw", "claude", "codex")
 _ALLOWED_WEB_UI_BINDS = ("loopback", "wildcard")
 
 # `port_field` is a dotted path that downstream code uses both as a config
@@ -624,7 +624,11 @@ def _validate_web_ui(web_ui_value: object, agent_type: str) -> WebUIFeatureConfi
             "features.web_ui.port_field is required "
             "(dotted path into agent config, e.g. 'gateway.port')",
         )
-    if not isinstance(port_field, str) or not port_field.strip() or not _PORT_FIELD_RE.fullmatch(port_field):
+    if (
+        not isinstance(port_field, str)
+        or not port_field.strip()
+        or not _PORT_FIELD_RE.fullmatch(port_field)
+    ):
         _raise_parse_error(
             agent_type,
             "has invalid `features.web_ui.port_field` "

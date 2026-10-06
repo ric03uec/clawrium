@@ -9,6 +9,8 @@ Dispatch is driven by `features.chat.type` in the agent manifest:
                   schema, so it gets a dedicated dispatch value).
 - ``claude``    → finite Claude Code print-mode invocation over the private
                   Ansible argv/stdin transport (no daemon or gateway).
+- ``codex``     → finite Codex JSONL invocation over the same private
+                  argv/stdin transport (no daemon or gateway).
 """
 
 from __future__ import annotations
@@ -33,6 +35,7 @@ from clawrium.core.chat import (
     SecretStr,
 )
 from clawrium.core.chat_claude import ClaudeCodeChatBackend
+from clawrium.core.chat_codex import CodexChatBackend
 from clawrium.core.chat_hermes import HermesOpenAIBackend
 from clawrium.core.chat_zeroclaw import (
     RECV_TIMEOUT_MSG_PREFIX as ZEROCLAW_RECV_TIMEOUT_MSG_PREFIX,
@@ -249,6 +252,13 @@ def chat(
                 agent_name=str(canonical_name),
                 response_timeout_seconds=timeout,
             )
+        elif chat_type == "codex":
+            backend = _build_codex_backend(
+                agent_record=agent_record,
+                host_record=host_record,
+                agent_name=str(canonical_name),
+                response_timeout_seconds=timeout,
+            )
         else:
             console.print(
                 f"[red]Error:[/red] Chat is not supported for agent type "
@@ -290,7 +300,7 @@ def chat(
         console.print(
             f"[green]Connected target:[/green] {rich_escape(str(display_agent))} on {rich_escape(str(display_host))}"
         )
-        if chat_type in {"openai", "claude"}:
+        if chat_type in {"openai", "claude", "codex"}:
             console.print(
                 "Type /exit or press Ctrl+D to end. Use /reset to clear conversation history."
             )
@@ -347,17 +357,22 @@ def chat(
                     # only after the retry actually breaks the loop.
                     console.print("[dim]Gateway token rotated — retrying...[/dim]")
                     continue
+            auth_detail = (
+                "Codex rejected the configured credential"
+                if chat_type == "codex"
+                else _sanitize_exception_text(exc)
+            )
             console.print(
-                f"[red]Authentication failed:[/red] {rich_escape(_sanitize_exception_text(exc))}"
+                f"[red]Authentication failed:[/red] {rich_escape(auth_detail)}"
             )
             if chat_type in ("openai", "zeroclaw"):
                 console.print(
                     f"Token mismatch. Re-run 'clawctl agent configure {rich_escape(display_canonical_name)}'."
                 )
-            elif chat_type == "claude":
+            elif chat_type in {"claude", "codex"}:
                 console.print(
                     f"Re-run 'clawctl agent sync {rich_escape(display_canonical_name)}' "
-                    "to reapply the selected Claude credential."
+                    f"to reapply the selected {agent_type.title()} credential."
                 )
             raise typer.Exit(code=1)
         except ChatConnectionError as exc:
@@ -428,7 +443,7 @@ def chat(
                         f"'clawctl agent configure {rich_escape(display_canonical_name)}' "
                         f"if the pairing token is stale."
                     )
-            elif chat_type == "claude":
+            elif chat_type in {"claude", "codex"}:
                 if str(exc).startswith("Timed out"):
                     console.print(
                         f"Try a higher --timeout value (current: {timeout}s)."
@@ -485,7 +500,9 @@ async def _chat_once(
         await backend.close()
 
     if final_text:
-        console.print(_sanitize_response_text(final_text), markup=False, highlight=False)
+        console.print(
+            _sanitize_response_text(final_text), markup=False, highlight=False
+        )
     else:
         console.print("[no response]", markup=False, highlight=False)
 
@@ -511,7 +528,7 @@ async def _chat_loop(
     with console.status("Connecting to agent...", spinner="dots"):
         await backend.connect()
 
-    history_capable = chat_type in {"openai", "claude"}
+    history_capable = chat_type in {"openai", "claude", "codex"}
     # Parity with `_sanitize_exception_text` (issue #455 ATX W2): strip
     # C0/C1 control bytes + bidi-formatting + zero-width + line/paragraph
     # separators from the agent label before it reaches the terminal.
@@ -586,7 +603,10 @@ async def _chat_loop(
                     )
                     shown_prefix = True
                 console.print(
-                    _sanitize_response_text(delta), end="", markup=False, highlight=False
+                    _sanitize_response_text(delta),
+                    end="",
+                    markup=False,
+                    highlight=False,
                 )
 
             try:
@@ -886,6 +906,26 @@ def _build_claude_backend(
     )
 
 
+def _build_codex_backend(
+    agent_record: dict[str, Any],
+    host_record: dict[str, Any],
+    agent_name: str,
+    response_timeout_seconds: float,
+) -> ChatBackend:
+    """Construct an on-demand Codex backend without reading credentials."""
+    hostname = host_record.get("hostname")
+    if not isinstance(hostname, str) or not hostname.strip():
+        raise ValueError("Host primary address not found.")
+    unix_name = agent_record.get("agent_name") or agent_record.get("name") or agent_name
+    if not isinstance(unix_name, str) or not unix_name.strip():
+        raise ValueError("Codex agent Unix user is missing.")
+    return CodexChatBackend(
+        hostname=hostname,
+        agent_name=unix_name,
+        timeout_seconds=response_timeout_seconds,
+    )
+
+
 def _build_ethos_backend(
     agent_record: dict[str, Any],
     host_record: dict[str, Any],
@@ -899,7 +939,9 @@ def _build_ethos_backend(
         raise ValueError("Agent config missing. Re-run 'clawctl agent configure'.")
     gateway = config.get("gateway")
     if not isinstance(gateway, dict):
-        raise ValueError("Ethos gateway config missing. Re-run 'clawctl agent configure'.")
+        raise ValueError(
+            "Ethos gateway config missing. Re-run 'clawctl agent configure'."
+        )
 
     hostname = host_record.get("hostname")
     if not isinstance(hostname, str) or not hostname.strip():
@@ -912,11 +954,16 @@ def _build_ethos_backend(
     agent_key = agent_record.get("agent_name") or agent_record.get("name") or hostname
     try:
         from clawrium.core.web_ui_tunnel import ensure as ensure_tunnel
+
         local_port = ensure_tunnel(agent_key, owned=True)
     except TunnelError as exc:
-        raise ValueError(f"Could not establish SSH tunnel to ethos serve: {exc}") from exc
+        raise ValueError(
+            f"Could not establish SSH tunnel to ethos serve: {exc}"
+        ) from exc
 
-    instance_key = get_instance_key(hostname, "ethos", agent_record.get("agent_name", ""))
+    instance_key = get_instance_key(
+        hostname, "ethos", agent_record.get("agent_name", "")
+    )
     secrets = get_instance_secrets(instance_key)
     chat_entry = secrets.get("ETHOS_CHAT_TOKEN")
     auth_token = chat_entry.get("value", "") if isinstance(chat_entry, dict) else ""
