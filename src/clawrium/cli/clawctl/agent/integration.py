@@ -61,6 +61,8 @@ def attach(
     """Attach a registered integration to an agent."""
     record = _safe_get_integration(name)
     host, atype, _claw = safe_resolve_agent(agent)
+    if atype == "pi":
+        emit_error("Pi integrations are unavailable in the install-only foundation.", exit_code=2)
     hostname = host["hostname"]
     agent_key = resolve_agent_key(host, agent)
 
@@ -99,6 +101,8 @@ def detach(
 ) -> None:
     """Detach an integration from an agent."""
     host, _atype, _claw = safe_resolve_agent(agent)
+    if _atype == "pi":
+        emit_error("Pi integrations are unavailable in the install-only foundation.", exit_code=2)
     hostname = host["hostname"]
     agent_key = resolve_agent_key(host, agent)
 

@@ -1,0 +1,13 @@
+{
+  "session_id": "30b10654-c45f-49ff-82e4-a10c051e5400",
+  "transport": "cli",
+  "commit_sha": "c975340932ea51a1b52b56763f51575e92deac36",
+  "iteration": 8,
+  "last_rating": 2,
+  "last_blockers": [
+    "B1/B2: secure-exec helper commands were resolved through the agent-writable PATH",
+    "B3: review transport did not expose the complete implementation to one specialist"
+  ],
+  "started_at": "2026-10-06T10:14:55Z",
+  "updated_at": "2026-10-06T12:29:31Z"
+}

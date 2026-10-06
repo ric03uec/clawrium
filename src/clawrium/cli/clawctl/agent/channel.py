@@ -60,6 +60,8 @@ def attach(
     """Attach a registered channel to an agent."""
     _safe_get_channel(name)
     host, _atype, _claw = safe_resolve_agent(agent)
+    if _atype == "pi":
+        raise typer.BadParameter("Pi channels are unavailable in the install-only foundation.")
     hostname = host["hostname"]
     agent_key = resolve_agent_key(host, agent)
 
@@ -76,6 +78,8 @@ def detach(
 ) -> None:
     """Detach a channel from an agent."""
     host, _atype, _claw = safe_resolve_agent(agent)
+    if _atype == "pi":
+        raise typer.BadParameter("Pi channels are unavailable in the install-only foundation.")
     hostname = host["hostname"]
     agent_key = resolve_agent_key(host, agent)
 

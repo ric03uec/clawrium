@@ -1,0 +1,97 @@
+---
+# Remove a Darwin Pi account only when its root-owned marker/intent binds its UID and dscl Comment.
+- hosts: all
+  become: yes
+  vars:
+    pi_home: "/Users/{{ agent_name }}"
+    pi_marker_dir: "/Library/Application Support/clawrium/pi"
+    pi_marker: "{{ pi_marker_dir }}/{{ agent_name }}.json"
+    pi_intent: "{{ pi_marker_dir }}/{{ agent_name }}.installing.json"
+  tasks:
+    - name: Refuse non-Darwin dispatcher target
+      ansible.builtin.fail: { msg: "remove_macos.yaml requires Darwin" }
+      when: ansible_os_family is defined and ansible_os_family != "Darwin"
+    - name: Validate Pi agent name
+      ansible.builtin.fail: { msg: "Invalid agent_name" }
+      when: agent_name is not match('^[a-z][a-z0-9_-]{0,31}$')
+    - name: Discover dedicated Pi account
+      ansible.builtin.shell: "PATH=/usr/bin:/bin; export PATH; /usr/bin/dscl . -read /Users/{{ agent_name | quote }} UniqueID 2>/dev/null | /usr/bin/awk '/UniqueID:/{print $2}'"
+      args: { executable: /bin/bash }
+      register: pi_existing_uid
+      changed_when: false
+      failed_when: false
+    - name: Read Pi account comment
+      ansible.builtin.shell: "PATH=/usr/bin:/bin; export PATH; /usr/bin/dscl . -read /Users/{{ agent_name | quote }} Comment 2>/dev/null | /usr/bin/sed -n 's/^Comment: //p'"
+      args: { executable: /bin/bash }
+      register: pi_account_comment
+      changed_when: false
+      failed_when: false
+    - name: Read Pi account home
+      ansible.builtin.shell: "PATH=/usr/bin:/bin; export PATH; /usr/bin/dscl . -read /Users/{{ agent_name | quote }} NFSHomeDirectory 2>/dev/null | /usr/bin/sed -n 's/^NFSHomeDirectory: //p'"
+      args: { executable: /bin/bash }
+      register: pi_account_home
+      changed_when: false
+      failed_when: false
+    - name: Check Pi ownership marker
+      ansible.builtin.stat: { path: "{{ pi_marker }}" }
+      register: pi_marker_stat
+    - name: Check Pi install intent
+      ansible.builtin.stat: { path: "{{ pi_intent }}" }
+      register: pi_intent_stat
+    - name: Verify trusted Pi transaction files
+      ansible.builtin.assert:
+        that: ["item.stat.pw_name == 'root'", "item.stat.gr_name == 'wheel'", "item.stat.mode == '0600'", "not (item.stat.islnk | default(false) | bool)"]
+        fail_msg: "Refusing untrusted Pi ownership transaction file."
+      loop: ["{{ pi_marker_stat }}", "{{ pi_intent_stat }}"]
+      when: item.stat.exists | bool
+    - name: Read Pi ownership marker
+      ansible.builtin.slurp: { src: "{{ pi_marker }}" }
+      register: pi_marker_content
+      when: pi_marker_stat.stat.exists | bool
+    - name: Read Pi install intent
+      ansible.builtin.slurp: { src: "{{ pi_intent }}" }
+      register: pi_intent_content
+      when: pi_intent_stat.stat.exists | bool
+    - name: Parse Pi ownership transaction files
+      ansible.builtin.set_fact:
+        pi_marker_data: "{{ pi_marker_content.content | b64decode | from_json }}"
+        pi_intent_data: "{{ pi_intent_content.content | b64decode | from_json }}"
+      when: pi_marker_stat.stat.exists | bool and pi_intent_stat.stat.exists | bool
+    - name: Parse Pi ownership marker only
+      ansible.builtin.set_fact: { pi_marker_data: "{{ pi_marker_content.content | b64decode | from_json }}" }
+      when: pi_marker_stat.stat.exists | bool and not (pi_intent_stat.stat.exists | bool)
+    - name: Parse Pi install intent only
+      ansible.builtin.set_fact: { pi_intent_data: "{{ pi_intent_content.content | b64decode | from_json }}" }
+      when: pi_intent_stat.stat.exists | bool and not (pi_marker_stat.stat.exists | bool)
+    - name: Refuse unmanaged Pi removal
+      ansible.builtin.fail:
+        msg: "Refusing to remove {{ agent_name }}: ownership transaction does not prove this account is Clawrium-owned."
+      when: >-
+        ((pi_existing_uid.stdout | trim) == '' and not (pi_intent_stat.stat.exists | bool))
+        or ((pi_existing_uid.stdout | trim) == '' and (pi_marker_stat.stat.exists | bool))
+        or ((pi_existing_uid.stdout | trim) != '' and not (pi_marker_stat.stat.exists | bool) and not (pi_intent_stat.stat.exists | bool))
+    - name: Verify Pi removal ownership binding
+      ansible.builtin.assert:
+        that:
+          - pi_owner.agent_name == agent_name
+          - pi_owner.home == pi_home
+          - pi_owner.uid | int >= 700
+          - (pi_existing_uid.stdout | trim) == '' or pi_owner.uid == (pi_existing_uid.stdout | trim | int)
+          - (pi_existing_uid.stdout | trim) == '' or (pi_account_home.stdout | trim) == pi_home
+          - pi_owner.transaction_id is match('^[0-9a-f-]{36}$')
+          - (pi_existing_uid.stdout | trim) == '' or (pi_account_comment.stdout | trim) == ('clawrium-pi-' ~ pi_owner.transaction_id)
+          - (pi_marker_stat.stat.exists | bool) or pi_owner.schema == 1
+          - (not (pi_marker_stat.stat.exists | bool)) or pi_owner.schema == 2
+        fail_msg: "Refusing to remove {{ agent_name }}: ownership transaction does not bind this account."
+      vars:
+        pi_owner: "{{ pi_marker_data if (pi_marker_stat.stat.exists | bool) else pi_intent_data }}"
+    - name: Delete dedicated Pi account
+      ansible.builtin.command: "/usr/bin/dscl . -delete /Users/{{ agent_name }}"
+      when: (pi_existing_uid.stdout | trim) != ''
+    - name: Remove dedicated Pi home
+      ansible.builtin.file: { path: "{{ pi_home }}", state: absent }
+      when: (pi_existing_uid.stdout | trim) != ''
+    - name: Remove Pi ownership marker
+      ansible.builtin.file: { path: "{{ pi_marker }}", state: absent }
+    - name: Remove Pi install intent
+      ansible.builtin.file: { path: "{{ pi_intent }}", state: absent }

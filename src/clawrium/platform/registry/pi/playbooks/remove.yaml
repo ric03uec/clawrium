@@ -1,0 +1,82 @@
+---
+# Remove only a Pi account proven by an active marker or recoverable pre-account intent.
+- hosts: all
+  become: yes
+  vars:
+    pi_home: "/home/{{ agent_name }}"
+    pi_marker_dir: "/var/lib/clawrium/pi"
+    pi_marker: "{{ pi_marker_dir }}/{{ agent_name }}.json"
+    pi_intent: "{{ pi_marker_dir }}/{{ agent_name }}.installing.json"
+  tasks:
+    - name: Validate Pi agent name
+      ansible.builtin.fail: { msg: "Invalid agent_name" }
+      when: agent_name is not match('^[a-z][a-z0-9_-]{0,31}$')
+    - name: Check dedicated Pi account
+      ansible.builtin.command: { argv: [getent, passwd, "{{ agent_name }}"] }
+      register: pi_account
+      changed_when: false
+      failed_when: false
+    - name: Check Pi ownership marker
+      ansible.builtin.stat: { path: "{{ pi_marker }}" }
+      register: pi_marker_stat
+    - name: Check Pi install intent
+      ansible.builtin.stat: { path: "{{ pi_intent }}" }
+      register: pi_intent_stat
+    - name: Verify trusted Pi transaction files
+      ansible.builtin.assert:
+        that: ["item.stat.pw_name == 'root'", "item.stat.gr_name == 'root'", "item.stat.mode == '0600'", "not (item.stat.islnk | default(false) | bool)"]
+        fail_msg: "Refusing untrusted Pi ownership transaction file."
+      loop: ["{{ pi_marker_stat }}", "{{ pi_intent_stat }}"]
+      when: item.stat.exists | bool
+    - name: Read Pi ownership marker
+      ansible.builtin.slurp: { src: "{{ pi_marker }}" }
+      register: pi_marker_content
+      when: pi_marker_stat.stat.exists | bool
+    - name: Read Pi install intent
+      ansible.builtin.slurp: { src: "{{ pi_intent }}" }
+      register: pi_intent_content
+      when: pi_intent_stat.stat.exists | bool
+    - name: Parse Pi ownership transaction files
+      ansible.builtin.set_fact:
+        pi_marker_data: "{{ pi_marker_content.content | b64decode | from_json }}"
+        pi_intent_data: "{{ pi_intent_content.content | b64decode | from_json }}"
+      when: pi_marker_stat.stat.exists | bool and pi_intent_stat.stat.exists | bool
+    - name: Parse Pi ownership marker only
+      ansible.builtin.set_fact: { pi_marker_data: "{{ pi_marker_content.content | b64decode | from_json }}" }
+      when: pi_marker_stat.stat.exists | bool and not (pi_intent_stat.stat.exists | bool)
+    - name: Parse Pi install intent only
+      ansible.builtin.set_fact: { pi_intent_data: "{{ pi_intent_content.content | b64decode | from_json }}" }
+      when: pi_intent_stat.stat.exists | bool and not (pi_marker_stat.stat.exists | bool)
+    - name: Refuse unmanaged Pi removal
+      ansible.builtin.fail:
+        msg: "Refusing to remove {{ agent_name }}: ownership transaction does not prove this account is Clawrium-owned."
+      when: >-
+        (pi_account.rc != 0 and not (pi_intent_stat.stat.exists | bool))
+        or (pi_account.rc != 0 and (pi_marker_stat.stat.exists | bool))
+        or (pi_account.rc == 0 and not (pi_marker_stat.stat.exists | bool) and not (pi_intent_stat.stat.exists | bool))
+    - name: Verify Pi removal ownership binding
+      ansible.builtin.assert:
+        that:
+          - pi_owner.agent_name == agent_name
+          - pi_owner.home == pi_home
+          - pi_owner.uid | int >= 2000
+          - pi_account.rc != 0 or pi_owner.uid == (pi_account.stdout.split(':')[2] | int)
+          - pi_account.rc != 0 or pi_account.stdout.split(':')[5] == pi_home
+          - pi_owner.transaction_id is match('^[0-9a-f-]{36}$')
+          - pi_account.rc != 0 or pi_account.stdout.split(':')[4] == ('clawrium-pi-' ~ pi_owner.transaction_id)
+          - (pi_marker_stat.stat.exists | bool) or pi_owner.schema == 1
+          - (not (pi_marker_stat.stat.exists | bool)) or pi_owner.schema == 2
+        fail_msg: "Refusing to remove {{ agent_name }}: ownership transaction does not bind this account."
+      vars:
+        pi_owner: "{{ pi_marker_data if (pi_marker_stat.stat.exists | bool) else pi_intent_data }}"
+    - name: Remove dedicated Pi account and its home
+      ansible.builtin.user: { name: "{{ agent_name }}", state: absent, remove: no }
+      # The asserted passwd home is pi_home; remove that exact managed path below.
+      when: pi_account.rc == 0
+    - name: Remove dedicated Pi home
+      ansible.builtin.file: { path: "{{ pi_home }}", state: absent }
+      when: pi_account.rc == 0
+    - name: Remove Pi ownership marker
+      ansible.builtin.file: { path: "{{ pi_marker }}", state: absent }
+    - name: Remove Pi install intent
+      ansible.builtin.file: { path: "{{ pi_intent }}", state: absent }

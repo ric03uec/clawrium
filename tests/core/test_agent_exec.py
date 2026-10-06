@@ -8,6 +8,9 @@ EXEC_STDOUT=/EXEC_STDERR=/EXEC_RC=.
 from __future__ import annotations
 
 import base64
+import json
+import shutil
+import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -22,6 +25,34 @@ def _ok_event(msg: str) -> dict:
 
 def _make_result(events: list[dict], status: str = "successful") -> SimpleNamespace:
     return SimpleNamespace(events=events, status=status)
+
+
+def _pi_encrypted_event(
+    recipient_certificate: str, payload: dict, tmp_path: Path
+) -> dict:
+    """Model the host's CMS event without putting its plaintext in events."""
+    openssl = shutil.which("openssl")
+    if openssl is None:
+        pytest.skip("openssl is required for Pi secure-exec transport")
+    public_path = tmp_path / "pi-exec-recipient.pem"
+    public_path.write_text(recipient_certificate)
+    encrypted = subprocess.run(
+        [
+            openssl,
+            "cms",
+            "-encrypt",
+            "-binary",
+            "-outform",
+            "DER",
+            "-aes-256-cbc",
+            "-recip",
+            str(public_path),
+        ],
+        input=json.dumps(payload).encode(),
+        capture_output=True,
+        check=True,
+    ).stdout
+    return _ok_event("PI_EXEC_RESULT=" + base64.b64encode(encrypted).decode())
 
 
 @pytest.fixture
@@ -61,9 +92,7 @@ def test_run_agent_exec_success(monkeypatch, patched_env):
         captured.update(kwargs)
         return _make_result(
             [
-                _ok_event(
-                    "EXEC_STDOUT=" + base64.b64encode(b"hello world").decode()
-                ),
+                _ok_event("EXEC_STDOUT=" + base64.b64encode(b"hello world").decode()),
                 _ok_event("EXEC_STDERR=" + base64.b64encode(b"").decode()),
                 _ok_event("EXEC_RC=0"),
             ]
@@ -87,9 +116,7 @@ def test_run_agent_exec_nonzero_rc(monkeypatch, patched_env):
         lambda **kw: _make_result(
             [
                 _ok_event("EXEC_STDOUT=" + base64.b64encode(b"").decode()),
-                _ok_event(
-                    "EXEC_STDERR=" + base64.b64encode(b"oops\n").decode()
-                ),
+                _ok_event("EXEC_STDERR=" + base64.b64encode(b"oops\n").decode()),
                 _ok_event("EXEC_RC=42"),
             ]
         ),
@@ -99,6 +126,60 @@ def test_run_agent_exec_nonzero_rc(monkeypatch, patched_env):
     )
     assert rc == 42
     assert "oops" in stderr
+
+
+@pytest.mark.parametrize(
+    ("os_family", "expected_playbook"),
+    [("linux", "exec.yaml"), ("darwin", "exec_macos.yaml")],
+)
+def test_pi_exec_encrypts_sentinel_output_preserves_nonzero_and_cleans_runner_state(
+    monkeypatch, patched_env, os_family, expected_playbook
+):
+    """Success/failure output is recoverable only by this invocation's key."""
+    captured = {}
+    sentinel = "pi-secret-sentinel-must-not-reach-ansible-events"
+
+    from clawrium.core import hosts as hosts_module
+
+    monkeypatch.setattr(
+        hosts_module,
+        "get_host",
+        lambda h: {
+            "hostname": h,
+            "user": "alice",
+            "port": 22,
+            "alias": "wolf-i",
+            "os_family": os_family,
+        },
+    )
+
+    def fake_run(**kwargs):
+        captured.update(kwargs)
+        # ansible-runner would create these persistent locations; cleanup must
+        # remove them with the ephemeral private key after result decryption.
+        private_data_dir = Path(kwargs["private_data_dir"])
+        for name in ("artifacts", "env", "inventory"):
+            (private_data_dir / name).mkdir()
+        event = _pi_encrypted_event(
+            kwargs["inventory"]["all"]["vars"]["pi_exec_recipient_certificate"],
+            {"stdout": sentinel + "\\n", "stderr": "failed: " + sentinel, "rc": 17},
+            patched_env,
+        )
+        assert sentinel not in event["event_data"]["res"]["msg"]
+        return _make_result([event])
+
+    monkeypatch.setattr(agent_exec.ansible_runner, "run", fake_run)
+    stdout, stderr, rc = agent_exec.run_agent_exec(
+        "10.0.0.1", "pi-one", "pi", ["--bad-option"]
+    )
+    assert (stdout, stderr, rc) == (sentinel + "\\n", "failed: " + sentinel, 17)
+    assert str(captured["playbook"]).endswith("pi/playbooks/" + expected_playbook)
+    assert captured["inventory"]["all"]["vars"]["cmd_argv"] == ["--bad-option"]
+    assert (
+        sentinel
+        not in captured["inventory"]["all"]["vars"]["pi_exec_recipient_certificate"]
+    )
+    assert not Path(captured["private_data_dir"]).exists()
 
 
 def test_run_agent_exec_unreachable(monkeypatch, patched_env):
@@ -138,7 +219,9 @@ def test_unknown_claw_type_raises(patched_env):
 
 @pytest.mark.parametrize("cmd_argv", [[], None])
 def test_empty_cmd_argv_raises(patched_env, cmd_argv):
-    with pytest.raises(agent_exec.AgentExecError, match="cmd_argv must be a non-empty list"):
+    with pytest.raises(
+        agent_exec.AgentExecError, match="cmd_argv must be a non-empty list"
+    ):
         agent_exec.run_agent_exec("10.0.0.1", "x", "openclaw", cmd_argv)
 
 
@@ -157,9 +240,7 @@ def test_missing_host(monkeypatch, patched_env):
     from clawrium.core import hosts as hosts_module
 
     monkeypatch.setattr(hosts_module, "get_host", lambda h: None)
-    stdout, stderr, rc = agent_exec.run_agent_exec(
-        "nope", "x", "openclaw", ["v"]
-    )
+    stdout, stderr, rc = agent_exec.run_agent_exec("nope", "x", "openclaw", ["v"])
     assert rc == 255
     assert "not found" in stderr
 
@@ -177,9 +258,7 @@ def test_run_agent_exec_per_type_success(monkeypatch, patched_env, claw_type):
         captured.update(kwargs)
         return _make_result(
             [
-                _ok_event(
-                    "EXEC_STDOUT=" + base64.b64encode(b"v1.0").decode()
-                ),
+                _ok_event("EXEC_STDOUT=" + base64.b64encode(b"v1.0").decode()),
                 _ok_event("EXEC_STDERR=" + base64.b64encode(b"").decode()),
                 _ok_event("EXEC_RC=0"),
             ]
@@ -253,9 +332,7 @@ def test_missing_rc_marker(monkeypatch, patched_env):
         "run",
         lambda **kw: _make_result(
             [
-                _ok_event(
-                    "EXEC_STDOUT=" + base64.b64encode(b"out").decode()
-                ),
+                _ok_event("EXEC_STDOUT=" + base64.b64encode(b"out").decode()),
                 _ok_event("EXEC_STDERR=" + base64.b64encode(b"").decode()),
                 # no EXEC_RC
             ]
@@ -373,18 +450,18 @@ def test_run_agent_exec_returns_file_not_found_when_supported_os_playbook_missin
 
 def test_claude_exec_parses_host_redacted_result_event(monkeypatch, patched_env):
     """Claude playbooks emit only one already-redacted result event."""
-    payload = base64.b64encode(
-        b'{"stdout":"[REDACTED]","stderr":"","rc":7}'
-    ).decode()
+    payload = base64.b64encode(b'{"stdout":"[REDACTED]","stderr":"","rc":7}').decode()
     monkeypatch.setattr(
         agent_exec.ansible_runner,
         "run",
         lambda **kw: _make_result([_ok_event(f"CLAUDE_EXEC_RESULT={payload}")]),
     )
 
-    assert agent_exec.run_agent_exec(
-        "10.0.0.1", "wolf-i", "claude", ["--print"]
-    ) == ("[REDACTED]", "", 7)
+    assert agent_exec.run_agent_exec("10.0.0.1", "wolf-i", "claude", ["--print"]) == (
+        "[REDACTED]",
+        "",
+        7,
+    )
 
 
 def test_claude_exec_preserves_structured_injection_shaped_argv(
@@ -432,7 +509,9 @@ def test_claude_exec_clamps_remote_timeout_and_never_passes_credentials(
         captured.update(kwargs)
         return _make_result(
             [
-                _ok_event("EXEC_STDOUT=" + base64.b64encode(b"Claude Code 2.1.100").decode()),
+                _ok_event(
+                    "EXEC_STDOUT=" + base64.b64encode(b"Claude Code 2.1.100").decode()
+                ),
                 _ok_event("EXEC_STDERR=" + base64.b64encode(b"").decode()),
                 _ok_event("EXEC_RC=0"),
             ]
@@ -475,9 +554,11 @@ def test_claude_exec_version_does_not_require_controller_credential(
         ),
     )
 
-    assert agent_exec.run_agent_exec(
-        "10.0.0.1", "wolf-i", "claude", ["--version"]
-    ) == (version, "", 0)
+    assert agent_exec.run_agent_exec("10.0.0.1", "wolf-i", "claude", ["--version"]) == (
+        version,
+        "",
+        0,
+    )
 
 
 def test_claude_exec_redacts_selected_api_key_from_remote_failure(
@@ -499,7 +580,9 @@ def test_claude_exec_redacts_selected_api_key_from_remote_failure(
                 _ok_event("EXEC_STDOUT=" + base64.b64encode(secret.encode()).decode()),
                 _ok_event(
                     "EXEC_STDERR="
-                    + base64.b64encode(f"authentication failed: {secret}".encode()).decode()
+                    + base64.b64encode(
+                        f"authentication failed: {secret}".encode()
+                    ).decode()
                 ),
                 _ok_event("EXEC_RC=1"),
             ]
@@ -531,6 +614,36 @@ def test_malformed_cmd_argv_raises_before_runner(patched_env, cmd_argv):
 def test_reserved_agent_name_is_rejected_before_runner(patched_env):
     with pytest.raises(agent_exec.AgentExecError, match="reserved system user"):
         agent_exec.run_agent_exec("10.0.0.1", "root", "claude", ["--version"])
+
+
+def test_pi_exec_cleans_ephemeral_key_on_key_setup_interruption(monkeypatch, patched_env):
+    captured = {}
+    original = agent_exec._create_pi_exec_keypair
+
+    def interrupted(log_dir):
+        captured["calls"] = captured.get("calls", 0) + 1
+        original(log_dir)
+        captured["log_dir"] = log_dir
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(agent_exec, "_create_pi_exec_keypair", interrupted)
+    with pytest.raises(KeyboardInterrupt):
+        agent_exec.run_agent_exec("10.0.0.1", "pi-one", "pi", ["--version"])
+    assert captured["calls"] == 1
+    assert not captured["log_dir"].exists()
+
+
+def test_pi_exec_cleans_ephemeral_key_on_runner_interruption(monkeypatch, patched_env):
+    captured = {}
+
+    def interrupted(**kwargs):
+        captured.update(kwargs)
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(agent_exec.ansible_runner, "run", interrupted)
+    with pytest.raises(KeyboardInterrupt):
+        agent_exec.run_agent_exec("10.0.0.1", "pi-one", "pi", ["--version"])
+    assert not Path(captured["private_data_dir"]).exists()
 
 
 def test_run_agent_exec_returns_runner_exception(monkeypatch, patched_env):

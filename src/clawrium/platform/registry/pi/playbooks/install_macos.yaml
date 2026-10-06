@@ -1,0 +1,229 @@
+---
+# Darwin sibling of install.yaml: intent precedes dscl account creation.
+- hosts: all
+  become: yes
+  vars:
+    pi_package: "@mariozechner/pi-coding-agent"
+    pi_default_version: "0.73.1"
+    pi_home: "/Users/{{ agent_name }}"
+    pi_prefix: "{{ pi_home }}/.local/pi"
+    pi_metadata: "{{ pi_prefix }}/lib/node_modules/@mariozechner/pi-coding-agent/package.json"
+    pi_marker_dir: "/Library/Application Support/clawrium/pi"
+    pi_marker: "{{ pi_marker_dir }}/{{ agent_name }}.json"
+    pi_intent: "{{ pi_marker_dir }}/{{ agent_name }}.installing.json"
+  tasks:
+    - name: Refuse non-Darwin dispatcher target
+      ansible.builtin.fail: { msg: "install_macos.yaml requires Darwin" }
+      when: ansible_os_family is defined and ansible_os_family != "Darwin"
+    - name: Validate Pi agent name
+      ansible.builtin.fail: { msg: "Invalid agent_name" }
+      when: agent_name is not match('^[a-z][a-z0-9_-]{0,31}$')
+    - name: Normalize pinned Pi version
+      ansible.builtin.set_fact: { pi_version: "{{ (claw_version | default('v' ~ pi_default_version)) | regex_replace('^v', '') }}" }
+    - name: Reject non-immutable Pi version
+      ansible.builtin.fail: { msg: "Pi version must be an immutable semantic version" }
+      when: pi_version is not match('^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$')
+    - name: Create Pi transaction directory
+      ansible.builtin.file: { path: "{{ pi_marker_dir }}", state: directory, owner: root, group: wheel, mode: "0700" }
+    - name: Acquire or safely recover Pi UID allocation lock
+      ansible.builtin.shell: |
+        PATH=/usr/bin:/bin; export PATH; lock='{{ pi_marker_dir }}/.uid-allocation.lock'; owner="$lock/owner"; nonce=$(/usr/bin/uuidgen | /usr/bin/tr '[:upper:]' '[:lower:]')
+        mkdir "$lock" 2>/dev/null || { echo 'Pi UID lock is active or untrusted; inspect it as root before manually removing it' >&2; exit 1; }
+        if ! printf '%s:%s\n' '{{ agent_name }}' "$nonce" > "$owner"; then
+          rmdir "$lock" || echo 'Pi UID lock ownership write failed; inspect it as root before manually removing it' >&2
+          exit 1
+        fi
+        printf '%s' "$nonce"
+      args: { executable: /bin/bash }
+      register: pi_uid_lock
+      changed_when: false
+      retries: 30
+      delay: 1
+      until: pi_uid_lock.rc == 0
+    - name: Allocate and promote dedicated Pi account transaction
+      block:
+        - name: Discover dedicated Pi account
+          ansible.builtin.shell: "PATH=/usr/bin:/bin; export PATH; /usr/bin/dscl . -read /Users/{{ agent_name | quote }} UniqueID 2>/dev/null | /usr/bin/awk '/UniqueID:/{print $2}'"
+          args: { executable: /bin/bash }
+          register: pi_existing_uid
+          changed_when: false
+          failed_when: false
+        - name: Read Pi account comment
+          ansible.builtin.shell: "PATH=/usr/bin:/bin; export PATH; /usr/bin/dscl . -read /Users/{{ agent_name | quote }} Comment 2>/dev/null | /usr/bin/sed -n 's/^Comment: //p'"
+          args: { executable: /bin/bash }
+          register: pi_account_comment
+          changed_when: false
+          failed_when: false
+        - name: Check Pi ownership marker
+          ansible.builtin.stat: { path: "{{ pi_marker }}" }
+          register: pi_marker_stat
+        - name: Check Pi install intent
+          ansible.builtin.stat: { path: "{{ pi_intent }}" }
+          register: pi_intent_stat
+        - name: Verify trusted Pi transaction files
+          ansible.builtin.assert:
+            that: ["item.stat.pw_name == 'root'", "item.stat.gr_name == 'wheel'", "item.stat.mode == '0600'", "not (item.stat.islnk | default(false) | bool)"]
+            fail_msg: "Refusing untrusted Pi ownership transaction file."
+          loop: ["{{ pi_marker_stat }}", "{{ pi_intent_stat }}"]
+          when: item.stat.exists | bool
+        - name: Read Pi ownership marker
+          ansible.builtin.slurp: { src: "{{ pi_marker }}" }
+          register: pi_marker_content
+          when: pi_marker_stat.stat.exists | bool
+        - name: Read Pi install intent
+          ansible.builtin.slurp: { src: "{{ pi_intent }}" }
+          register: pi_intent_content
+          when: pi_intent_stat.stat.exists | bool
+        - name: Parse Pi ownership transaction files
+          ansible.builtin.set_fact:
+            pi_marker_data: "{{ pi_marker_content.content | b64decode | from_json }}"
+            pi_intent_data: "{{ pi_intent_content.content | b64decode | from_json }}"
+          when: pi_marker_stat.stat.exists | bool and pi_intent_stat.stat.exists | bool
+        - name: Parse Pi ownership marker only
+          ansible.builtin.set_fact: { pi_marker_data: "{{ pi_marker_content.content | b64decode | from_json }}" }
+          when: pi_marker_stat.stat.exists | bool and not (pi_intent_stat.stat.exists | bool)
+        - name: Parse Pi install intent only
+          ansible.builtin.set_fact: { pi_intent_data: "{{ pi_intent_content.content | b64decode | from_json }}" }
+          when: pi_intent_stat.stat.exists | bool and not (pi_marker_stat.stat.exists | bool)
+        - name: Refuse unmanaged Pi account or marker
+          ansible.builtin.fail:
+            msg: "Refusing to use {{ agent_name }}: dedicated Pi account must have a matching Clawrium ownership transaction."
+          when: >-
+            ((pi_existing_uid.stdout | trim) != "" and not (pi_marker_stat.stat.exists | bool) and not (pi_intent_stat.stat.exists | bool))
+            or ((pi_existing_uid.stdout | trim) == "" and (pi_marker_stat.stat.exists | bool))
+        - name: Verify recoverable Pi install intent
+          ansible.builtin.assert:
+            that:
+              - pi_intent_data.schema == 1
+              - pi_intent_data.agent_name == agent_name
+              - pi_intent_data.home == pi_home
+              - pi_intent_data.uid | int >= 700
+              - pi_intent_data.transaction_id is match('^[0-9a-f-]{36}$')
+              - (pi_existing_uid.stdout | trim) == '' or (pi_existing_uid.stdout | trim | int) == (pi_intent_data.uid | int)
+              - (pi_existing_uid.stdout | trim) == '' or (pi_account_comment.stdout | trim) == ('clawrium-pi-' ~ pi_intent_data.transaction_id)
+            fail_msg: "Refusing to recover Pi installation: intent does not bind this account."
+          when: pi_intent_stat.stat.exists | bool
+        - name: Verify active Pi ownership marker
+          ansible.builtin.assert:
+            that:
+              - pi_marker_data.schema == 2
+              - pi_marker_data.agent_name == agent_name
+              - pi_marker_data.home == pi_home
+              - pi_marker_data.uid == (pi_existing_uid.stdout | trim | int)
+              - pi_marker_data.transaction_id is match('^[0-9a-f-]{36}$')
+              - (pi_account_comment.stdout | trim) == ('clawrium-pi-' ~ pi_marker_data.transaction_id)
+            fail_msg: "Refusing to use {{ agent_name }}: ownership marker does not prove ownership."
+          when: pi_marker_stat.stat.exists | bool
+        - name: Reserve a dedicated Pi UID
+          ansible.builtin.shell: "PATH=/usr/bin:/bin; export PATH; used=$(/usr/bin/dscl . -list /Users UniqueID | /usr/bin/awk '{print $2}'); uid=700; while echo \"$used\" | /usr/bin/grep -qx \"$uid\"; do uid=$((uid+1)); done; echo $uid"
+          args: { executable: /bin/bash }
+          register: pi_new_uid
+          changed_when: false
+          when: (pi_existing_uid.stdout | trim) == '' and not (pi_intent_stat.stat.exists | bool)
+        - name: Generate Pi transaction ID
+          ansible.builtin.command: { argv: [/usr/bin/uuidgen] }
+          register: pi_new_transaction
+          changed_when: false
+          when: (pi_existing_uid.stdout | trim) == '' and not (pi_intent_stat.stat.exists | bool)
+        - name: Write pre-account Pi install intent
+          ansible.builtin.copy:
+            dest: "{{ pi_intent }}"
+            content: "{{ {'schema': 1, 'agent_name': agent_name, 'home': pi_home, 'uid': (pi_new_uid.stdout | int), 'transaction_id': (pi_new_transaction.stdout | lower | trim)} | to_json }}\n"
+            owner: root
+            group: wheel
+            mode: "0600"
+          when: (pi_existing_uid.stdout | trim) == '' and not (pi_intent_stat.stat.exists | bool)
+        - name: Load new Pi install transaction
+          ansible.builtin.set_fact: { pi_transaction_data: "{{ {'uid': (pi_new_uid.stdout | int), 'transaction_id': (pi_new_transaction.stdout | lower | trim)} }}" }
+          when: (pi_existing_uid.stdout | trim) == '' and not (pi_intent_stat.stat.exists | bool)
+        - name: Load recoverable Pi install transaction
+          ansible.builtin.set_fact: { pi_transaction_data: "{{ pi_intent_data }}" }
+          when: pi_intent_stat.stat.exists | bool
+        - name: Create dedicated Pi account
+          ansible.builtin.command: "/usr/bin/dscl . -create /Users/{{ agent_name }} {{ item.key }} {{ item.value }}"
+          loop:
+            - { key: UserShell, value: /bin/bash }
+            - { key: RealName, value: "Pi Agent ({{ agent_name }})" }
+            - { key: UniqueID, value: "{{ pi_transaction_data.uid }}" }
+            - { key: PrimaryGroupID, value: "20" }
+            - { key: NFSHomeDirectory, value: "{{ pi_home }}" }
+            - { key: Comment, value: "clawrium-pi-{{ pi_transaction_data.transaction_id }}" }
+          when: (pi_existing_uid.stdout | trim) == ''
+        - name: Read created Pi account UID
+          ansible.builtin.shell: "PATH=/usr/bin:/bin; export PATH; /usr/bin/dscl . -read /Users/{{ agent_name | quote }} UniqueID | /usr/bin/awk '/UniqueID:/{print $2}'"
+          args: { executable: /bin/bash }
+          register: pi_owned_uid
+          changed_when: false
+        - name: Verify reserved Pi UID remains exclusive
+          ansible.builtin.shell: "PATH=/usr/bin:/bin; export PATH; /usr/bin/dscl . -list /Users UniqueID | /usr/bin/awk '$2 == {{ pi_transaction_data.uid }} {print $1}'"
+          args: { executable: /bin/bash }
+          register: pi_uid_owners
+          changed_when: false
+          when: not (pi_marker_stat.stat.exists | bool)
+        - name: Refuse shared Pi UID before promotion
+          ansible.builtin.assert:
+            that: ["pi_uid_owners.stdout_lines == [agent_name]"]
+            fail_msg: "Refusing to promote Pi install: reserved UID is not exclusive to the dedicated account."
+          when: not (pi_marker_stat.stat.exists | bool)
+        - name: Promote Pi install transaction to ownership marker
+          ansible.builtin.copy:
+            dest: "{{ pi_marker }}"
+            content: "{{ {'schema': 2, 'agent_name': agent_name, 'home': pi_home, 'uid': (pi_owned_uid.stdout | trim | int), 'transaction_id': pi_transaction_data.transaction_id | default(pi_marker_data.transaction_id)} | to_json }}\n"
+            owner: root
+            group: wheel
+            mode: "0600"
+          when: not (pi_marker_stat.stat.exists | bool)
+        - name: Clear promoted Pi install intent
+          ansible.builtin.file: { path: "{{ pi_intent }}", state: absent }
+      always:
+        - name: Release nonce-bound Pi UID allocation lock
+          ansible.builtin.shell: |
+            PATH=/usr/bin:/bin; export PATH; lock='{{ pi_marker_dir }}/.uid-allocation.lock'; owner="$lock/owner"
+            expected='{{ agent_name }}:{{ pi_uid_lock.stdout | trim }}'
+            if ! test -d "$lock" || test -L "$lock" || ! test -f "$owner" || test -L "$owner"; then
+              echo 'Pi UID lock has unexpected state; refusing release' >&2; exit 1
+            fi
+            actual=$(cat -- "$owner") || exit 1
+            test "$actual" = "$expected" || { echo 'Pi UID lock belongs to another allocation; refusing release' >&2; exit 1; }
+            rm -- "$owner" || exit 1
+            rmdir -- "$lock" || { echo 'Pi UID lock changed during release; refusing recursive cleanup' >&2; exit 1; }
+          args: { executable: /bin/bash }
+          changed_when: true
+    - name: Create dedicated Pi home
+      ansible.builtin.file: { path: "{{ pi_home }}", state: directory, owner: "{{ agent_name }}", group: staff, mode: "0755" }
+    - name: Create owned Pi prefix
+      ansible.builtin.file: { path: "{{ pi_prefix }}", state: directory, owner: "{{ agent_name }}", group: staff, mode: "0755" }
+    - name: Check installed Pi metadata
+      ansible.builtin.stat: { path: "{{ pi_metadata }}" }
+      register: pi_metadata_stat
+    - name: Read installed Pi metadata
+      ansible.builtin.slurp: { src: "{{ pi_metadata }}" }
+      register: pi_metadata_content
+      when: pi_metadata_stat.stat.exists
+    - name: Determine whether pinned Pi is installed
+      ansible.builtin.set_fact:
+        pi_at_target: "{{ (pi_metadata_stat.stat.exists | bool) and (pi_metadata_content.content is defined) and ((pi_metadata_content.content | b64decode | regex_search('\"version\"\\s*:\\s*\"' ~ pi_version ~ '\"')) is not none) }}"
+    - name: Discover trusted npm executable
+      ansible.builtin.shell: "PATH=/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin; export PATH; command -v npm"
+      args: { executable: /bin/bash }
+      register: pi_npm_path
+      changed_when: false
+      failed_when: pi_npm_path.rc != 0 or pi_npm_path.stdout is not match('^/(opt/homebrew|usr/local|usr)/bin/npm\\n?$')
+    - name: Install pinned Pi package
+      ansible.builtin.command:
+        argv: ["{{ pi_npm_path.stdout | trim }}", install, --global, --prefix, "{{ pi_prefix }}", --ignore-scripts, --no-audit, --no-fund, "{{ pi_package }}@{{ pi_version }}"]
+      become_user: "{{ agent_name }}"
+      environment: { HOME: "{{ pi_home }}", PATH: "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin" }
+      when: not (pi_at_target | bool)
+    - name: Ensure Pi is available to the dedicated login shell
+      ansible.builtin.blockinfile:
+        path: "{{ pi_home }}/.bashrc"
+        create: true
+        marker: "# {mark} CLAWRIUM-PI-MANAGED"
+        insertbefore: BOF
+        block: |
+          export PATH="{{ pi_prefix }}/bin:$PATH"
+          export PI_DISABLE_AUTOUPDATE=1
+        owner: "{{ agent_name }}"
+        group: staff
+        mode: "0644"

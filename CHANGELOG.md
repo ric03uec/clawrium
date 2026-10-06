@@ -16,6 +16,8 @@ cut. The `itx-release` skill archives this section into a new
 
 ### Added
 
+- Added the install-only `pi` fleet agent. Pi installs in its own account and runs native commands on demand without a service, port, or dashboard (#1032).
+
 ### Changed
 
 ### Fixed

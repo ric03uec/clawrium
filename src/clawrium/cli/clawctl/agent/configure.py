@@ -201,6 +201,11 @@ def configure(
     if not has_daemon_lifecycle(agent_type):
         if not has_completed_install(claw_record):
             emit_error(incomplete_install_message(agent_type, "configure"))
+        if agent_type == "pi":
+            emit_error(
+                "Pi provider configuration is not supported yet",
+                hint="Pi provider provisioning is planned for #1038.",
+            )
         if agent_type != "claude":
             stream_action(
                 resource=f"agent/{name}",
@@ -390,9 +395,7 @@ def configure(
                 hint=f"clawctl agent describe {name}",
             )
 
-        stream_action(
-            resource=f"agent/{name}", message=f"stage {stage.value} complete"
-        )
+        stream_action(resource=f"agent/{name}", message=f"stage {stage.value} complete")
         return
 
     # ATX iter-1 B4: `get_onboarding_state` raises `OnboardingNotFoundError`

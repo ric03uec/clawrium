@@ -38,7 +38,7 @@ def create(
         None,
         "--type",
         "-t",
-        help="Agent type (e.g., openclaw, zeroclaw, hermes, claude; Claude is install-only).",
+        help="Agent type (e.g., openclaw, zeroclaw, hermes, claude, pi; Claude and Pi are install-only).",
     ),
     host: Optional[str] = typer.Option(
         None, "--host", "-H", help="Target host (name or alias)."
@@ -87,6 +87,12 @@ def create(
     # mid-way. Openclaw therefore requires --provider at create time.
     # Other agent types (hermes, zeroclaw, ethos) keep the split lifecycle
     # (create → configure) intact.
+    if agent_type == "pi" and provider:
+        emit_error(
+            "--provider is not supported for pi during installation",
+            hint="Create Pi without --provider; provider provisioning arrives in a later release.",
+        )
+
     if agent_type == "openclaw" and not provider:
         emit_error(
             "--provider is required for openclaw",
