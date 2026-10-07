@@ -19,4 +19,8 @@ Implemented the bounded `openai-codex` selection, agent-scoped interactive SSH T
 
 ## Draft-PR Override — 2026-10-07T01:33:39Z
 
-Per user priority override, committed and pushed `06d0e2b44d1c3705a7484568d21d80f7d24ab7b1` and opened regular stacked PR [#1048](https://github.com/ric03uec/clawrium/pull/1048) against `issue-1039-pi-bedrock`. `make test` passed (5237 passed, 2 skipped) and `make lint` passed before commit. The PR explicitly records that #1039 integration/rebase, stateless ATX review, and live wolf-i interactive OAuth/inference/refresh/delete UAT remain pending; it makes no claim those gates passed.
+Per user priority override, committed and pushed `25d3436f0e05ee8de034e1af7d0f222a6339e1ae` and opened regular stacked PR [#1048](https://github.com/ric03uec/clawrium/pull/1048) against `issue-1039-pi-bedrock`. `make test` passed (5237 passed, 2 skipped) and `make lint` passed before commit. The PR explicitly records that #1039 integration/rebase, stateless ATX review, and live wolf-i interactive OAuth/inference/refresh/delete UAT remain pending; it makes no claim those gates passed.
+
+## Integration plan — 2026-10-07T01:36:00Z
+
+Read-only comparison with the currently published #1039 commit identifies deliberate overlap in `core/pi.py`, canonical sync, chat/exec playbooks, CLI selection, and GUI routing. Once #1039 publishes its predecessor-integrated branch, merge it into this branch (no force-push). Retain #1039's strict `clawrium-provider.env` parser and Bedrock SSO readiness behavior; extend the selection type and chat argv for the bounded native Codex model set; make Codex use Pi-native `auth.json` with explicit credential-environment clearing rather than requiring a provider env file; preserve the #1038 bounded native exec protocol; and retain the separate SSH TTY login command. Then run full tests, lint, stateless ATX, update PR #1048, and keep real wolf-i OAuth UAT pending until authorized.
