@@ -955,7 +955,7 @@ _PI_BEDROCK_STS_IDENTITY_VALIDATOR_PERL = (
 
 # Validates every component with lstat, rather than stat: stat would follow a
 # symlinked ancestor and allow an attacker to substitute the directory tree.
-_PI_BEDROCK_AWS_PATH_VALIDATOR = (
+_PI_BEDROCK_AWS_PATH_VALIDATOR_PERL = (
     "my ($path,$expected_uid,$allow_final_link,$trusted_root)=@ARGV; "
     "$trusted_root =~ s{/$}{} if $trusted_root ne q{/}; "
     "exit 1 unless $path eq $trusted_root || index($path, qq{$trusted_root/}) == 0; "
@@ -966,6 +966,27 @@ _PI_BEDROCK_AWS_PATH_VALIDATOR = (
     "exit 1 unless @st && $st[4] == $expected_uid && ($final_link ? $allow_final_link : !($st[2] & 0022) && !-w $current); "
     "exit 1 if $is_link && !$final_link; }"
 )
+_PI_BEDROCK_AWS_PATH_VALIDATOR_PYTHON = """import os, stat, sys
+path, expected_uid, allow_final_link, trusted_root = sys.argv[1:]
+expected_uid = int(expected_uid)
+trusted_root = trusted_root.rstrip("/") or "/"
+if not (path == trusted_root or path.startswith(trusted_root + "/")):
+    raise SystemExit(1)
+def checked(path, allow_link=False):
+    status = os.lstat(path)
+    if status.st_uid != expected_uid:
+        raise SystemExit(1)
+    is_link = stat.S_ISLNK(status.st_mode)
+    if is_link and not allow_link:
+        raise SystemExit(1)
+    if not allow_link and (status.st_mode & 0o22 or os.access(path, os.W_OK)):
+        raise SystemExit(1)
+checked(trusted_root)
+current = "" if trusted_root == "/" else trusted_root
+for part in filter(None, path[len(trusted_root):].split("/")):
+    current += "/" + part
+    checked(current, allow_link=(current == path and allow_final_link == "1"))
+"""
 
 
 def _build_pi_bedrock_sso_readiness_probe(
@@ -986,20 +1007,28 @@ def _build_pi_bedrock_sso_readiness_probe(
     The optional path parameters are test seams only; production uses the
     root-owned system paths and UID 0 defaults.
     """
-    identity_check = (
-        f"/usr/bin/perl -MJSON::PP -e {shlex.quote(_PI_BEDROCK_STS_IDENTITY_VALIDATOR_PERL)}"
-        if os_family == "darwin"
-        else f"/usr/bin/python3 -c {shlex.quote(_PI_BEDROCK_STS_IDENTITY_VALIDATOR)}"
-    )
+    if os_family == "darwin":
+        identity_check = (
+            f"/usr/bin/perl -MJSON::PP -e {shlex.quote(_PI_BEDROCK_STS_IDENTITY_VALIDATOR_PERL)}"
+        )
+        trusted_path = (
+            f"/usr/bin/perl -e {shlex.quote(_PI_BEDROCK_AWS_PATH_VALIDATOR_PERL)}"
+        )
+        resolve_path = "/usr/bin/perl -MCwd=abs_path -e 'print abs_path(shift)'"
+    else:
+        identity_check = f"/usr/bin/python3 -c {shlex.quote(_PI_BEDROCK_STS_IDENTITY_VALIDATOR)}"
+        trusted_path = (
+            f"/usr/bin/python3 -c {shlex.quote(_PI_BEDROCK_AWS_PATH_VALIDATOR_PYTHON)}"
+        )
+        resolve_path = "/usr/bin/python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))'"
     candidate_list = " ".join(shlex.quote(candidate) for candidate in candidates)
-    path_check = shlex.quote(_PI_BEDROCK_AWS_PATH_VALIDATOR)
     quoted_root = shlex.quote(trusted_root)
     return (
-        f"trusted_path() {{ /usr/bin/perl -e {path_check} \"$1\" \"$2\" \"$3\" \"$4\"; }}; "
+        f"trusted_path() {{ {trusted_path} \"$1\" \"$2\" \"$3\" \"$4\"; }}; "
         "aws_cli=''; "
         f"for candidate in {candidate_list}; do "
         "test -x \"$candidate\" || continue; "
-        "resolved=$(/usr/bin/perl -MCwd=abs_path -e 'print abs_path(shift)' \"$candidate\") || continue; "
+        f"resolved=$({resolve_path} \"$candidate\") || continue; "
         f"trusted_path \"$candidate\" {expected_uid} 1 {quoted_root} || continue; "
         f"trusted_path \"$resolved\" {expected_uid} 0 {quoted_root} || continue; "
         "\"$resolved\" --version 2>&1 | /usr/bin/grep -q '^aws-cli/2\\.' || continue; "

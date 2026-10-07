@@ -42,6 +42,7 @@ from clawrium.cli.output import (
     dump_yaml,
     emit_error,
     render_table,
+    stream_action,
 )
 from clawrium.core.pi import PiProvisioningError, validate_bedrock_sso_provider
 from clawrium.core.providers.storage import (
@@ -423,7 +424,10 @@ def create(
                 add_provider(record)
             except DuplicateProviderError as exc:
                 emit_error(str(exc))
-            typer.echo(f"provider/{name}: created (type={provider_type}, credential_source=aws-sso)")
+            stream_action(
+                resource=f"provider/{name}",
+                message=f"created (type={provider_type}, credential_source=aws-sso)",
+            )
             return
         require_flag(access_key, flag="--access-key")
         require_flag(secret_key, flag="--secret-key")

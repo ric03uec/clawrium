@@ -337,7 +337,9 @@ def test_pi_bedrock_sts_validator_requires_exact_account_and_reserved_sso_role()
         account_id="123456789012", role_name="BedrockPiRole", os_family="darwin"
     )
     assert "/usr/bin/python3 -c" in linux_probe
+    assert "/usr/bin/perl" not in linux_probe
     assert "/usr/bin/perl -MJSON::PP -e" in darwin_probe
+    assert "/usr/bin/python3" not in darwin_probe
 
     validators = (
         [sys.executable, "-c", _PI_BEDROCK_STS_IDENTITY_VALIDATOR],
