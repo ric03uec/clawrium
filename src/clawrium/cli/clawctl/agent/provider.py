@@ -23,6 +23,7 @@ from __future__ import annotations
 
 from typing import Optional
 
+import paramiko
 import typer
 
 from clawrium.cli.clawctl._common import OutputFormat
@@ -497,7 +498,6 @@ def detach(
         from clawrium.core.lifecycle_canonical import (
             CanonicalSyncError,
             revoke_pi_openrouter,
-            sync_agent_canonical,
         )
         from clawrium.core.pi import pi_credential_lock
 
@@ -523,8 +523,11 @@ def detach(
             if not remaining:
                 try:
                     revoke_pi_openrouter(agent_name=agent, host=host)
-                except CanonicalSyncError as exc:
-                    emit_error(f"failed to revoke Pi provider credential: {exc}")
+                except (CanonicalSyncError, paramiko.SSHException, OSError):
+                    emit_error(
+                        "failed to revoke Pi provider credential; detach did not finish",
+                        hint=f"retry: clawctl agent provider detach {name} --agent {agent}",
+                    )
             try:
                 metadata_persisted = _set_attachments(
                     hostname, agent_key, agent_type, remaining
@@ -532,34 +535,12 @@ def detach(
             except Exception:
                 metadata_persisted = False
             if not metadata_persisted:
-                # Revocation has already succeeded, but hosts.json still says
-                # this provider is attached. Restore its credential from the
-                # canonical secret store before exposing that durable state.
-                # This narrows (but cannot make atomic) the crash window
-                # between remote revocation and metadata persistence.
-                try:
-                    recovery = sync_agent_canonical(
-                        agent,
-                        restart=False,
-                        verify=False,
-                        push_workspace=False,
-                    )
-                    credential_restored = recovery.success
-                except Exception:
-                    credential_restored = False
-                if credential_restored:
-                    emit_error(
-                        f"failed to persist Pi provider detach for {name!r}; remote credential was restored and the attachment remains",
-                        hint=(
-                            f"retry: clawctl agent provider detach {name} --agent {agent}"
-                        ),
-                    )
+                # Do not recreate credentials after a failed local commit.
+                # Keep the durable attachment unchanged so this idempotent
+                # detach can be retried; remote rm -f remains safe.
                 emit_error(
-                    f"failed to persist Pi provider detach for {name!r}; remote credential recovery also failed. The attachment remains, but its remote credential may be absent",
-                    hint=(
-                        f"run: clawctl agent sync {agent}; then retry: "
-                        f"clawctl agent provider detach {name} --agent {agent}"
-                    ),
+                    f"failed to persist Pi provider detach for {name!r}; detach did not finish",
+                    hint=f"retry: clawctl agent provider detach {name} --agent {agent}",
                 )
         typer.echo(f"agent/{sanitize(agent)}: detached provider {sanitize(name)!r}")
         return
