@@ -1,0 +1,122 @@
+---
+# Remove only resources proven to belong to the dedicated Codex CLI account.
+# Shared npm installs and project-level .codex configuration are never touched.
+- hosts: all
+  become: yes
+  vars:
+    codex_home: "/home/{{ agent_name }}"
+    codex_prefix: "{{ codex_home }}/.local/codex"
+    codex_ownership_dir: "/var/lib/clawrium/codex"
+    codex_ownership_marker: "{{ codex_ownership_dir }}/{{ agent_name }}.json"
+  tasks:
+    - name: Validate agent_name (defense-in-depth)
+      ansible.builtin.fail:
+        msg: "Invalid agent_name"
+      when: agent_name is not match('^[a-z][a-z0-9_-]{0,31}$')
+
+    - name: Check whether dedicated Codex CLI account exists
+      ansible.builtin.command:
+        argv:
+          - getent
+          - passwd
+          - "{{ agent_name }}"
+      register: codex_agent_account
+      changed_when: false
+      failed_when: false
+
+    - name: Check Codex CLI account ownership marker
+      ansible.builtin.stat:
+        path: "{{ codex_ownership_marker }}"
+      register: codex_ownership_marker_stat
+
+    - name: Check Codex CLI ownership marker directory
+      ansible.builtin.stat:
+        path: "{{ codex_ownership_dir }}"
+      register: codex_ownership_dir_stat
+      when: codex_ownership_marker_stat.stat.exists
+
+    - name: Verify trusted Codex CLI ownership marker permissions
+      ansible.builtin.assert:
+        that:
+          - codex_ownership_dir_stat.stat.pw_name == "root"
+          - codex_ownership_dir_stat.stat.gr_name == "root"
+          - codex_ownership_dir_stat.stat.mode == "0700"
+          - codex_ownership_marker_stat.stat.pw_name == "root"
+          - codex_ownership_marker_stat.stat.gr_name == "root"
+          - codex_ownership_marker_stat.stat.mode == "0600"
+        fail_msg: "Refusing to trust an ownership marker that is not root-owned and private."
+      when: codex_ownership_marker_stat.stat.exists
+
+    - name: Read Codex CLI account ownership marker
+      ansible.builtin.slurp:
+        src: "{{ codex_ownership_marker }}"
+      register: codex_ownership_marker_content
+      when: codex_ownership_marker_stat.stat.exists
+
+    - name: Parse Codex CLI account ownership marker
+      ansible.builtin.set_fact:
+        codex_ownership: >-
+          {{ codex_ownership_marker_content.content | b64decode | from_json }}
+      when: codex_ownership_marker_stat.stat.exists
+
+    - name: Refuse removal of unmanaged or incomplete Codex CLI account
+      ansible.builtin.fail:
+        msg: >-
+          Refusing to remove {{ agent_name }} because its dedicated account and
+          root-owned Codex CLI ownership marker do not match.
+      when: >-
+        (codex_agent_account.rc == 0) !=
+        (codex_ownership_marker_stat.stat.exists | bool)
+
+    - name: Verify Codex CLI account ownership before removal
+      ansible.builtin.assert:
+        that:
+          - codex_ownership.agent_name == agent_name
+          - (codex_ownership.uid | string) == (codex_agent_account.stdout.split(':')[2] | string)
+          - codex_ownership.home == codex_home
+        fail_msg: "Refusing to remove {{ agent_name }} because its ownership marker does not match the account."
+      when: codex_ownership_marker_stat.stat.exists
+
+    - name: Note already-absent dedicated Codex CLI account
+      ansible.builtin.debug:
+        msg: "Dedicated Codex CLI account {{ agent_name }} is already absent."
+      when:
+        - codex_agent_account.rc != 0
+        - not (codex_ownership_marker_stat.stat.exists | bool)
+
+    - name: Remove managed Codex CLI onboarding marker
+      ansible.builtin.file:
+        path: "{{ codex_home }}/.codex.json"
+        state: absent
+      when: codex_ownership_marker_stat.stat.exists
+
+    - name: Remove native Codex CLI credentials
+      ansible.builtin.file:
+        path: "{{ codex_home }}/.codex/auth.json"
+        state: absent
+      when: codex_ownership_marker_stat.stat.exists
+
+    - name: Remove full dedicated Codex CLI state directory
+      ansible.builtin.file:
+        path: "{{ codex_home }}/.codex"
+        state: absent
+      when: codex_ownership_marker_stat.stat.exists
+
+    - name: Remove owned Codex CLI install prefix
+      ansible.builtin.file:
+        path: "{{ codex_prefix }}"
+        state: absent
+      when: codex_ownership_marker_stat.stat.exists
+
+    - name: Remove dedicated Codex CLI agent account and home
+      ansible.builtin.user:
+        name: "{{ agent_name }}"
+        state: absent
+        remove: yes
+      when: codex_ownership_marker_stat.stat.exists
+
+    - name: Remove Codex CLI account ownership marker
+      ansible.builtin.file:
+        path: "{{ codex_ownership_marker }}"
+        state: absent
+      when: codex_ownership_marker_stat.stat.exists

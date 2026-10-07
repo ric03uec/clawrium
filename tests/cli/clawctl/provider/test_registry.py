@@ -9,10 +9,11 @@ from __future__ import annotations
 import json
 from unittest.mock import patch
 
+import pytest
 from typer.testing import CliRunner
 
 from clawrium.cli import app
-from clawrium.core.providers.storage import get_provider
+from clawrium.core.providers.storage import get_provider, get_provider_aws_credentials
 from clawrium.core.render import build_render_inputs, render_hermes, render_openclaw
 
 runner = CliRunner()
@@ -127,6 +128,55 @@ def test_create_bedrock_with_aws_triplet(fleet_dir, stdin_not_tty) -> None:
         ],
     )
     assert result.exit_code == 0, result.output
+
+
+def test_create_bedrock_sso_stores_only_nonsecret_profile_metadata(fleet_dir, stdin_not_tty) -> None:
+    result = runner.invoke(
+        app,
+        [
+            "provider", "registry", "create", "pi-bedrock", "--type", "bedrock",
+            "--model", "anthropic.claude-3-haiku-20240307-v1:0", "--region", "us-east-1",
+            "--sso-profile", "pi-bedrock", "--sso-start-url", "https://company.awsapps.com/start",
+            "--sso-region", "us-east-1", "--sso-account-id", "123456789012",
+            "--sso-role-name", "BedrockPiRole",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    provider = get_provider("pi-bedrock")
+    assert provider["credential_source"] == "aws-sso"
+    assert provider["aws_profile"] == "pi-bedrock"
+    assert "access_key" not in str(provider).lower()
+    assert "secret" not in str(provider).lower()
+
+
+@pytest.mark.parametrize(
+    ("credential_flags",),
+    [
+        (["--access-key", "AKIA-SHOULD-NOT-PERSIST"],),
+        (["--secret-key", "SECRET-SHOULD-NOT-PERSIST"],),
+        (["--access-key", "AKIA-SHOULD-NOT-PERSIST", "--secret-key", "SECRET-SHOULD-NOT-PERSIST"],),
+    ],
+)
+def test_create_bedrock_sso_rejects_static_keys_without_persisting_them(
+    fleet_dir, stdin_not_tty, credential_flags
+) -> None:
+    name = "mixed-sso"
+    result = runner.invoke(
+        app,
+        [
+            "provider", "registry", "create", name, "--type", "bedrock",
+            "--model", "anthropic.claude-3-haiku-20240307-v1:0", "--region", "us-east-1",
+            "--sso-profile", "pi-bedrock", "--sso-start-url", "https://company.awsapps.com/start",
+            "--sso-region", "us-east-1", "--sso-account-id", "123456789012",
+            "--sso-role-name", "BedrockPiRole", *credential_flags,
+        ],
+    )
+    assert result.exit_code != 0
+    assert "cannot combine static AWS keys with AWS Identity Center SSO" in result.output
+    assert "AKIA-SHOULD-NOT-PERSIST" not in result.output
+    assert "SECRET-SHOULD-NOT-PERSIST" not in result.output
+    assert get_provider(name) is None
+    assert get_provider_aws_credentials(name) == (None, None)
 
 
 def test_create_bedrock_missing_access_key_fails(fleet_dir, stdin_not_tty) -> None:

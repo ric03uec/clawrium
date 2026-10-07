@@ -109,21 +109,25 @@ def test_pi_gui_chat_reuses_then_resets_native_cli_session(
     assert backend_cls.instances[1].calls == [("fresh", "gui:two", 120.0)]
 
 
-def test_pi_gui_chat_preserves_selected_codex_provider(monkeypatch):
-    backend_cls = _install_fake(monkeypatch)
-    session = agents_module._get_pi_browser_session(
-        agent_key="pi-demo",
-        session_key="gui:one",
-        hostname="host",
-        agent_name="pi-demo",
-        model="gpt-5.1-codex-mini",
-        provider_name="codex",
-        installation_id="install",
-        provider_type="openai-codex",
+def test_pi_gui_chat_uses_selected_bedrock_provider(isolated_config, monkeypatch):
+    _seed_hosts(isolated_config)
+    monkeypatch.setattr(
+        agents_module,
+        "get_provider",
+        lambda _: {
+            "type": "bedrock", "credential_source": "aws-sso",
+            "default_model": "anthropic.claude-3-haiku-20240307-v1:0",
+            "aws_profile": "pi-bedrock", "region": "us-east-1",
+            "sso_start_url": "https://company.awsapps.com/start", "sso_region": "us-east-1",
+            "sso_account_id": "123456789012", "sso_role_name": "BedrockPiRole",
+        },
     )
-    assert session.backend.provider == "openai-codex"
-    assert session.backend.model == "gpt-5.1-codex-mini"
-    assert len(backend_cls.instances) == 1
+    backend_cls = _install_fake(monkeypatch)
+    with TestClient(app, base_url="http://localhost:36000") as client:
+        response = client.post("/api/agents/pi-demo/chat", json={"message": "hello", "session": "gui:one"})
+    assert response.status_code == 200
+    assert backend_cls.instances[0].provider == "amazon-bedrock"
+    assert backend_cls.instances[0].model == "anthropic.claude-3-haiku-20240307-v1:0"
 
 
 def test_pi_gui_chat_replaces_stale_agent_identity(monkeypatch):

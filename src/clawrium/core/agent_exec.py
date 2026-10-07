@@ -45,7 +45,7 @@ logger = logging.getLogger(__name__)
 __all__ = ["AgentExecError", "SUPPORTED_CLAW_TYPES", "run_agent_exec"]
 
 SUPPORTED_CLAW_TYPES: frozenset[str] = frozenset(
-    {"claude", "ethos", "hermes", "openclaw", "pi", "zeroclaw"}
+    {"claude", "codex", "ethos", "hermes", "openclaw", "pi", "zeroclaw"}
 )
 
 _REGISTRY_DIR = Path(__file__).parent.parent / "platform" / "registry"
@@ -54,9 +54,9 @@ _REGISTRY_DIR = Path(__file__).parent.parent / "platform" / "registry"
 # subcommands (e.g. an openclaw config dump) but short enough that a
 # hung remote can't pin the local CLI indefinitely.
 _DEFAULT_TIMEOUT = 120
-# Claude's per-OS playbooks enforce this same bound around the native process.
+# Native CLI playbooks enforce this same bound around their child process.
 # Leave time for their final redacted result event to get back to ansible-runner.
-_CLAUDE_RUNNER_GRACE_SECONDS = 30
+_NATIVE_CLI_RUNNER_GRACE_SECONDS = 30
 
 # Same shape playbooks enforce server-side; the Python-side check is
 # defense-in-depth so non-CLI callers (or a future playbook edit that
@@ -68,6 +68,14 @@ _AGENT_NAME_RE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
 # characters. A tampered hosts.json alias of `../tmp/evil` would otherwise
 # escape the logs root (ATX iter-1 W4).
 _LOG_DIR_SAFE_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
+
+# Pi's dedicated account owns the provisioned OpenRouter bearer. Generic native
+# argv would let Pi tools, extensions, or context files read and reflect that
+# bearer, so only fixed diagnostics and a fixed one-shot inference shape cross
+# this boundary. The prompt travels on stdin rather than Pi argv; Ansible may
+# retain its base64 transport in a transient runner workdir, but never the bearer.
+_PI_EXEC_DIAGNOSTICS = frozenset({("--version",), ("--help",)})
+_PI_EXEC_PROMPT_MAX_CHARS = 100_000
 
 
 class AgentExecError(Exception):
@@ -309,14 +317,22 @@ def _parse_events(result) -> tuple[str, str, int | None]:
         msg = event.get("event_data", {}).get("res", {}).get("msg")
         if not isinstance(msg, str):
             continue
-        if msg.startswith("CLAUDE_EXEC_RESULT="):
-            # Claude playbooks redact on the agent host before their only
+        native_result_prefix = next(
+            (
+                prefix
+                for prefix in ("CLAUDE_EXEC_RESULT=", "CODEX_EXEC_RESULT=")
+                if msg.startswith(prefix)
+            ),
+            None,
+        )
+        if native_result_prefix:
+            # Native CLI playbooks redact on the agent host before their only
             # result event is persisted. Its payload is a base64 JSON object,
             # distinct from the legacy three-event EXEC_* transport.
             try:
                 payload = json.loads(
                     base64.b64decode(
-                        msg[len("CLAUDE_EXEC_RESULT=") :], validate=True
+                        msg[len(native_result_prefix) :], validate=True
                     ).decode("utf-8", errors="replace")
                 )
                 if not isinstance(payload, dict):
@@ -362,6 +378,75 @@ def _parse_events(result) -> tuple[str, str, int | None]:
             except ValueError:
                 rc = None
     return stdout, stderr, rc
+
+
+def _prepare_pi_exec(
+    hostname: str, agent_name: str, cmd_argv: list[str]
+) -> tuple[list[str], str | None, str]:
+    """Return fixed Pi argv, optional stdin prompt, and credential mode.
+
+    Pi 0.73.1 accepts ``--provider``, ``--model``, and ``--print``. Its
+    positional print prompt is deliberately moved to stdin so operator text is
+    not an argv element. Inference disables every local discovery/execution
+    feature capable of reading the dedicated account's credential file.
+    """
+    if tuple(cmd_argv) in _PI_EXEC_DIAGNOSTICS:
+        return cmd_argv, None, "diagnostic"
+    if (
+        len(cmd_argv) != 2
+        or cmd_argv[0] != "--print"
+        or not cmd_argv[1].strip()
+        or len(cmd_argv[1]) > _PI_EXEC_PROMPT_MAX_CHARS
+    ):
+        raise AgentExecError(
+            "Pi exec accepts only `--version`, `--help`, or "
+            "`--print <prompt>`; use `clawctl agent chat` for sessions"
+        )
+
+    # Provider-specific fixed argv belongs here. Selecting the provider/model
+    # from the attached registry record, rather than caller argv, preserves the
+    # credential boundary for both OpenRouter and AWS SSO-backed Bedrock.
+    from clawrium.core.hosts import get_agent_by_name
+    from clawrium.core.pi import PiProvisioningError, validate_pi_provider
+    from clawrium.core.providers.storage import get_provider
+
+    resolved = get_agent_by_name(agent_name)
+    if resolved is None:
+        raise AgentExecError(f"Pi agent {agent_name!r} not found")
+    agent_host, agent_type, agent_record = resolved
+    if agent_type != "pi" or agent_host.get("hostname") != hostname:
+        raise AgentExecError("Pi agent ownership changed; retry the command")
+    providers = agent_record.get("providers")
+    if (
+        not isinstance(providers, list)
+        or len(providers) != 1
+        or not isinstance(providers[0], str)
+    ):
+        raise AgentExecError(
+            "Pi requires exactly one attached OpenRouter or AWS SSO-backed Bedrock provider before native inference"
+        )
+    try:
+        selection = validate_pi_provider(get_provider(providers[0]))
+    except PiProvisioningError as exc:
+        raise AgentExecError(str(exc)) from exc
+    return (
+        [
+            "--provider",
+            selection.provider,
+            "--model",
+            selection.model,
+            "--print",
+            "--no-session",
+            "--no-tools",
+            "--no-context-files",
+            "--no-extensions",
+            "--no-skills",
+            "--no-prompt-templates",
+            "--no-themes",
+        ],
+        cmd_argv[1],
+        "inference",
+    )
 
 
 def _extract_failure_message(result, default: str) -> str:
@@ -442,11 +527,25 @@ def run_agent_exec(
         )
 
     extra_vars = {"agent_name": agent_name, "cmd_argv": cmd_argv}
-    if claw_type == "claude":
+    if claw_type == "pi":
+        pi_argv, pi_prompt, pi_exec_mode = _prepare_pi_exec(
+            host["hostname"], agent_name, cmd_argv
+        )
+        extra_vars["cmd_argv"] = pi_argv
+        extra_vars["pi_exec_mode"] = pi_exec_mode
+        if pi_prompt is not None:
+            extra_vars["pi_exec_prompt_b64"] = base64.b64encode(
+                pi_prompt.encode("utf-8")
+            ).decode("ascii")
+    if claw_type in {"claude", "codex"}:
         # The remote wrapper owns the canonical kill path. Never pass
-        # credential contents: OAuth is native file state and API-key mode is
-        # sourced only from the private agent-home artifact on the host.
-        extra_vars["claude_exec_timeout"] = effective_timeout
+        # credential contents: native auth is private agent-home state on the
+        # host.
+        extra_vars[f"{claw_type}_exec_timeout"] = effective_timeout
+    elif claw_type == "pi":
+        # Keep the playbook contract explicit: both Pi OS variants validate
+        # this exact extra var before their process-group timeout wrapper runs.
+        extra_vars["pi_exec_timeout"] = effective_timeout
 
     try:
         inventory = _build_inventory(host, ssh_key, extra_vars)
@@ -494,8 +593,8 @@ def run_agent_exec(
             playbook=str(playbook),
             quiet=True,
             timeout=(
-                effective_timeout + _CLAUDE_RUNNER_GRACE_SECONDS
-                if claw_type == "claude"
+                effective_timeout + _NATIVE_CLI_RUNNER_GRACE_SECONDS
+                if claw_type in {"claude", "codex", "pi"}
                 else effective_timeout
             ),
         )

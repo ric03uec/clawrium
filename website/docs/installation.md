@@ -229,20 +229,29 @@ macOS user (`/Users/<agent_name>/`), and runs the upstream installer:
 - **pi** requires Node.js 20.6 or later. Install creates a dedicated account
   and pinned Pi prefix only: it does not start a service, allocate a port, or
   expose a native UI. To chat, attach one existing OpenRouter provider with an
-  unprefixed OpenRouter `default_model`, then sync:
-  `clawctl agent provider attach <provider> --agent <name>`;
-  `clawctl agent sync <name>`; `clawctl agent chat <name>`. Clawrium writes the
-  provider credential only to that Pi account's private environment file; Pi
-  consumes it on demand and never requests a grant. `agent exec` also receives
-  that isolated environment. Pi also supports a single `openai-codex` provider
-  with one model from its pinned 0.73.1 catalog. Create it without an API key,
-  attach and sync it, then run `clawctl agent provider login <provider> --agent
-  <name>` from an interactive terminal. That command opens Pi under only the
-  dedicated agent account; complete Pi's native `/login` → `openai-codex` flow
-  there. Pi owns the resulting private OAuth document and refreshes it locally;
-  on expiry or revocation, rerun the same command. Never export an OAuth bearer,
-  set `OPENAI_API_KEY`, or copy a controller `~/.pi` directory. Pi has exactly
-  one provider at a time; `agent open` remains unavailable.
+  unprefixed OpenRouter `default_model`, an AWS Identity Center Bedrock provider
+  created with its model, region, and complete `--sso-*` profile metadata, or a
+  single `openai-codex` provider with one model from Pi's pinned 0.73.1 catalog.
+  Then sync: `clawctl agent provider attach <provider> --agent <name>`;
+  `clawctl agent sync <name>`; `clawctl agent chat <name>`. For Bedrock, Clawrium
+  writes only an isolated AWS profile/configuration to the Pi account; run
+  `aws sso login --profile <profile>` as that account before chat. It never
+  copies a controller `~/.aws`, an SSO token cache, or static AWS keys. Pi
+  consumes the assigned access on demand and never requests a grant. `agent exec`
+  receives the same isolated environment. For `openai-codex`, create the provider
+  without an API key, attach and sync it, then run
+  `clawctl agent provider login <provider> --agent <name>` from an interactive
+  terminal. That command opens Pi under only the dedicated agent account; complete
+  Pi's native `/login` → `openai-codex` flow there. Pi owns the resulting private
+  OAuth document and refreshes it locally; on expiry or revocation, rerun the same
+  command. Never export an OAuth bearer, set `OPENAI_API_KEY`, or copy a controller
+  `~/.pi` directory. Pi supports one provider; `agent open` remains unavailable.
+  Bedrock chat needs AWS CLI v2 installed on the fleet host and an interactive
+  `aws sso login` performed as the dedicated Pi account; an expired login produces
+  a recoverable error rather than falling back to another credential source. Pi
+  0.73.1's [Amazon Bedrock provider documentation](https://github.com/earendil-works/pi/blob/v0.73.1/packages/coding-agent/docs/providers.md#amazon-bedrock)
+  consumes `AWS_PROFILE` and `AWS_REGION` through its AWS SDK credential chain;
+  on-demand Pi chat and exec do not discover or invoke an `aws` binary.
 
 Configure, start, chat — same commands as Linux for daemon-backed Hermes and
 OpenClaw agents:

@@ -7,8 +7,13 @@ import pytest
 
 from clawrium.core.chat_pi import PiChatBackend
 from clawrium.core.pi import (
+    PI_AWS_CONFIG_PATH,
     PiProvisioningError,
+    PiProviderSelection,
     pi_chat_argv,
+    render_bedrock_sso_config,
+    render_bedrock_sso_environment,
+    validate_bedrock_sso_provider,
     validate_pi_provider,
     render_openrouter_environment,
     validate_openrouter_provider,
@@ -37,9 +42,53 @@ def test_pi_accepts_only_unprefixed_openrouter_model_ids():
 def test_pi_codex_selection_accepts_only_pinned_catalog_models():
     assert validate_pi_provider(
         {"type": "openai-codex", "default_model": "gpt-5.1-codex-mini"}
-    ) == ("openai-codex", "gpt-5.1-codex-mini")
+    ) == PiProviderSelection("openai-codex", "gpt-5.1-codex-mini")
     with pytest.raises(PiProvisioningError, match="supported by pinned Pi"):
         validate_pi_provider({"type": "openai-codex", "default_model": "unknown"})
+
+
+def test_pi_bedrock_sso_selection_uses_only_profile_metadata():
+    provider = {
+        "type": "bedrock",
+        "credential_source": "aws-sso",
+        "default_model": "anthropic.claude-3-haiku-20240307-v1:0",
+        "aws_profile": "pi-bedrock",
+        "region": "us-east-1",
+        "sso_start_url": "https://company.awsapps.com/start",
+        "sso_region": "us-east-1",
+        "sso_account_id": "123456789012",
+        "sso_role_name": "BedrockPiRole",
+    }
+    assert validate_bedrock_sso_provider(provider) == provider["default_model"]
+    assert validate_pi_provider(provider) == PiProviderSelection(
+        "amazon-bedrock", provider["default_model"]
+    )
+    assert render_bedrock_sso_environment("pi-bedrock", "us-east-1") == (
+        "AWS_PROFILE=pi-bedrock\nAWS_REGION=us-east-1\n"
+        f"AWS_CONFIG_FILE=$HOME/{PI_AWS_CONFIG_PATH}\n"
+    )
+    config = render_bedrock_sso_config(provider)
+    assert "sso_start_url = https://company.awsapps.com/start" in config
+    assert "aws_access_key" not in config.lower()
+    assert "secret" not in config.lower()
+    with pytest.raises(PiProvisioningError, match="static AWS keys"):
+        validate_bedrock_sso_provider({"type": "bedrock", "default_model": "model"})
+
+
+def test_pi_bedrock_chat_argv_has_fixed_provider():
+    session = "12345678-1234-1234-1234-123456789abc"
+    argv = pi_chat_argv(
+        "anthropic.claude-3-haiku-20240307-v1:0",
+        session,
+        resume=False,
+        provider="amazon-bedrock",
+    )
+    assert argv[:4] == [
+        "--provider",
+        "amazon-bedrock",
+        "--model",
+        "anthropic.claude-3-haiku-20240307-v1:0",
+    ]
 
 
 def test_pi_environment_is_secret_only_and_rejects_empty_key():

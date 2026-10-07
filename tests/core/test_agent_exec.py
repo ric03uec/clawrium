@@ -170,11 +170,16 @@ def test_pi_exec_encrypts_sentinel_output_preserves_nonzero_and_cleans_runner_st
 
     monkeypatch.setattr(agent_exec.ansible_runner, "run", fake_run)
     stdout, stderr, rc = agent_exec.run_agent_exec(
-        "10.0.0.1", "pi-one", "pi", ["--bad-option"]
+        "10.0.0.1", "pi-one", "pi", ["--version"]
     )
     assert (stdout, stderr, rc) == (sentinel + "\\n", "failed: " + sentinel, 17)
     assert str(captured["playbook"]).endswith("pi/playbooks/" + expected_playbook)
-    assert captured["inventory"]["all"]["vars"]["cmd_argv"] == ["--bad-option"]
+    assert captured["inventory"]["all"]["vars"]["cmd_argv"] == ["--version"]
+    assert captured["inventory"]["all"]["vars"]["pi_exec_mode"] == "diagnostic"
+    assert captured["inventory"]["all"]["vars"]["pi_exec_timeout"] == 120
+    # The Pi playbook owns process-group termination; runner only receives
+    # a grace window to collect the encrypted terminal result.
+    assert captured["timeout"] == 150
     assert (
         sentinel
         not in captured["inventory"]["all"]["vars"]["pi_exec_recipient_certificate"]

@@ -1,8 +1,11 @@
 """Pi chat playbooks keep native output encrypted in runner events (#1038)."""
 
 from pathlib import Path
+import os
 import re
+import subprocess
 
+import pytest
 import jinja2
 import yaml
 
@@ -59,6 +62,36 @@ def test_macos_chat_guard_accepts_real_dscl_output_and_rejects_mismatch():
     assert not evaluate(facts)
 
 
+@pytest.mark.parametrize("path", PLAYBOOKS)
+@pytest.mark.parametrize(
+    "provider_env,symlink",
+    [
+        ("AWS_PROFILE=p\nAWS_REGION=r\nAWS_CONFIG_FILE=$HOME/../../escape\n", False),
+        ("OPENROUTER_API_KEY=x\nAWS_PROFILE=p\nAWS_REGION=r\nAWS_CONFIG_FILE=$HOME/.pi/agent/clawrium-aws-config\n", False),
+        ("AWS_PROFILE=p\nAWS_PROFILE=q\nAWS_REGION=r\nAWS_CONFIG_FILE=$HOME/.pi/agent/clawrium-aws-config\n", False),
+        ("AWS_PROFILE=p\nAWS_REGION=r\nAWS_CONFIG_FILE=$HOME/.pi/agent/clawrium-aws-config\n", True),
+    ],
+)
+def test_pi_chat_bootstrap_rejects_untrusted_provider_environment(
+    path: Path, provider_env: str, symlink: bool, tmp_path: Path
+):
+    """Execute the production chat bootstrap, not a parser reimplementation."""
+    play = yaml.safe_load(path.read_text())[0]
+    home = tmp_path / "pi-home"
+    env_file = home / ".pi" / "agent" / "clawrium-provider.env"
+    env_file.parent.mkdir(parents=True)
+    env_file.write_text(provider_env)
+    if symlink:
+        target = tmp_path / "provider-config"
+        target.write_text("[profile p]\n")
+        (env_file.parent / "clawrium-aws-config").symlink_to(target)
+    result = subprocess.run(
+        ["/bin/bash", "-c", play["vars"]["pi_chat_capture_bootstrap"], "test", "ignored", "ignored", "/bin/true"],
+        text=True, capture_output=True, env={**os.environ, "HOME": str(home)}, check=False,
+    )
+    assert result.returncode == 126
+
+
 def test_pi_chat_playbooks_use_cms_result_transport_without_raw_output_events():
     for path in PLAYBOOKS:
         play = yaml.safe_load(path.read_text())[0]
@@ -68,8 +101,22 @@ def test_pi_chat_playbooks_use_cms_result_transport_without_raw_output_events():
         assert "PI_CHAT_RESULT=" in rendered
         assert "PI_CHAT_STDOUT=" not in rendered
         assert "PI_CHAT_STDERR=" not in rendered
-        assert '. "$HOME/.pi/agent/clawrium-openrouter.env"' not in rendered
+        assert '. "$HOME/.pi/agent/clawrium-provider.env"' not in rendered
         assert "OPENROUTER_API_KEY=${line#OPENROUTER_API_KEY=}" in rendered
+        assert "AWS_PROFILE=${line#AWS_PROFILE=}" in rendered
+        assert "AWS_REGION=${line#AWS_REGION=}" in rendered
+        assert "AWS_CONFIG_FILE" in rendered
+        # Pi 0.73.1's documented Bedrock provider consumes AWS_PROFILE and
+        # AWS_REGION through the AWS SDK; it does not need to discover or run
+        # an aws binary during a chat/exec. Keep the trusted PATH and do not
+        # introduce AWS_CLI_PATH or a user-controlled command lookup here.
+        assert "command -v aws" not in rendered
+        assert "AWS_CLI_PATH" not in rendered
+        assert "PATH=/usr/bin:/bin; export PATH;" in rendered
+        assert "export AWS_PROFILE AWS_REGION AWS_CONFIG_FILE" in rendered
+        assert "unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN" in rendered
+        assert "AWS_SHARED_CREDENTIALS_FILE=\"$HOME/.pi/agent/clawrium-aws-credentials\"" in rendered
+        assert "AWS_EC2_METADATA_DISABLED=true" in rendered
         assert "set -o pipefail" in rendered
         task = next(
             task

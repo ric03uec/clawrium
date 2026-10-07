@@ -95,9 +95,8 @@ def _attach_provider_for_configure(
     # tolerant; downstream lifecycle code reads `agents.<n>.providers`
     # and looks up the provider by *that* exact string.
     canonical_name = record.get("name", provider_name)
-    # Pi accepts only its bounded OpenRouter or native Codex OAuth selections;
-    # reject before mutating attachment metadata so an unsupported selection
-    # cannot be synced later.
+    # Pi supports only its bounded OpenRouter and AWS SSO Bedrock mappings; reject
+    # before mutating attachment metadata so an unsupported selection cannot sync.
     resolved = safe_resolve_agent(agent_name)
     if resolved[1] == "pi":
         from clawrium.core.pi import PiProvisioningError, validate_pi_provider
@@ -140,6 +139,24 @@ def _attach_provider_for_configure(
             f"could not write hosts.json: {type(exc).__name__}",
             hint="inspect ~/.config/clawrium/hosts.json before retrying",
         )
+
+
+def _restore_pi_provider_attachment(
+    hostname: str, agent_key: str, previous: object
+) -> str | None:
+    """Compensate Pi metadata; return a safe error if persistence fails."""
+
+    def updater(host: dict) -> dict:
+        record = (host.get("agents", {}) or {}).get(agent_key)
+        if isinstance(record, dict):
+            record["providers"] = previous
+        return host
+
+    try:
+        update_host(hostname, updater)
+    except (LifecycleError, HostsFileCorruptedError, OSError) as exc:
+        return type(exc).__name__
+    return None
 
 
 class Stage(str, Enum):
@@ -215,31 +232,70 @@ def configure(
         if agent_type == "pi":
             if stage not in (None, Stage.providers) or provider is None:
                 emit_error(
-                    "Pi configuration requires --stage providers --provider <provider>",
-                    hint="attach/sync an existing OpenRouter provider or Pi Codex OAuth selection for the isolated Pi account",
+                    "Pi configuration requires --stage providers --provider <openrouter-provider>",
+                    hint="attach/sync an existing OpenRouter provider for the isolated Pi account",
                 )
-            _attach_provider_for_configure(name, hostname, agent_key, provider)
+            from clawrium.core.pi import pi_credential_lock
             from clawrium.core.lifecycle_canonical import (
                 CanonicalSyncError,
+                revoke_pi_openrouter,
                 sync_agent_canonical,
             )
-
-            try:
-                result = sync_agent_canonical(
-                    agent_key, restart=False, verify=False, push_workspace=False
-                )
-            except CanonicalSyncError as exc:
-                emit_error(f"Pi provider configuration failed: {exc}")
-            if not result.success:
-                emit_error(
-                    f"Pi provider configuration failed: {result.error or 'unknown error'}"
-                )
+            # One reentrant lock spans local attachment stage, remote sync,
+            # and compensation so detach cannot interleave a partial configure.
+            with pi_credential_lock(name):
+                fresh_host, _fresh_type, fresh_record = safe_resolve_agent(name)
+                if (
+                    fresh_host.get("hostname") != hostname
+                    or fresh_record.get("type") != "pi"
+                ):
+                    emit_error(
+                        "Pi agent changed while configuring provider; retry the command"
+                    )
+                previous_providers = fresh_record.get("providers", [])
+                _attach_provider_for_configure(name, hostname, agent_key, provider)
+                try:
+                    result = sync_agent_canonical(
+                        name, restart=False, verify=False, push_workspace=False
+                    )
+                except CanonicalSyncError as exc:
+                    result = None
+                    failure_detail = str(exc)
+                else:
+                    failure_detail = (
+                        None if result.success else (result.error or "unknown error")
+                    )
+                if failure_detail is not None:
+                    # Reconfiguration may already have replaced the old
+                    # remote credential. Retain the newly staged attachment
+                    # rather than claiming restoration to an old provider
+                    # whose credential no longer exists.
+                    if previous_providers:
+                        emit_error(
+                            f"Pi provider configuration failed: {failure_detail}; the previous provider may have been replaced remotely. The new attachment was retained for recovery; run agent sync or detach before retrying."
+                        )
+                    # First-time provisioning can safely compensate by
+                    # removing any partially written credential before local
+                    # rollback, so detached state never masks a live bearer.
+                    try:
+                        revoke_pi_openrouter(agent_name=name, host=fresh_host)
+                    except CanonicalSyncError as revoke_exc:
+                        emit_error(
+                            f"Pi provider configuration failed: {failure_detail}; remote credential cleanup failed: {revoke_exc}. Provider attachment was retained; manually detach the provider before retrying."
+                        )
+                    rollback_error = _restore_pi_provider_attachment(
+                        hostname, agent_key, previous_providers
+                    )
+                    detail = f"Pi provider configuration failed: {failure_detail}"
+                    if rollback_error:
+                        detail += f"; rollback also failed ({rollback_error}). Manually detach the provider before retrying."
+                    emit_error(detail)
             stream_action(
                 resource=f"agent/{name}",
-                message="Pi provider selection provisioned; no daemon restart",
+                message="Pi provider access provisioned; no daemon restart",
             )
             return
-        if agent_type != "claude":
+        if agent_type not in {"claude", "codex"}:
             stream_action(
                 resource=f"agent/{name}",
                 message=f"{agent_type} is an installed CLI; no daemon configuration is managed yet",
@@ -249,7 +305,7 @@ def configure(
         config_data = claw_record.get("config", {})
         if not isinstance(config_data, dict):
             emit_error(
-                f"agent {name!r} on host {hostname!r}: Claude configuration must be an object"
+                f"agent {name!r} on host {hostname!r}: {agent_type.title()} configuration must be an object"
             )
 
         def on_event(stage_evt: str, message: str) -> None:
@@ -261,25 +317,39 @@ def configure(
             ).configure_agent
             success, error = configure_fn(
                 hostname=hostname,
-                claw_name="claude",
+                claw_name=agent_type,
                 config_data=dict(config_data),
                 agent_name=agent_key,
                 on_event=on_event,
             )
         except LifecycleError as exc:
+            detail = str(exc)
+            if agent_type == "codex":
+                from clawrium.core.codex_credentials import codex_oauth_activation_error_for_display
+
+                detail = codex_oauth_activation_error_for_display(detail)
             emit_error(
                 f"agent {name!r} on host {hostname!r}: "
-                f"Claude settings configure failed: {exc}"
+                f"{agent_type.title()} settings configure failed: {detail}"
             )
         if not success:
+            detail = error or "unknown error"
+            # Codex activation crosses a private OAuth transport. Do not trust
+            # a backend/playbook error to be safe for terminal output.
+            if agent_type == "codex":
+                from clawrium.core.codex_credentials import codex_oauth_activation_error_for_display
+
+                detail = codex_oauth_activation_error_for_display(detail)
             emit_error(
-                f"agent {name!r} on host {hostname!r}: Claude settings configure failed: "
-                f"{error or 'unknown error'}"
+                f"agent {name!r} on host {hostname!r}: {agent_type.title()} settings configure failed: "
+                f"{detail}"
             )
-        stream_action(
-            resource=f"agent/{name}",
-            message="Claude global settings configured; no daemon restart",
+        summary = (
+            "Claude global settings configured; no daemon restart"
+            if agent_type == "claude"
+            else "Codex private settings configured; no daemon restart"
         )
+        stream_action(resource=f"agent/{name}", message=summary)
         return
 
     if stage is None:

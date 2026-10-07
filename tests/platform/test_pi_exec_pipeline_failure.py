@@ -12,7 +12,7 @@ def test_pi_exec_capture_fails_when_cms_recipient_is_invalid(tmp_path, name):
         Path("src/clawrium/platform/registry/pi/playbooks", name).read_text()
     )[0]
     home = tmp_path / "home"
-    env = home / ".pi/agent/clawrium-openrouter.env"
+    env = home / ".pi/agent/clawrium-provider.env"
     env.parent.mkdir(parents=True)
     env.write_text("OPENROUTER_API_KEY=x\n")
     result = subprocess.run(

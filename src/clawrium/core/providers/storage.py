@@ -20,6 +20,7 @@ __all__ = [
     "PROVIDER_MODELS",
     "CLAUDE_OAUTH_PROVIDER_TYPE",
     "PI_CODEX_OAUTH_PROVIDER_TYPE",
+    "CODEX_OAUTH_PROVIDER_TYPE",
     "load_providers",
     "save_providers",
     "add_provider",
@@ -52,9 +53,10 @@ __all__ = [
 
 PROVIDERS_FILE = "providers.json"
 CLAUDE_OAUTH_PROVIDER_TYPE = "claude-oauth"
-# Selection-only: Pi writes and refreshes OAuth only inside its dedicated
-# account through native interactive login. There is no provider-scoped secret.
+# Pi owns this OAuth only in the selected dedicated account; no provider secret.
 PI_CODEX_OAUTH_PROVIDER_TYPE = "openai-codex"
+# The separate Codex agent preserves its existing agent-scoped OAuth contract.
+CODEX_OAUTH_PROVIDER_TYPE = "codex-oauth"
 
 # Provider name pattern: starts with letter, alphanumeric/underscore/hyphen, 1-64 chars
 PROVIDER_NAME_PATTERN = re.compile(r"^[a-zA-Z][a-zA-Z0-9_-]{0,63}$")
@@ -122,6 +124,12 @@ PROVIDER_MODELS: dict[str, dict] = {
         "requires_endpoint": False,
     },
     PI_CODEX_OAUTH_PROVIDER_TYPE: {
+        "endpoint": None,
+        "requires_api_key": False,
+        "requires_endpoint": False,
+    },
+    # The native Codex agent stores its complete OAuth document per instance.
+    CODEX_OAUTH_PROVIDER_TYPE: {
         "endpoint": None,
         "requires_api_key": False,
         "requires_endpoint": False,
@@ -499,9 +507,7 @@ def fetch_ollama_models(endpoint: str, timeout: int = 10) -> list[str]:
         raise OllamaConnectionError(f"Invalid response from Ollama server: {e}")
 
 
-def fetch_litellm_models(
-    endpoint: str, api_key: str, timeout: int = 10
-) -> list[str]:
+def fetch_litellm_models(endpoint: str, api_key: str, timeout: int = 10) -> list[str]:
     """Fetch available models from a LiteLLM (OpenAI-compatible) proxy.
 
     Args:
@@ -538,9 +544,7 @@ def fetch_litellm_models(
                 "Invalid response from LiteLLM server: expected 'data' to be a list"
             )
 
-        return [
-            m.get("id", "") for m in models if isinstance(m, dict) and m.get("id")
-        ]
+        return [m.get("id", "") for m in models if isinstance(m, dict) and m.get("id")]
 
     except requests.exceptions.ConnectionError:
         raise LiteLLMConnectionError(

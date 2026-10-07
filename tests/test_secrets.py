@@ -15,6 +15,7 @@ from clawrium.core.secrets import (
     get_instance_secrets,
     set_instance_secret,
     replace_instance_secret,
+    replace_instance_secrets,
     remove_instance_secret,
     list_instances_with_secrets,
 )
@@ -451,6 +452,54 @@ def test_replace_instance_secret_failed_save_leaves_persisted_mapping_unchanged(
 
     assert secrets_path.read_bytes() == before
     assert set(get_instance_secrets(instance_key)) == {"ANTHROPIC_API_KEY"}
+
+
+def test_replace_instance_secrets_commits_mixed_update_and_removal(isolated_config):
+    """A journal update and credential removal persist in one mapping reload."""
+    instance_key = "wolf:codex:work"
+    set_instance_secret(instance_key, "CODEX_OAUTH_DOCUMENT", "before")
+    set_instance_secret(instance_key, "UNRELATED_KEY", "keep")
+
+    replace_instance_secrets(
+        instance_key,
+        {
+            "CODEX_OAUTH_DOCUMENT": None,
+            "CODEX_OAUTH_PENDING_TRANSACTION": "journal",
+        },
+        descriptions={"CODEX_OAUTH_PENDING_TRANSACTION": "operation journal"},
+    )
+
+    reloaded = load_secrets()[instance_key]
+    assert set(reloaded) == {"UNRELATED_KEY", "CODEX_OAUTH_PENDING_TRANSACTION"}
+    assert reloaded["CODEX_OAUTH_PENDING_TRANSACTION"]["value"] == "journal"
+    assert reloaded["UNRELATED_KEY"]["value"] == "keep"
+
+
+def test_replace_instance_secrets_failed_save_leaves_mapping_unchanged(
+    isolated_config, monkeypatch
+):
+    """A failed transaction write cannot persist only its journal or credential half."""
+    instance_key = "wolf:codex:work"
+    set_instance_secret(instance_key, "CODEX_OAUTH_DOCUMENT", "before")
+    secrets_path = isolated_config / SECRETS_FILE
+    before = secrets_path.read_bytes()
+
+    def fail_save(*_args, **_kwargs):
+        raise OSError("simulated atomic write failure")
+
+    monkeypatch.setattr(secrets_module, "_save_secrets_atomic", fail_save)
+    with pytest.raises(OSError, match="simulated atomic write failure"):
+        replace_instance_secrets(
+            instance_key,
+            {
+                "CODEX_OAUTH_DOCUMENT": "after",
+                "CODEX_OAUTH_PENDING_TRANSACTION": "journal",
+            },
+        )
+
+    assert secrets_path.read_bytes() == before
+    assert set(load_secrets()[instance_key]) == {"CODEX_OAUTH_DOCUMENT"}
+    assert load_secrets()[instance_key]["CODEX_OAUTH_DOCUMENT"]["value"] == "before"
 
 
 @pytest.mark.parametrize(

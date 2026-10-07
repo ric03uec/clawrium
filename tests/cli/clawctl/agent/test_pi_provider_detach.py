@@ -2,6 +2,7 @@
 
 import json
 
+import paramiko
 import pytest
 from typer.testing import CliRunner
 
@@ -40,7 +41,11 @@ def _setup(tmp_path, monkeypatch, calls):
     monkeypatch.setattr(
         provider_mod,
         "_safe_get_provider",
-        lambda _: {"name": "router", "type": "openrouter", "default_model": "openai/gpt-4o"},
+        lambda _: {
+            "name": "router",
+            "type": "openrouter",
+            "default_model": "openai/gpt-4o",
+        },
     )
     monkeypatch.setattr(provider_mod, "update_host", persist)
     return load
@@ -79,6 +84,38 @@ def test_final_pi_detach_revocation_failure_keeps_persisted_attachment(
     assert load()["agents"]["pi-key"]["providers"] == ["router"]
 
 
+def test_final_pi_detach_transport_failure_keeps_persisted_attachment(
+    tmp_path, monkeypatch
+):
+    """Raw SSH failures must become the safe retryable detach outcome."""
+    calls = []
+    load = _setup(tmp_path, monkeypatch, calls)
+
+    def revoke(**kwargs):
+        calls.append(("revoke", kwargs))
+        raise paramiko.SSHException("connection reset")
+
+    monkeypatch.setattr(
+        "clawrium.core.lifecycle_canonical.revoke_pi_openrouter", revoke
+    )
+    result = runner.invoke(
+        app, ["agent", "provider", "detach", "router", "--agent", "pi-test"]
+    )
+
+    assert result.exit_code != 0
+    assert (
+        "failed to revoke Pi provider credential; detach did not finish"
+        in result.output
+    )
+    assert (
+        "retry: clawctl agent provider detach router --agent pi-test" in result.output
+    )
+    assert "connection reset" not in result.output
+    assert calls[0][0] == "revoke"
+    assert "persist" not in calls
+    assert load()["agents"]["pi-key"]["providers"] == ["router"]
+
+
 def test_final_pi_codex_detach_revokes_only_native_auth_before_persisting(
     tmp_path, monkeypatch
 ):
@@ -87,7 +124,11 @@ def test_final_pi_codex_detach_revokes_only_native_auth_before_persisting(
     monkeypatch.setattr(
         provider_mod,
         "_safe_get_provider",
-        lambda _: {"name": "router", "type": "openai-codex", "default_model": "gpt-5.1-codex-mini"},
+        lambda _: {
+            "name": "router",
+            "type": "openai-codex",
+            "default_model": "gpt-5.1-codex-mini",
+        },
     )
     monkeypatch.setattr(
         "clawrium.core.lifecycle_canonical.revoke_pi_openrouter",
@@ -131,14 +172,20 @@ def test_pi_codex_login_opens_tty_only_for_attached_dedicated_agent(monkeypatch)
     monkeypatch.setattr(
         provider_mod,
         "_safe_get_provider",
-        lambda _: {"name": "codex", "type": "openai-codex", "default_model": "gpt-5.1-codex-mini"},
+        lambda _: {
+            "name": "codex",
+            "type": "openai-codex",
+            "default_model": "gpt-5.1-codex-mini",
+        },
     )
     monkeypatch.setattr(provider_mod, "get_host_private_key", lambda _: "/private/key")
     calls = []
     monkeypatch.setattr(
         provider_mod.subprocess,
         "run",
-        lambda args, check: calls.append((args, check)) or type("R", (), {"returncode": 0})(),
+        lambda args, check: (
+            calls.append((args, check)) or type("R", (), {"returncode": 0})()
+        ),
     )
 
     result = runner.invoke(
@@ -148,7 +195,14 @@ def test_pi_codex_login_opens_tty_only_for_attached_dedicated_agent(monkeypatch)
     assert result.exit_code == 0, result.output
     assert "/login" in result.output
     args, check = calls[0]
-    assert check is False and args[:6] == ["ssh", "-tt", "-i", "/private/key", "-p", "22"]
+    assert check is False and args[:6] == [
+        "ssh",
+        "-tt",
+        "-i",
+        "/private/key",
+        "-p",
+        "22",
+    ]
     remote = args[-1]
     assert "-u pi-dedicated" in remote
     assert "--provider openai-codex --model gpt-5.1-codex-mini" in remote

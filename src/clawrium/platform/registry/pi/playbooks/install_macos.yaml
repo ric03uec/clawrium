@@ -100,7 +100,6 @@
               - pi_intent_data.uid | int >= 700
               - pi_intent_data.transaction_id is match('^[0-9a-f-]{36}$')
               - (pi_existing_uid.stdout | trim) == '' or (pi_existing_uid.stdout | trim | int) == (pi_intent_data.uid | int)
-              - (pi_existing_uid.stdout | trim) == '' or (pi_account_comment.stdout | trim) == ('clawrium-pi-' ~ pi_intent_data.transaction_id)
             fail_msg: "Refusing to recover Pi installation: intent does not bind this account."
           when: pi_intent_stat.stat.exists | bool
         - name: Verify active Pi ownership marker
@@ -139,7 +138,7 @@
         - name: Load recoverable Pi install transaction
           ansible.builtin.set_fact: { pi_transaction_data: "{{ pi_intent_data }}" }
           when: pi_intent_stat.stat.exists | bool
-        - name: Create dedicated Pi account
+        - name: Create or recover dedicated Pi account
           ansible.builtin.command: "/usr/bin/dscl . -create /Users/{{ agent_name }} {{ item.key }} {{ item.value }}"
           loop:
             - { key: UserShell, value: /bin/bash }
@@ -148,7 +147,9 @@
             - { key: PrimaryGroupID, value: "20" }
             - { key: NFSHomeDirectory, value: "{{ pi_home }}" }
             - { key: Comment, value: "clawrium-pi-{{ pi_transaction_data.transaction_id }}" }
-          when: (pi_existing_uid.stdout | trim) == ''
+          # A root-owned intent binds the name and UID before dscl mutation.
+          # Reapplying every attribute recovers interruption between dscl calls.
+          when: not (pi_marker_stat.stat.exists | bool)
         - name: Read created Pi account UID
           ansible.builtin.shell: "PATH=/usr/bin:/bin; export PATH; /usr/bin/dscl . -read /Users/{{ agent_name | quote }} UniqueID | /usr/bin/awk '/UniqueID:/{print $2}'"
           args: { executable: /bin/bash }

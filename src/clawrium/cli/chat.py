@@ -9,8 +9,8 @@ Dispatch is driven by `features.chat.type` in the agent manifest:
                   schema, so it gets a dedicated dispatch value).
 - ``claude``    → finite Claude Code print-mode invocation over the private
                   Ansible argv/stdin transport (no daemon or gateway).
-- ``pi``        → finite Pi/OpenRouter print-mode invocation over the same
-                  isolated-account transport (no daemon or gateway).
+- ``pi``        → finite Pi print-mode invocation using its provisioned
+                  OpenRouter or AWS Identity Center Bedrock access (no daemon or gateway).
 """
 
 from __future__ import annotations
@@ -920,17 +920,17 @@ def _build_pi_backend(
         or not isinstance(providers[0], str)
     ):
         raise ValueError(
-            "Pi requires exactly one attached provider. Re-run agent sync."
+            "Pi requires exactly one attached OpenRouter or AWS SSO-backed Bedrock provider. Re-run agent sync."
         )
     try:
-        provider_type, model = validate_pi_provider(get_provider(providers[0]))
+        selection = validate_pi_provider(get_provider(providers[0]))
     except PiProvisioningError as exc:
         raise ValueError(str(exc)) from exc
     return PiChatBackend(
         hostname=hostname,
         agent_name=str(unix_name),
-        model=model,
-        provider=provider_type,
+        model=selection.model,
+        provider=selection.provider,
         timeout_seconds=response_timeout_seconds,
     )
 

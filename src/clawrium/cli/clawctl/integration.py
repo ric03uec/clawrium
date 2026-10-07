@@ -639,6 +639,7 @@ def rotate(
         )
         return
 
+    from clawrium.core.hosts import get_agent_by_name
     from clawrium.core.lifecycle_canonical import (
         CanonicalSyncError,
         SecretRemovalRefused,
@@ -648,7 +649,12 @@ def rotate(
     failures: list[tuple[str, str, str]] = []
     for hostname, agent_key in agents:
         try:
-            sync_agent_canonical(agent_key)
+            resolved = get_agent_by_name(agent_key)
+            if resolved is None:
+                raise CanonicalSyncError(f"agent {agent_key!r} not found in hosts.json")
+            _host, _agent_type, agent_record = resolved
+            unix_agent_name = agent_record.get("agent_name") or agent_key
+            sync_agent_canonical(unix_agent_name, agent_key=agent_key)
             typer.echo(f"  {hostname}:{agent_key}: synced")
         except (CanonicalSyncError, SecretRemovalRefused) as exc:
             failures.append((hostname, agent_key, str(exc)))

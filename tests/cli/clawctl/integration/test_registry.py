@@ -531,10 +531,10 @@ def test_rotate_syncs_every_attached_agent_in_order(
         "rot-multi", "10.0.0.1", "openclaw"
     )
 
-    synced: list[str] = []
+    synced: list[tuple[str, dict]] = []
     monkeypatch.setattr(
         "clawrium.core.lifecycle_canonical.sync_agent_canonical",
-        lambda agent_key, **_kw: synced.append(agent_key),
+        lambda agent_name, **kwargs: synced.append((agent_name, kwargs)),
     )
 
     result = runner.invoke(
@@ -549,7 +549,7 @@ def test_rotate_syncs_every_attached_agent_in_order(
         ],
     )
     assert result.exit_code == 0, result.output
-    assert synced == ["openclaw"]
+    assert synced == [("wise-hypatia", {"agent_key": "openclaw"})]
 
     from clawrium.core.integrations import get_integration_credentials
 
@@ -645,7 +645,7 @@ def test_rotate_routes_through_sync_agent_canonical_no_skip_path(
     sync_calls: list[str] = []
     monkeypatch.setattr(
         "clawrium.core.lifecycle_canonical.sync_agent_canonical",
-        lambda agent_key, **_kw: sync_calls.append(agent_key),
+        lambda agent_name, **_kw: sync_calls.append(agent_name),
     )
 
     result = runner.invoke(
