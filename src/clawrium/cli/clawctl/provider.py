@@ -283,6 +283,10 @@ def create(
             "--context-window must be a positive integer",
             hint="pin to the model's actual context window (e.g. 131072)",
         )
+    if ollama_url is not None and provider_type != "ollama":
+        emit_error("--ollama-url only valid for ollama providers")
+    if litellm_url is not None and provider_type != "litellm":
+        emit_error("--litellm-url only valid for litellm providers")
 
     try:
         if get_provider(name):
@@ -417,6 +421,8 @@ def create(
         if any(sso_values):
             if access_key or secret_key:
                 emit_error("cannot combine static AWS keys with AWS Identity Center SSO")
+            if api_key is not None or api_key_stdin:
+                emit_error("cannot combine API keys with AWS Identity Center SSO")
             record = {
                 "name": name, "type": provider_type, "default_model": model,
                 "credential_source": "aws-sso", "aws_profile": sso_profile,
@@ -437,6 +443,8 @@ def create(
                 message=f"created (type={provider_type}, credential_source=aws-sso)",
             )
             return
+        if api_key is not None or api_key_stdin:
+            emit_error("--api-key/--api-key-stdin are not valid for bedrock providers")
         require_flag(access_key, flag="--access-key")
         require_flag(secret_key, flag="--secret-key")
         if not access_key and stdin_is_tty():
@@ -783,6 +791,8 @@ def edit(
 
     new_api_key: Optional[str] = None
     if api_key or api_key_stdin:
+        if ptype == "bedrock" and record.get("credential_source") == "aws-sso":
+            emit_error("cannot combine API keys with AWS Identity Center SSO")
         if ptype in ("ollama", "bedrock", CLAUDE_OAUTH_PROVIDER_TYPE):
             emit_error(f"--api-key is not valid for {ptype} providers")
         new_api_key = _resolve_api_key(api_key, api_key_stdin, required=True)
@@ -790,6 +800,8 @@ def edit(
     if access_key or secret_key:
         if ptype != "bedrock":
             emit_error("--access-key/--secret-key only valid for bedrock providers")
+        if record.get("credential_source") == "aws-sso":
+            emit_error("cannot combine static AWS keys with AWS Identity Center SSO")
         if not (access_key and secret_key):
             emit_error(
                 "both --access-key and --secret-key are required when updating AWS creds"
