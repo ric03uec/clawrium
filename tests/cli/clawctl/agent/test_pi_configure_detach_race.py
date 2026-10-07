@@ -285,55 +285,41 @@ def test_failed_configure_releases_lock_for_waiting_detach(tmp_path, monkeypatch
     assert remote["credential"] is False
 
 
-def test_pi_detach_restores_credential_when_metadata_persistence_fails(
+def test_pi_detach_persistence_failure_keeps_attachment_for_idempotent_retry(
     tmp_path, monkeypatch
 ):
-    """A failed hosts write compensates the already-revoked credential first."""
+    """Do not recreate a credential after a post-revoke metadata failure."""
     hosts_path = _seed_disk_state(attached=True)
     remote = {"credential": True}
     operations = []
     _mock_remote(monkeypatch, remote, operations=operations)
+    original_set = provider_mod._set_attachments
+    calls = 0
 
-    def persist_failure(*_args):
-        raise OSError("metadata disk failure")
+    def fail_once(*args):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return False
+        return original_set(*args)
 
-    monkeypatch.setattr(provider_mod, "_set_attachments", persist_failure)
-
-    result = CliRunner().invoke(
+    monkeypatch.setattr(provider_mod, "_set_attachments", fail_once)
+    first = CliRunner().invoke(
         app, ["agent", "provider", "detach", PROVIDER, "--agent", AGENT]
     )
 
-    assert result.exit_code != 0
-    assert operations == ["revoke", "provision"]
-    assert _attachments(hosts_path) == [PROVIDER]
-    assert remote["credential"] is True
-    assert "remote credential was restored" in result.output
-    assert "test-openrouter-key" not in result.output
-
-
-def test_pi_detach_reports_actionable_recovery_failure_without_secret(
-    tmp_path, monkeypatch
-):
-    """A failed recovery reports the honest possibly-detached remote state."""
-    hosts_path = _seed_disk_state(attached=True)
-    remote = {"credential": True}
-    operations = []
-    _mock_remote(
-        monkeypatch,
-        remote,
-        fail_provision=True,
-        operations=operations,
-    )
-    monkeypatch.setattr(provider_mod, "_set_attachments", lambda *_args: False)
-
-    result = CliRunner().invoke(
-        app, ["agent", "provider", "detach", PROVIDER, "--agent", AGENT]
-    )
-
-    assert result.exit_code != 0
-    assert operations == ["revoke", "provision"]
+    assert first.exit_code != 0
+    assert operations == ["revoke"]
     assert _attachments(hosts_path) == [PROVIDER]
     assert remote["credential"] is False
-    assert "remote credential recovery also failed" in result.output
-    assert "clawctl agent sync pi-race" in result.output
-    assert "test-openrouter-key" not in result.output
+    assert "detach did not finish" in first.output
+    assert "retry: clawctl agent provider detach router --agent pi-race" in first.output
+    assert "test-openrouter-key" not in first.output
+
+    second = CliRunner().invoke(
+        app, ["agent", "provider", "detach", PROVIDER, "--agent", AGENT]
+    )
+    assert second.exit_code == 0, second.output
+    assert operations == ["revoke", "revoke"]
+    assert _attachments(hosts_path) == []
+    assert remote["credential"] is False
