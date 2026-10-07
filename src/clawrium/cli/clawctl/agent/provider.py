@@ -433,9 +433,10 @@ def _reconcile_codex_oauth_transaction(
     provider_name = transaction["provider_name"]
     document = transaction["document"]
     previous_document = transaction["previous_document"]
-    selected = _find_attachment(
-        _get_attachments(host, agent_key, "codex"), provider_name
-    ) is not None
+    selected = (
+        _find_attachment(_get_attachments(host, agent_key, "codex"), provider_name)
+        is not None
+    )
     if transaction["operation"] == "attach":
         if selected:
             _set_document_if_prior_matches(secret_key, previous_document, document)
@@ -546,7 +547,9 @@ def _attach_codex_oauth_provider_locked(
         emit_error(f"failed to attach provider {provider_name!r} to agent {agent!r}")
     _clear_codex_pending_transaction(secret_key, transaction)
     if attached_now:
-        stream_action(resource=f"agent/{agent}", message=f"attached provider {provider_name!r}")
+        stream_action(
+            resource=f"agent/{agent}", message=f"attached provider {provider_name!r}"
+        )
     else:
         stream_action(
             resource=f"agent/{agent}",
@@ -751,7 +754,9 @@ def _detach_codex_oauth_provider(*, agent: str, name: str) -> None:
                     CODEX_OAUTH_DOCUMENT: None,
                     CODEX_OAUTH_PENDING_ACTIVATION: None,
                 },
-                descriptions={CODEX_OAUTH_PENDING_TRANSACTION: "Codex OAuth operation journal"},
+                descriptions={
+                    CODEX_OAUTH_PENDING_TRANSACTION: "Codex OAuth operation journal"
+                },
             )
         except Exception:
             emit_error(
@@ -763,11 +768,15 @@ def _detach_codex_oauth_provider(*, agent: str, name: str) -> None:
         try:
             metadata_written = _set_attachments(hostname, agent_key, "codex", remaining)
         except BaseException:
-            _reconcile_codex_oauth_transaction(host=host, agent_key=agent_key, agent=agent)
+            _reconcile_codex_oauth_transaction(
+                host=host, agent_key=agent_key, agent=agent
+            )
             raise
         _after_codex_oauth_durable_step("detach_metadata")
         if not metadata_written:
-            _reconcile_codex_oauth_transaction(host=host, agent_key=agent_key, agent=agent)
+            _reconcile_codex_oauth_transaction(
+                host=host, agent_key=agent_key, agent=agent
+            )
             emit_error(f"failed to detach provider {name!r} from agent {agent!r}")
         _clear_codex_pending_transaction(secret_key, transaction)
         stream_action(
@@ -874,7 +883,7 @@ def detach(
             if not remaining:
                 try:
                     revoke_pi_openrouter(agent_name=agent, host=host)
-                except (CanonicalSyncError, paramiko.SSHException, OSError):
+                except (CanonicalSyncError, paramiko.SSHException, OSError, EOFError):
                     emit_error(
                         "failed to revoke Pi provider credential; detach did not finish",
                         hint=f"retry: clawctl agent provider detach {name} --agent {agent}",

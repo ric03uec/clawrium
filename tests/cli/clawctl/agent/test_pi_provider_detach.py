@@ -106,6 +106,35 @@ def test_final_pi_detach_transport_failure_keeps_persisted_attachment(
     assert load()["agents"]["pi-key"]["providers"] == ["router"]
 
 
+def test_final_pi_detach_eof_failure_keeps_persisted_attachment(tmp_path, monkeypatch):
+    """Abrupt SSH EOF must retain the attachment and provide a retry command."""
+    calls = []
+    load = _setup(tmp_path, monkeypatch, calls)
+
+    def revoke(**kwargs):
+        calls.append(("revoke", kwargs))
+        raise EOFError("connection closed")
+
+    monkeypatch.setattr(
+        "clawrium.core.lifecycle_canonical.revoke_pi_openrouter", revoke
+    )
+    result = runner.invoke(
+        app, ["agent", "provider", "detach", "router", "--agent", "pi-test"]
+    )
+
+    assert result.exit_code != 0
+    assert (
+        "failed to revoke Pi provider credential; detach did not finish"
+        in result.output
+    )
+    assert (
+        "retry: clawctl agent provider detach router --agent pi-test" in result.output
+    )
+    assert "connection closed" not in result.output
+    assert "persist" not in calls
+    assert load()["agents"]["pi-key"]["providers"] == ["router"]
+
+
 def test_final_pi_detach_revokes_before_persisting_attachment(tmp_path, monkeypatch):
     calls = []
     load = _setup(tmp_path, monkeypatch, calls)
