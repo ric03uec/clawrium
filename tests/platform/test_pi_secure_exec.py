@@ -78,6 +78,10 @@ def test_pi_exec_actual_transport_encrypts_sentinel_output(
     inherited_secret = "inherited-static-secret-must-not-reach-diagnostic-exec"
     inherited_session = "inherited-session-must-not-reach-diagnostic-exec"
     inherited_shared = "/tmp/inherited-shared-credentials-must-not-reach-diagnostic-exec"
+    inherited_bedrock = "inherited-bedrock-bearer-must-not-reach-diagnostic-exec"
+    inherited_relative = "/v2/credentials/inherited-relative"
+    inherited_full = "http://169.254.170.2/inherited-full"
+    inherited_web_identity = "/tmp/inherited-web-identity-token"
     # The bootstrap reads the private artifact as data, never shell source.
     home = tmp_path / "pi-home"
     credential = home / ".pi" / "agent" / "clawrium-provider.env"
@@ -103,7 +107,7 @@ def test_pi_exec_actual_transport_encrypts_sentinel_output(
             "diagnostic",
             "/bin/sh",
             "-c",
-            f'printf "%s:%s:%s:%s:%s:%s" "{sentinel}" "${{OPENROUTER_API_KEY-unset}}" "${{AWS_ACCESS_KEY_ID-unset}}" "${{AWS_SECRET_ACCESS_KEY-unset}}" "${{AWS_SESSION_TOKEN-unset}}" "${{AWS_SHARED_CREDENTIALS_FILE-unset}}"; printf "%s" "{sentinel}" >&2; exit 17',
+            f'printf "%s:%s:%s:%s:%s:%s:%s:%s:%s:%s" "{sentinel}" "${{OPENROUTER_API_KEY-unset}}" "${{AWS_ACCESS_KEY_ID-unset}}" "${{AWS_SECRET_ACCESS_KEY-unset}}" "${{AWS_SESSION_TOKEN-unset}}" "${{AWS_SHARED_CREDENTIALS_FILE-unset}}" "${{AWS_BEARER_TOKEN_BEDROCK-unset}}" "${{AWS_CONTAINER_CREDENTIALS_RELATIVE_URI-unset}}" "${{AWS_CONTAINER_CREDENTIALS_FULL_URI-unset}}" "${{AWS_WEB_IDENTITY_TOKEN_FILE-unset}}"; printf "%s" "{sentinel}" >&2; exit 17',
         ],
         check=True,
         capture_output=True,
@@ -117,6 +121,10 @@ def test_pi_exec_actual_transport_encrypts_sentinel_output(
             "AWS_SECRET_ACCESS_KEY": inherited_secret,
             "AWS_SESSION_TOKEN": inherited_session,
             "AWS_SHARED_CREDENTIALS_FILE": inherited_shared,
+            "AWS_BEARER_TOKEN_BEDROCK": inherited_bedrock,
+            "AWS_CONTAINER_CREDENTIALS_RELATIVE_URI": inherited_relative,
+            "AWS_CONTAINER_CREDENTIALS_FULL_URI": inherited_full,
+            "AWS_WEB_IDENTITY_TOKEN_FILE": inherited_web_identity,
         },
     )
 
@@ -132,6 +140,10 @@ def test_pi_exec_actual_transport_encrypts_sentinel_output(
         inherited_secret,
         inherited_session,
         inherited_shared,
+        inherited_bedrock,
+        inherited_relative,
+        inherited_full,
+        inherited_web_identity,
     ):
         assert inherited not in completed.stdout
         assert inherited not in completed.stderr
@@ -153,8 +165,7 @@ def test_pi_exec_actual_transport_encrypts_sentinel_output(
     assert json.loads(decrypted) == {
         "stdout": (
             sentinel
-            + ":unset:unset:unset:unset:"
-            + str(home / ".pi" / "agent" / "clawrium-aws-credentials")
+            + ":unset:unset:unset:unset:unset:unset:unset:unset:unset"
         ),
         "stderr": sentinel,
         "rc": 17,
