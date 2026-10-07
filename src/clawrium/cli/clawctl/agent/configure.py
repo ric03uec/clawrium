@@ -18,6 +18,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Optional
 
+import paramiko
 import typer
 
 from clawrium.cli.clawctl._common import stdin_is_tty
@@ -261,6 +262,9 @@ def configure(
                 except CanonicalSyncError as exc:
                     result = None
                     failure_detail = str(exc)
+                except (paramiko.SSHException, OSError, EOFError):
+                    result = None
+                    failure_detail = "remote synchronization did not finish"
                 else:
                     failure_detail = (
                         None if result.success else (result.error or "unknown error")
@@ -279,9 +283,20 @@ def configure(
                     # rollback, so detached state never masks a live bearer.
                     try:
                         revoke_pi_openrouter(agent_name=name, host=fresh_host)
-                    except CanonicalSyncError as revoke_exc:
+                    except (
+                        CanonicalSyncError,
+                        paramiko.SSHException,
+                        OSError,
+                        EOFError,
+                    ):
                         emit_error(
-                            f"Pi provider configuration failed: {failure_detail}; remote credential cleanup failed: {revoke_exc}. Provider attachment was retained; manually detach the provider before retrying."
+                            "Pi provider configuration failed: "
+                            f"{failure_detail}; remote credential cleanup did not finish. "
+                            "Provider attachment was retained for recovery.",
+                            hint=(
+                                "retry: clawctl agent provider detach "
+                                f"{provider} --agent {name}"
+                            ),
                         )
                     rollback_error = _restore_pi_provider_attachment(
                         hostname, agent_key, previous_providers
