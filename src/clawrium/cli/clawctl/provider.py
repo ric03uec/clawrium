@@ -11,8 +11,8 @@ Non-interactive contract (plan §7):
 
 - `--type` is always required.
 - For Ollama: `--ollama-url` is required.
-- For AWS Bedrock: `--access-key` and `--secret-key` are required;
-  `--region` is optional.
+- For AWS Bedrock: either static `--access-key` + `--secret-key`, or the
+  complete non-secret AWS Identity Center `--sso-*` profile metadata is required.
 - For every other (cloud) provider: `--api-key` OR `--api-key-stdin`
   is required.
 - If a mandatory flag is missing AND stdin is not a TTY: fail fast.
@@ -43,6 +43,7 @@ from clawrium.cli.output import (
     emit_error,
     render_table,
 )
+from clawrium.core.pi import PiProvisioningError, validate_bedrock_sso_provider
 from clawrium.core.providers.storage import (
     DuplicateProviderError,
     InvalidLiteLLMUrlError,
@@ -132,7 +133,11 @@ def _provider_to_row(record: dict) -> dict:
     """
     name = record.get("name", "")
     ptype = record.get("type", "")
-    creds_status = _credentials_status(name, ptype)
+    creds_status = (
+        "sso"
+        if ptype == "bedrock" and record.get("credential_source") == "aws-sso"
+        else _credentials_status(name, ptype)
+    )
     return {
         "kind": "provider",
         "name": name,
@@ -228,6 +233,11 @@ def create(
     region: Optional[str] = typer.Option(
         None, "--region", help="AWS region (Bedrock)."
     ),
+    sso_profile: Optional[str] = typer.Option(None, "--sso-profile", help="Dedicated AWS Identity Center profile name (Bedrock)."),
+    sso_start_url: Optional[str] = typer.Option(None, "--sso-start-url", help="AWS Identity Center start URL (Bedrock)."),
+    sso_region: Optional[str] = typer.Option(None, "--sso-region", help="AWS Identity Center region (Bedrock)."),
+    sso_account_id: Optional[str] = typer.Option(None, "--sso-account-id", help="AWS account ID assigned to the profile (Bedrock)."),
+    sso_role_name: Optional[str] = typer.Option(None, "--sso-role-name", help="AWS IAM Identity Center role name (Bedrock)."),
     ollama_url: Optional[str] = typer.Option(
         None, "--ollama-url", help="Ollama server URL (Ollama)."
     ),
@@ -394,6 +404,27 @@ def create(
         return
 
     if provider_type == "bedrock":
+        sso_values = (sso_profile, sso_start_url, sso_region, sso_account_id, sso_role_name)
+        if any(sso_values):
+            if access_key or secret_key:
+                emit_error("cannot combine static AWS keys with AWS Identity Center SSO")
+            record = {
+                "name": name, "type": provider_type, "default_model": model,
+                "credential_source": "aws-sso", "aws_profile": sso_profile,
+                "region": region, "sso_start_url": sso_start_url, "sso_region": sso_region,
+                "sso_account_id": sso_account_id, "sso_role_name": sso_role_name,
+                "created_at": now, "updated_at": now,
+            }
+            try:
+                validate_bedrock_sso_provider(record)
+            except PiProvisioningError as exc:
+                emit_error(str(exc), hint="provide --model, --region, and every --sso-* setting")
+            try:
+                add_provider(record)
+            except DuplicateProviderError as exc:
+                emit_error(str(exc))
+            typer.echo(f"provider/{name}: created (type={provider_type}, credential_source=aws-sso)")
+            return
         require_flag(access_key, flag="--access-key")
         require_flag(secret_key, flag="--secret-key")
         if not access_key and stdin_is_tty():
@@ -402,13 +433,7 @@ def create(
             secret_key = typer.prompt("AWS Secret Access Key", hide_input=True)
         if not access_key or not secret_key:
             emit_error("AWS access key and secret key are required for Bedrock")
-        record = {
-            "name": name,
-            "type": provider_type,
-            "default_model": model,
-            "created_at": now,
-            "updated_at": now,
-        }
+        record = {"name": name, "type": provider_type, "default_model": model, "created_at": now, "updated_at": now}
         if region:
             record["region"] = region
         try:

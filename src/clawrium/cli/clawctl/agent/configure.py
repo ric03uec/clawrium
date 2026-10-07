@@ -95,14 +95,14 @@ def _attach_provider_for_configure(
     # tolerant; downstream lifecycle code reads `agents.<n>.providers`
     # and looks up the provider by *that* exact string.
     canonical_name = record.get("name", provider_name)
-    # Pi is intentionally OpenRouter-only for #1038; reject before mutating
-    # attachment metadata so an unsupported selection cannot be synced later.
+    # Pi supports only its bounded OpenRouter and AWS SSO Bedrock mappings; reject
+    # before mutating attachment metadata so an unsupported selection cannot sync.
     resolved = safe_resolve_agent(agent_name)
     if resolved[1] == "pi":
-        from clawrium.core.pi import PiProvisioningError, validate_openrouter_provider
+        from clawrium.core.pi import PiProvisioningError, validate_pi_provider
 
         try:
-            validate_openrouter_provider(record)
+            validate_pi_provider(record)
         except PiProvisioningError as exc:
             emit_error(str(exc))
 
@@ -235,7 +235,7 @@ def configure(
                 )
             stream_action(
                 resource=f"agent/{name}",
-                message="Pi OpenRouter credential provisioned; no daemon restart",
+                message="Pi provider access provisioned; no daemon restart",
             )
             return
         if agent_type != "claude":

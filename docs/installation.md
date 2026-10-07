@@ -221,13 +221,21 @@ macOS user (`/Users/<agent_name>/`), and runs the upstream installer:
 - **pi** requires Node.js 20.6 or later. Install creates a dedicated account
   and pinned Pi prefix only: it does not start a service, allocate a port, or
   expose a native UI. To chat, attach one existing OpenRouter provider with an
-  unprefixed OpenRouter `default_model`, then sync:
-  `clawctl agent provider attach <provider> --agent <name>`;
-  `clawctl agent sync <name>`; `clawctl agent chat <name>`. Clawrium writes the
-  provider credential only to that Pi account's private environment file; Pi
-  consumes it on demand and never requests a grant. `agent exec` also receives
-  that isolated environment. Pi currently supports only OpenRouter and only a
-  single provider; `agent open` remains unavailable.
+  unprefixed OpenRouter `default_model`, or an AWS Identity Center Bedrock
+  provider created with its model, region, and complete `--sso-*` profile
+  metadata. Then sync: `clawctl agent provider attach <provider> --agent <name>`;
+  `clawctl agent sync <name>`; `clawctl agent chat <name>`. For Bedrock, Clawrium
+  writes only an isolated AWS profile/configuration to the Pi account; run
+  `aws sso login --profile <profile>` as that account before chat. It never
+  copies a controller `~/.aws`, an SSO token cache, or static AWS keys. Pi
+  consumes the assigned access on demand and never requests a grant. `agent exec`
+  receives the same isolated environment. Pi supports one provider; `agent open`
+  remains unavailable. Bedrock chat needs AWS CLI v2 installed on the fleet host
+  and an interactive `aws sso login` performed as the dedicated Pi account; an
+  expired login produces a recoverable error rather than falling back to another
+  credential source. Pi 0.73.1's [Amazon Bedrock provider documentation](https://github.com/earendil-works/pi/blob/v0.73.1/packages/coding-agent/docs/providers.md#amazon-bedrock)
+  consumes `AWS_PROFILE` and `AWS_REGION` through its AWS SDK credential chain;
+  on-demand Pi chat and exec do not discover or invoke an `aws` binary.
 
 Configure, start, chat — same commands as Linux for daemon-backed Hermes and
 OpenClaw agents:

@@ -902,7 +902,7 @@ def _pi_user_environment_operation(
     """
     action = "write" if body is not None else "remove"
     script = r"""set -eu; path=$1; dir=${path%/*}; case $2 in
-write) umask 077; mkdir -p -- "$dir"; tmp=$(mktemp "$dir/.clawrium-openrouter.XXXXXX"); trap 'rm -f -- "$tmp"' EXIT; cat >"$tmp"; chmod 0600 "$tmp"; mv -f -- "$tmp" "$path";;
+write) umask 077; mkdir -p -- "$dir"; tmp=$(mktemp "$dir/.clawrium-provider.XXXXXX"); trap 'rm -f -- "$tmp"' EXIT; cat >"$tmp"; chmod 0600 "$tmp"; mv -f -- "$tmp" "$path";;
 remove) rm -f -- "$path";; esac"""
     command = "sudo -n -u {} -- /bin/bash -c {} clawrium-pi-env {} {}".format(
         shlex.quote(agent_name), shlex.quote(script), shlex.quote(path), action
@@ -913,22 +913,140 @@ remove) rm -f -- "$path";; esac"""
         stdin.flush()
         stdin.channel.shutdown_write()
     if stdout.channel.recv_exit_status() != 0:
-        raise CanonicalSyncError(f"could not {action} Pi OpenRouter credential")
+        raise CanonicalSyncError(f"could not {action} Pi provider activation")
+
+
+_PI_BEDROCK_STS_IDENTITY_VALIDATOR = (
+    "import json,re,sys; "
+    "expected_account,role=sys.argv[1:]; "
+    "data=json.load(sys.stdin); "
+    "arn=data.get('Arn'); "
+    "pattern=rf'arn:aws(?:-us-gov|-cn)?:sts::{re.escape(expected_account)}:assumed-role/AWSReservedSSO_{re.escape(role)}_[A-Za-z0-9]+/[^/]+\\Z'; "
+    "raise SystemExit(not (data.get('Account') == expected_account and isinstance(arn,str) and re.fullmatch(pattern,arn)))"
+)
+
+# Stock macOS does not guarantee a Python interpreter, but does ship Perl with
+# JSON::PP. Keep this independent implementation equivalent to the Linux one.
+_PI_BEDROCK_STS_IDENTITY_VALIDATOR_PERL = (
+    "use JSON::PP qw(decode_json); use strict; use warnings; "
+    "my ($expected_account,$role)=@ARGV; "
+    "my $data=eval { decode_json(join q{}, <STDIN>) }; exit 1 if $@ || ref($data) ne q{HASH}; "
+    "my $arn=$data->{Arn}; "
+    "my $pattern=qr{\\Aarn:aws(?:-us-gov|-cn)?:sts::\\Q$expected_account\\E:assumed-role/AWSReservedSSO_\\Q$role\\E_[A-Za-z0-9]+/[^/]+\\z}; "
+    "exit !($data->{Account} eq $expected_account && defined($arn) && !ref($arn) && $arn =~ $pattern);"
+)
+
+# Validates every component with lstat, rather than stat: stat would follow a
+# symlinked ancestor and allow an attacker to substitute the directory tree.
+_PI_BEDROCK_AWS_PATH_VALIDATOR = (
+    "my ($path,$expected_uid,$allow_final_link,$trusted_root)=@ARGV; "
+    "$trusted_root =~ s{/$}{} if $trusted_root ne q{/}; "
+    "exit 1 unless $path eq $trusted_root || index($path, qq{$trusted_root/}) == 0; "
+    "my @root=lstat($trusted_root); exit 1 unless @root && $root[4] == $expected_uid && !($root[2] & 0022) && !-w $trusted_root; "
+    "my $suffix=substr($path,length($trusted_root)); my $current=$trusted_root eq q{/} ? q{} : $trusted_root; "
+    "for my $part (grep length, split m{/+}, $suffix) { "
+    "$current .= q{/} . $part; my @st=lstat($current); my $is_link=(@st && ($st[2] & 0170000) == 0120000); my $final_link=($is_link && $current eq $path); "
+    "exit 1 unless @st && $st[4] == $expected_uid && ($final_link ? $allow_final_link : !($st[2] & 0022) && !-w $current); "
+    "exit 1 if $is_link && !$final_link; }"
+)
+
+
+def _build_pi_bedrock_sso_readiness_probe(
+    *,
+    account_id: str,
+    role_name: str,
+    os_family: str,
+    candidates: tuple[str, ...] = (
+        "/usr/bin/aws",
+        "/usr/local/bin/aws",
+        "/opt/homebrew/bin/aws",
+    ),
+    expected_uid: int = 0,
+    trusted_root: str = "/",
+) -> str:
+    """Build the non-secret remote readiness probe.
+
+    The optional path parameters are test seams only; production uses the
+    root-owned system paths and UID 0 defaults.
+    """
+    identity_check = (
+        f"/usr/bin/perl -MJSON::PP -e {shlex.quote(_PI_BEDROCK_STS_IDENTITY_VALIDATOR_PERL)}"
+        if os_family == "darwin"
+        else f"/usr/bin/python3 -c {shlex.quote(_PI_BEDROCK_STS_IDENTITY_VALIDATOR)}"
+    )
+    candidate_list = " ".join(shlex.quote(candidate) for candidate in candidates)
+    path_check = shlex.quote(_PI_BEDROCK_AWS_PATH_VALIDATOR)
+    quoted_root = shlex.quote(trusted_root)
+    return (
+        f"trusted_path() {{ /usr/bin/perl -e {path_check} \"$1\" \"$2\" \"$3\" \"$4\"; }}; "
+        "aws_cli=''; "
+        f"for candidate in {candidate_list}; do "
+        "test -x \"$candidate\" || continue; "
+        "resolved=$(/usr/bin/perl -MCwd=abs_path -e 'print abs_path(shift)' \"$candidate\") || continue; "
+        f"trusted_path \"$candidate\" {expected_uid} 1 {quoted_root} || continue; "
+        f"trusted_path \"$resolved\" {expected_uid} 0 {quoted_root} || continue; "
+        "\"$resolved\" --version 2>&1 | /usr/bin/grep -q '^aws-cli/2\\.' || continue; "
+        "aws_cli=\"$resolved\"; break; done; "
+        "test -n \"$aws_cli\" || exit 127; set -o pipefail; "
+        f"\"$aws_cli\" sts get-caller-identity --output json 2>/dev/null | {identity_check} "
+        f"{shlex.quote(account_id)} {shlex.quote(role_name)}"
+    )
+
+
+def _verify_pi_bedrock_sso_readiness(
+    client: Any,
+    *,
+    agent_name: str,
+    profile: str,
+    region: str,
+    config_path: str,
+    account_id: str,
+    role_name: str,
+    os_family: str = "linux",
+) -> None:
+    """Prove the dedicated account has a usable, non-secret SSO session.
+
+    The rendered profile is written before this probe so an operator can run
+    the guided ``aws sso login`` recovery after a failed first sync. Neither
+    AWS output nor token material is returned to the controller.
+    """
+    command = (
+        "sudo -n -u {user} -- env AWS_PROFILE={profile} AWS_REGION={region} "
+        "AWS_CONFIG_FILE={config} PATH=/usr/bin:/bin /bin/bash -c {probe}"
+    ).format(
+        user=shlex.quote(agent_name),
+        profile=shlex.quote(profile),
+        region=shlex.quote(region),
+        config=shlex.quote(config_path),
+        probe=shlex.quote(
+            _build_pi_bedrock_sso_readiness_probe(
+                account_id=account_id, role_name=role_name, os_family=os_family
+            )
+        ),
+    )
+    _, stdout, _ = client.exec_command(command, timeout=30)
+    if stdout.channel.recv_exit_status() != 0:
+        raise CanonicalSyncError(
+            "Pi Bedrock SSO is not ready for the dedicated account; install AWS CLI v2 "
+            "on the host, then run `aws sso login --profile <profile>` as that account "
+            "and re-run `clawctl agent sync <name>`"
+        )
 
 
 def revoke_pi_openrouter(*, agent_name: str, host: dict) -> None:
-    """Remove Pi's private credential before committing its final detach."""
-    from clawrium.core.pi import PI_OPENROUTER_ENVIRONMENT_PATH
+    """Remove all Clawrium-managed Pi provider activation before final detach."""
+    from clawrium.core.pi import PI_AWS_CONFIG_PATH, PI_PROVIDER_ENVIRONMENT_PATH
     from clawrium.core.playbook_resolver import normalize_os_family
 
     family = normalize_os_family(host)
-    path = f"{home_root_for(family)}/{agent_name}/{PI_OPENROUTER_ENVIRONMENT_PATH}"
+    root = f"{home_root_for(family)}/{agent_name}"
     client = _open_ssh(host)
     try:
         _verify_pi_remote_ownership(client, agent_name=agent_name, family=family)
-        _pi_user_environment_operation(
-            client, agent_name=agent_name, path=path, body=None
-        )
+        for relative_path in (PI_PROVIDER_ENVIRONMENT_PATH, PI_AWS_CONFIG_PATH):
+            _pi_user_environment_operation(
+                client, agent_name=agent_name, path=f"{root}/{relative_path}", body=None
+            )
     finally:
         client.close()
 
@@ -942,7 +1060,7 @@ def _sync_pi_openrouter(
     dry_run: bool,
     on_event: Callable[[str, str], None] | None,
 ) -> CanonicalSyncResult:
-    """Activate the selected OpenRouter credential in Pi's isolated home.
+    """Activate the selected Pi provider in its isolated home.
 
     This is intentionally outside the rendered-file/diff pipeline: the sole
     body contains a bearer secret and must never reach a diff, event, or local
@@ -950,10 +1068,13 @@ def _sync_pi_openrouter(
     as fixed Pi CLI argv by ``PiChatBackend``.
     """
     from clawrium.core.pi import (
-        PI_OPENROUTER_ENVIRONMENT_PATH,
+        PI_AWS_CONFIG_PATH,
+        PI_PROVIDER_ENVIRONMENT_PATH,
         PiProvisioningError,
+        render_bedrock_sso_config,
+        render_bedrock_sso_environment,
         render_openrouter_environment,
-        validate_openrouter_provider,
+        validate_pi_provider,
     )
     from clawrium.core.playbook_resolver import normalize_os_family
     from clawrium.core.providers.storage import get_provider
@@ -969,36 +1090,55 @@ def _sync_pi_openrouter(
         or not isinstance(providers[0], str)
     ):
         raise CanonicalSyncError(
-            "Pi requires exactly one attached OpenRouter provider; run `clawctl agent provider attach <provider> --agent <name>`"
+            "Pi requires exactly one attached OpenRouter or AWS SSO-backed Bedrock provider; run `clawctl agent provider attach <provider> --agent <name>`"
         )
     record = get_provider(providers[0])
     try:
-        model = validate_openrouter_provider(record)
-        body = render_openrouter_environment(get_provider_api_key(providers[0]))
+        selection = validate_pi_provider(record)
+        model = selection.model
+        if selection.provider == "openrouter":
+            body = render_openrouter_environment(get_provider_api_key(providers[0]))
+            aws_config = None
+        else:
+            body = render_bedrock_sso_environment(record["aws_profile"], record["region"])
+            aws_config = render_bedrock_sso_config(record)
     except PiProvisioningError as exc:
         raise CanonicalSyncError(str(exc)) from exc
     if dry_run:
         # Validate access without showing secret-bearing file contents.
         return CanonicalSyncResult(
-            True, agent_name, hostname, (), (PI_OPENROUTER_ENVIRONMENT_PATH,), ()
+            True, agent_name, hostname, (), (PI_PROVIDER_ENVIRONMENT_PATH, PI_AWS_CONFIG_PATH), ()
         )
     family = normalize_os_family(host)
-    path = f"{home_root_for(family)}/{agent_name}/{PI_OPENROUTER_ENVIRONMENT_PATH}"
+    root = f"{home_root_for(family)}/{agent_name}"
     client = _open_ssh(host)
     try:
         _verify_pi_remote_ownership(client, agent_name=agent_name, family=family)
         _pi_user_environment_operation(
-            client, agent_name=agent_name, path=path, body=body
+            client, agent_name=agent_name, path=f"{root}/{PI_PROVIDER_ENVIRONMENT_PATH}", body=body
         )
+        # The SSO profile is public configuration, not a token. Keep it in the
+        # dedicated account and remove it when switching back to OpenRouter.
+        _pi_user_environment_operation(
+            client, agent_name=agent_name, path=f"{root}/{PI_AWS_CONFIG_PATH}", body=aws_config
+        )
+        if aws_config is not None:
+            _verify_pi_bedrock_sso_readiness(
+                client,
+                agent_name=agent_name,
+                profile=record["aws_profile"],
+                region=record["region"],
+                config_path=f"{root}/{PI_AWS_CONFIG_PATH}",
+                account_id=record["sso_account_id"],
+                role_name=record["sso_role_name"],
+                os_family=family,
+            )
     finally:
         client.close()
     if on_event is not None:
-        on_event(
-            "sync", f"Pi OpenRouter model {model!r} provisioned; no daemon restart"
-        )
-    return CanonicalSyncResult(
-        True, agent_name, hostname, (PI_OPENROUTER_ENVIRONMENT_PATH,), (), ()
-    )
+        on_event("sync", f"Pi {selection.provider} model {model!r} provisioned; no daemon restart")
+    paths = (PI_PROVIDER_ENVIRONMENT_PATH,) + ((PI_AWS_CONFIG_PATH,) if aws_config else ())
+    return CanonicalSyncResult(True, agent_name, hostname, paths, (), ())
 
 
 def _sync_claude_settings(

@@ -23,7 +23,7 @@ from pydantic import BaseModel
 
 from clawrium.core.chat_claude import ClaudeCodeChatBackend
 from clawrium.core.chat_pi import PiChatBackend
-from clawrium.core.pi import PiProvisioningError, validate_openrouter_provider
+from clawrium.core.pi import PiProvisioningError, validate_pi_provider
 from clawrium.core.providers.storage import get_provider
 from clawrium.core.keys import get_host_private_key
 from clawrium.gui.routes._common import resolve_agent as _resolve_agent
@@ -109,7 +109,7 @@ class _ClaudeBrowserSession:
 @dataclass
 class _PiBrowserSession:
     backend: PiChatBackend
-    identity: tuple[str, str, str, str, str]
+    identity: tuple[str, str, str, str, str, str]
     lock: asyncio.Lock
     last_used: float
 
@@ -182,11 +182,12 @@ def _get_pi_browser_session(
     model: str,
     provider_name: str,
     installation_id: str,
+    pi_provider: str = "openrouter",
 ) -> _PiBrowserSession:
     """Return a bounded Pi session, discarding stale agent identities."""
     now = time.monotonic()
     cache_key = (agent_key, session_key)
-    identity = (hostname, agent_name, model, provider_name, installation_id)
+    identity = (hostname, agent_name, model, provider_name, installation_id, pi_provider)
     cached = _PI_BROWSER_SESSIONS.get(cache_key)
     # Legacy records predate installed_at. They have no durable generation
     # marker, so retaining a browser session could route a same-key recreated
@@ -226,7 +227,7 @@ def _get_pi_browser_session(
         _PI_BROWSER_SESSIONS.pop(oldest_key, None)
 
     session = _PiBrowserSession(
-        backend=PiChatBackend(hostname, agent_name, model),
+        backend=PiChatBackend(hostname, agent_name, model, provider=pi_provider),
         identity=identity,
         lock=asyncio.Lock(),
         last_used=now,
@@ -1268,7 +1269,7 @@ async def _chat_pi(
     ):
         raise HTTPException(status_code=500, detail=_CHAT_GENERIC_ERROR)
     try:
-        model = validate_openrouter_provider(get_provider(providers[0]))
+        selection = validate_pi_provider(get_provider(providers[0]))
     except PiProvisioningError:
         raise HTTPException(status_code=500, detail=_CHAT_GENERIC_ERROR) from None
     session = _get_pi_browser_session(
@@ -1276,8 +1277,9 @@ async def _chat_pi(
         session_key=body.session,
         hostname=hostname,
         agent_name=agent_name,
-        model=model,
+        model=selection.model,
         provider_name=providers[0],
+        pi_provider=selection.provider,
         installation_id=agent_record.get("installed_at")
         if isinstance(agent_record.get("installed_at"), str)
         else "",

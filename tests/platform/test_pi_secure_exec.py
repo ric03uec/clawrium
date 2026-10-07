@@ -75,7 +75,7 @@ def test_pi_exec_actual_transport_encrypts_sentinel_output(
     sentinel = "pi-sensitive-sentinel-never-in-ansible-event"
     # The bootstrap reads the private artifact as data, never shell source.
     home = tmp_path / "pi-home"
-    credential = home / ".pi" / "agent" / "clawrium-openrouter.env"
+    credential = home / ".pi" / "agent" / "clawrium-provider.env"
     credential.parent.mkdir(parents=True)
     credential.write_text("OPENROUTER_API_KEY=not-a-shell-command;$(ignored)\n")
     shim_dir = tmp_path / "agent-writable-bin"
@@ -131,6 +131,36 @@ def test_pi_exec_actual_transport_encrypts_sentinel_output(
         "stderr": sentinel,
         "rc": 17,
     }
+
+
+@pytest.mark.parametrize("filename", PLAYBOOKS)
+@pytest.mark.parametrize(
+    "provider_env,symlink",
+    [
+        ("AWS_PROFILE=p\nAWS_REGION=r\nAWS_CONFIG_FILE=$HOME/../../escape\n", False),
+        ("OPENROUTER_API_KEY=x\nAWS_PROFILE=p\nAWS_REGION=r\nAWS_CONFIG_FILE=$HOME/.pi/agent/clawrium-aws-config\n", False),
+        ("AWS_PROFILE=p\nAWS_PROFILE=q\nAWS_REGION=r\nAWS_CONFIG_FILE=$HOME/.pi/agent/clawrium-aws-config\n", False),
+        ("AWS_PROFILE=p\nAWS_REGION=r\nAWS_CONFIG_FILE=$HOME/.pi/agent/clawrium-aws-config\n", True),
+    ],
+)
+def test_pi_exec_bootstrap_rejects_untrusted_provider_environment(
+    filename: str, provider_env: str, symlink: bool, tmp_path: Path
+) -> None:
+    """Run the production bootstrap and require bad provider files to fail closed."""
+    playbook = _playbook(filename)
+    home = tmp_path / "pi-home"
+    env_file = home / ".pi" / "agent" / "clawrium-provider.env"
+    env_file.parent.mkdir(parents=True)
+    env_file.write_text(provider_env)
+    if symlink:
+        target = tmp_path / "provider-config"
+        target.write_text("[profile p]\n")
+        (env_file.parent / "clawrium-aws-config").symlink_to(target)
+    completed = subprocess.run(
+        ["/bin/bash", "-c", playbook["vars"]["pi_exec_capture_bootstrap"], "test", "ignored", "ignored", "/bin/true"],
+        text=True, capture_output=True, env={**os.environ, "HOME": str(home)}, check=False,
+    )
+    assert completed.returncode == 126
 
 
 @pytest.mark.parametrize("filename", PLAYBOOKS)
