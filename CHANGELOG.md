@@ -16,6 +16,8 @@ cut. The `itx-release` skill archives this section into a new
 
 ### Added
 
+- Add the daemonless, dedicated-account Codex CLI agent with pinned native command execution on supported Ubuntu and macOS hosts (#1034).
+
 ### Changed
 
 ### Fixed

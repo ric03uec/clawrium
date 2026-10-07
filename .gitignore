@@ -263,3 +263,6 @@ tests/platform/fixtures/.ws_cache/
 
 # itx live-verification snapshots (may contain secrets from hosts.json/secrets.json)
 .itx/*/snapshots/
+
+# Local ATX review runtime metadata; never commit new session state.
+.itx/*/atx-session.json
