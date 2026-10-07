@@ -1,10 +1,20 @@
 """Pi deferred-operation boundaries have no side effects."""
 
 import json
+
+import pytest
 from typer.testing import CliRunner
 from clawrium.cli import app
 
 runner = CliRunner()
+
+
+@pytest.fixture(autouse=True)
+def _mock_pi_configure_revoke(monkeypatch):
+    """Failure-path configure tests model successful remote compensation."""
+    monkeypatch.setattr(
+        "clawrium.core.lifecycle_canonical.revoke_pi_openrouter", lambda **_kwargs: None
+    )
 
 
 def add_pi(fleet_dir):
@@ -120,6 +130,237 @@ def test_pi_configure_surfaces_canonical_sync_failure(fleet_dir, monkeypatch):
     )
     assert result.exit_code != 0
     assert "Pi provider configuration failed: denied" in result.output
+    assert (
+        json.loads((fleet_dir / "hosts.json").read_text())[0]["agents"]["pi-test"].get(
+            "providers", []
+        )
+        == []
+    )
+
+
+def test_pi_configure_rolls_back_attachment_when_sync_raises(fleet_dir, monkeypatch):
+    add_pi(fleet_dir)
+    monkeypatch.setattr(
+        "clawrium.cli.clawctl.agent.configure.get_provider",
+        lambda _: {
+            "name": "router",
+            "type": "openrouter",
+            "default_model": "openai/gpt-4o",
+        },
+    )
+    from clawrium.core.lifecycle_canonical import CanonicalSyncError
+
+    monkeypatch.setattr(
+        "clawrium.core.lifecycle_canonical.sync_agent_canonical",
+        lambda *_a, **_kw: (_ for _ in ()).throw(CanonicalSyncError("remote failed")),
+    )
+    result = runner.invoke(
+        app,
+        [
+            "agent",
+            "configure",
+            "pi-test",
+            "--stage",
+            "providers",
+            "--provider",
+            "router",
+        ],
+    )
+    assert result.exit_code != 0 and "remote failed" in result.output
+    assert (
+        json.loads((fleet_dir / "hosts.json").read_text())[0]["agents"]["pi-test"].get(
+            "providers", []
+        )
+        == []
+    )
+
+
+def test_pi_configure_reports_compensation_write_failure(fleet_dir, monkeypatch):
+    add_pi(fleet_dir)
+    monkeypatch.setattr(
+        "clawrium.cli.clawctl.agent.configure.get_provider",
+        lambda _: {
+            "name": "router",
+            "type": "openrouter",
+            "default_model": "openai/gpt-4o",
+        },
+    )
+    from clawrium.core.hosts import update_host as real_update
+    from clawrium.core.lifecycle_canonical import CanonicalSyncError
+
+    calls = 0
+
+    def update_once_then_fail(hostname, updater):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise OSError("disk unavailable")
+        return real_update(hostname, updater)
+
+    monkeypatch.setattr(
+        "clawrium.cli.clawctl.agent.configure.update_host", update_once_then_fail
+    )
+    monkeypatch.setattr(
+        "clawrium.core.lifecycle_canonical.sync_agent_canonical",
+        lambda *_a, **_kw: (_ for _ in ()).throw(CanonicalSyncError("remote failed")),
+    )
+    result = runner.invoke(
+        app,
+        [
+            "agent",
+            "configure",
+            "pi-test",
+            "--stage",
+            "providers",
+            "--provider",
+            "router",
+        ],
+    )
+    assert result.exit_code != 0
+    assert (
+        "remote failed" in result.output
+        and "rollback also failed (OSError)" in result.output
+    )
+    assert "Manually detach" in result.output
+    assert "OPENROUTER_API_KEY" not in result.output
+
+
+def test_pi_configure_post_write_failure_revokes_before_disk_rollback(
+    fleet_dir, monkeypatch
+):
+    add_pi(fleet_dir)
+    remote = {"credential": False}
+    monkeypatch.setattr(
+        "clawrium.cli.clawctl.agent.configure.get_provider",
+        lambda _: {
+            "name": "router",
+            "type": "openrouter",
+            "default_model": "openai/gpt-4o",
+        },
+    )
+    from clawrium.core.lifecycle_canonical import CanonicalSyncError
+
+    def sync(*_args, **_kwargs):
+        remote["credential"] = True
+        raise CanonicalSyncError("post-write failed")
+
+    def revoke(**_kwargs):
+        assert remote["credential"]
+        remote["credential"] = False
+
+    monkeypatch.setattr("clawrium.core.lifecycle_canonical.sync_agent_canonical", sync)
+    monkeypatch.setattr(
+        "clawrium.core.lifecycle_canonical.revoke_pi_openrouter", revoke
+    )
+    result = runner.invoke(
+        app,
+        [
+            "agent",
+            "configure",
+            "pi-test",
+            "--stage",
+            "providers",
+            "--provider",
+            "router",
+        ],
+    )
+    assert result.exit_code != 0 and remote["credential"] is False
+    assert (
+        json.loads((fleet_dir / "hosts.json").read_text())[0]["agents"]["pi-test"].get(
+            "providers", []
+        )
+        == []
+    )
+
+
+def test_pi_configure_failed_revoke_retains_attachment(fleet_dir, monkeypatch):
+    add_pi(fleet_dir)
+    monkeypatch.setattr(
+        "clawrium.cli.clawctl.agent.configure.get_provider",
+        lambda _: {
+            "name": "router",
+            "type": "openrouter",
+            "default_model": "openai/gpt-4o",
+        },
+    )
+    from clawrium.core.lifecycle_canonical import CanonicalSyncError
+
+    monkeypatch.setattr(
+        "clawrium.core.lifecycle_canonical.sync_agent_canonical",
+        lambda *_a, **_kw: (_ for _ in ()).throw(
+            CanonicalSyncError("post-write failed")
+        ),
+    )
+    monkeypatch.setattr(
+        "clawrium.core.lifecycle_canonical.revoke_pi_openrouter",
+        lambda **_kw: (_ for _ in ()).throw(CanonicalSyncError("revoke failed")),
+    )
+    result = runner.invoke(
+        app,
+        [
+            "agent",
+            "configure",
+            "pi-test",
+            "--stage",
+            "providers",
+            "--provider",
+            "router",
+        ],
+    )
+    assert (
+        result.exit_code != 0
+        and "post-write failed" in result.output
+        and "revoke failed" in result.output
+        and "manually detach" in result.output.lower()
+    )
+    assert json.loads((fleet_dir / "hosts.json").read_text())[0]["agents"]["pi-test"][
+        "providers"
+    ] == ["router"]
+
+
+def test_pi_reconfigure_failure_retains_new_attachment_for_recovery(
+    fleet_dir, monkeypatch
+):
+    add_pi(fleet_dir)
+    data = json.loads((fleet_dir / "hosts.json").read_text())
+    data[0]["agents"]["pi-test"]["providers"] = ["old-router"]
+    (fleet_dir / "hosts.json").write_text(json.dumps(data))
+    monkeypatch.setattr(
+        "clawrium.cli.clawctl.agent.configure.get_provider",
+        lambda _: {
+            "name": "router",
+            "type": "openrouter",
+            "default_model": "openai/gpt-4o",
+        },
+    )
+    from clawrium.core.lifecycle_canonical import CanonicalSyncError
+
+    monkeypatch.setattr(
+        "clawrium.core.lifecycle_canonical.sync_agent_canonical",
+        lambda *_a, **_kw: (_ for _ in ()).throw(
+            CanonicalSyncError("post-write failed")
+        ),
+    )
+    monkeypatch.setattr(
+        "clawrium.core.lifecycle_canonical.revoke_pi_openrouter",
+        lambda **_kw: pytest.fail("must retain recoverable attachment"),
+    )
+    result = runner.invoke(
+        app,
+        [
+            "agent",
+            "configure",
+            "pi-test",
+            "--stage",
+            "providers",
+            "--provider",
+            "router",
+        ],
+    )
+    assert result.exit_code != 0 and "retained for recovery" in result.output
+    assert json.loads((fleet_dir / "hosts.json").read_text())[0]["agents"]["pi-test"][
+        "providers"
+    ] == ["router"]
 
 
 def test_pi_sync_invokes_canonical_and_surfaces_failures(fleet_dir, monkeypatch):

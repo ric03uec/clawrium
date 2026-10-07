@@ -490,17 +490,81 @@ def detach(
                 ),
             )
 
-    remaining = [e for e in current if e is not target]
-    if agent_type == "pi" and not remaining:
+    if agent_type == "pi":
+        # Serialize from the fresh attachment read through remote revocation
+        # and hosts.json persistence; a concurrent sync re-resolves under the
+        # same lock and therefore cannot resurrect a detached credential.
         from clawrium.core.lifecycle_canonical import (
             CanonicalSyncError,
             revoke_pi_openrouter,
+            sync_agent_canonical,
         )
+        from clawrium.core.pi import pi_credential_lock
 
-        try:
-            revoke_pi_openrouter(agent_name=agent, host=host)
-        except CanonicalSyncError as exc:
-            emit_error(f"failed to revoke Pi provider credential: {exc}")
+        with pi_credential_lock(agent):
+            # Re-read hosts.json after acquiring the lock; the earlier object
+            # may predate a concurrent attach/detach in another process.
+            locked_host, _locked_type, locked_record = safe_resolve_agent(agent)
+            locked_key = resolve_agent_key(locked_host, agent)
+            if (
+                locked_host.get("hostname") != hostname
+                or locked_key != agent_key
+                or _agent_type(locked_record) != "pi"
+            ):
+                emit_error(
+                    "Pi agent changed while detaching provider; retry the command"
+                )
+            host = locked_host
+            current = _get_attachments(host, locked_key, agent_type)
+            target = _find_attachment(current, name)
+            if target is None:
+                emit_error(f"provider {name!r} not attached to agent {agent!r}")
+            remaining = [entry for entry in current if entry is not target]
+            if not remaining:
+                try:
+                    revoke_pi_openrouter(agent_name=agent, host=host)
+                except CanonicalSyncError as exc:
+                    emit_error(f"failed to revoke Pi provider credential: {exc}")
+            try:
+                metadata_persisted = _set_attachments(
+                    hostname, agent_key, agent_type, remaining
+                )
+            except Exception:
+                metadata_persisted = False
+            if not metadata_persisted:
+                # Revocation has already succeeded, but hosts.json still says
+                # this provider is attached. Restore its credential from the
+                # canonical secret store before exposing that durable state.
+                # This narrows (but cannot make atomic) the crash window
+                # between remote revocation and metadata persistence.
+                try:
+                    recovery = sync_agent_canonical(
+                        agent,
+                        restart=False,
+                        verify=False,
+                        push_workspace=False,
+                    )
+                    credential_restored = recovery.success
+                except Exception:
+                    credential_restored = False
+                if credential_restored:
+                    emit_error(
+                        f"failed to persist Pi provider detach for {name!r}; remote credential was restored and the attachment remains",
+                        hint=(
+                            f"retry: clawctl agent provider detach {name} --agent {agent}"
+                        ),
+                    )
+                emit_error(
+                    f"failed to persist Pi provider detach for {name!r}; remote credential recovery also failed. The attachment remains, but its remote credential may be absent",
+                    hint=(
+                        f"run: clawctl agent sync {agent}; then retry: "
+                        f"clawctl agent provider detach {name} --agent {agent}"
+                    ),
+                )
+        typer.echo(f"agent/{sanitize(agent)}: detached provider {sanitize(name)!r}")
+        return
+
+    remaining = [e for e in current if e is not target]
     if not _set_attachments(hostname, agent_key, agent_type, remaining):
         emit_error(f"failed to detach provider {name!r} from agent {agent!r}")
     typer.echo(f"agent/{sanitize(agent)}: detached provider {sanitize(name)!r}")

@@ -8,14 +8,21 @@ account; static AWS keys and a controller's AWS directory are never copied.
 
 from __future__ import annotations
 
+import fcntl
+import os
 import re
+import threading
+from contextlib import contextmanager
 from dataclasses import dataclass
+
+from clawrium.core.config import init_config_dir
 
 __all__ = [
     "PI_PROVIDER_ENVIRONMENT_PATH",
     "PI_AWS_CONFIG_PATH",
     "PiProvisioningError",
     "PiProviderSelection",
+    "pi_credential_lock",
     "pi_chat_argv",
     "render_bedrock_sso_environment",
     "render_bedrock_sso_config",
@@ -27,6 +34,11 @@ __all__ = [
 
 PI_PROVIDER_ENVIRONMENT_PATH = ".pi/agent/clawrium-provider.env"
 PI_AWS_CONFIG_PATH = ".pi/agent/clawrium-aws-config"
+_PI_LOCK_STATE = threading.local()
+# ``init_config_dir`` temporarily changes the process-wide umask. Serialize
+# first-time lock-directory setup so concurrent lifecycle operations cannot
+# restore each other's prior umask value.
+_PI_LOCK_DIRECTORY_INIT = threading.Lock()
 # Provider/model IDs accepted by Pi 0.73.1. Reject whitespace, option-like
 # values, provider prefixes, and shell/control characters.
 _MODEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,191}$")
@@ -35,6 +47,34 @@ _REGION_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,30}[a-z0-9]$")
 _ACCOUNT_RE = re.compile(r"^\d{12}$")
 _ROLE_RE = re.compile(r"^[A-Za-z0-9+=,.@_-]{1,64}$")
 _SSO_URL_RE = re.compile(r"^https://[A-Za-z0-9.-]+(?:/[A-Za-z0-9._~:/?#\[\]@!$&'()*+,;=%-]*)?$")
+
+
+@contextmanager
+def pi_credential_lock(agent_name: str):
+    """Serialize Pi credential lifecycle actions across local CLI processes."""
+    held = getattr(_PI_LOCK_STATE, "held", {})
+    if agent_name in held:
+        held[agent_name] += 1
+        _PI_LOCK_STATE.held = held
+        try:
+            yield
+        finally:
+            held[agent_name] -= 1
+        return
+
+    with _PI_LOCK_DIRECTORY_INIT:
+        lock_dir = init_config_dir() / "locks"
+        lock_dir.mkdir(mode=0o700, exist_ok=True)
+    fd = os.open(str(lock_dir / f"pi-{agent_name}.lock"), os.O_CREAT | os.O_RDWR, 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        held[agent_name] = 1
+        _PI_LOCK_STATE.held = held
+        yield
+    finally:
+        held.pop(agent_name, None)
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        os.close(fd)
 
 
 class PiProvisioningError(ValueError):

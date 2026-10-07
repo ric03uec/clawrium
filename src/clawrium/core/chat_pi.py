@@ -9,6 +9,7 @@ import os
 import re
 import shutil
 import threading
+import time
 import uuid
 from collections.abc import Callable
 from datetime import datetime
@@ -32,6 +33,7 @@ __all__ = ["PiChatBackend", "PiChatTransportError", "run_pi_chat"]
 
 _HARD_TIMEOUT_CAP = 1800
 _RUNNER_GRACE_SECONDS = 30
+_CANCEL_CLEANUP_SECONDS = 1
 _AGENT_NAME_RE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
 _LOG_DIR_SAFE_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
 _CONTROL_RE = re.compile(
@@ -134,6 +136,7 @@ def run_pi_chat(
         _logs_dir()
         / f"pi-chat-{display}-{datetime.now().strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:8]}"
     )
+    defer_cleanup = False
     try:
         work_dir.mkdir(parents=True, exist_ok=False)
         os.chmod(work_dir, 0o700)
@@ -166,7 +169,31 @@ def run_pi_chat(
             thread, result = ansible_runner.run_async(
                 **kwargs, cancel_callback=cancel_event.is_set
             )
-            thread.join()
+            # ansible-runner's async worker can ignore cancellation while SSH
+            # is wedged. Never let that turn into an unbounded join in this
+            # daemon worker. Leave its private workdir intact until it exits,
+            # because the runner may still need its inventory/artifacts.
+            deadline = time.monotonic() + timeout + _RUNNER_GRACE_SECONDS
+            cancel_deadline: float | None = None
+            while thread.is_alive():
+                thread.join(timeout=0.05)
+                now = time.monotonic()
+                if cancel_event.is_set() and cancel_deadline is None:
+                    cancel_deadline = now + _CANCEL_CLEANUP_SECONDS
+                if now >= deadline or (
+                    cancel_deadline is not None and now >= cancel_deadline
+                ):
+                    cleanup_dir = work_dir
+
+                    def cleanup_after_runner() -> None:
+                        thread.join()
+                        shutil.rmtree(cleanup_dir, ignore_errors=True)
+
+                    threading.Thread(
+                        target=cleanup_after_runner, daemon=True
+                    ).start()
+                    defer_cleanup = True
+                    return "", "", 124
         if result.status == "timeout":
             return "", "", 124
         if result.status != "successful":
@@ -176,7 +203,8 @@ def run_pi_chat(
     except Exception:
         return "", "", 255
     finally:
-        shutil.rmtree(work_dir, ignore_errors=True)
+        if not defer_cleanup:
+            shutil.rmtree(work_dir, ignore_errors=True)
 
 
 class PiChatBackend:
@@ -250,22 +278,35 @@ class PiChatBackend:
 
         def run() -> None:
             nonlocal result
-            result = self._runner(
-                self.hostname, self.agent_name, argv, message, timeout, cancel
-            )
-            done.set()
+            try:
+                result = self._runner(
+                    self.hostname, self.agent_name, argv, message, timeout, cancel
+                )
+            except Exception:
+                # Runner implementation failures must wake the coroutine; it
+                # converts the absent result to its safe transport error.
+                result = None
+            finally:
+                done.set()
 
         threading.Thread(target=run, daemon=True).start()
         try:
             while not done.is_set():
                 await asyncio.sleep(0.05)
         except asyncio.CancelledError:
+            # Signal the ansible-runner cancellation callback immediately.
+            # A cooperative runner gets a brief chance to release its remote
+            # job; a stuck one remains a daemon thread and cannot pin the
+            # cancelled CLI/HTTP request indefinitely.
             cancel.set()
-            while not done.is_set():
+            deadline = asyncio.get_running_loop().time() + _CANCEL_CLEANUP_SECONDS
+            while not done.is_set() and asyncio.get_running_loop().time() < deadline:
                 try:
                     await asyncio.sleep(0.05)
                 except asyncio.CancelledError:
-                    continue
+                    # A second cancellation means the caller wants to leave
+                    # now, not restart an unbounded cleanup wait.
+                    break
             self.clear_history()
             self._connected = False
             raise

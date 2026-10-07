@@ -141,6 +141,24 @@ def _attach_provider_for_configure(
         )
 
 
+def _restore_pi_provider_attachment(
+    hostname: str, agent_key: str, previous: object
+) -> str | None:
+    """Compensate Pi metadata; return a safe error if persistence fails."""
+
+    def updater(host: dict) -> dict:
+        record = (host.get("agents", {}) or {}).get(agent_key)
+        if isinstance(record, dict):
+            record["providers"] = previous
+        return host
+
+    try:
+        update_host(hostname, updater)
+    except (LifecycleError, HostsFileCorruptedError, OSError) as exc:
+        return type(exc).__name__
+    return None
+
+
 class Stage(str, Enum):
     providers = "providers"
     identity = "identity"
@@ -217,22 +235,62 @@ def configure(
                     "Pi configuration requires --stage providers --provider <openrouter-provider>",
                     hint="attach/sync an existing OpenRouter provider for the isolated Pi account",
                 )
-            _attach_provider_for_configure(name, hostname, agent_key, provider)
+            from clawrium.core.pi import pi_credential_lock
             from clawrium.core.lifecycle_canonical import (
                 CanonicalSyncError,
+                revoke_pi_openrouter,
                 sync_agent_canonical,
             )
 
-            try:
-                result = sync_agent_canonical(
-                    agent_key, restart=False, verify=False, push_workspace=False
-                )
-            except CanonicalSyncError as exc:
-                emit_error(f"Pi provider configuration failed: {exc}")
-            if not result.success:
-                emit_error(
-                    f"Pi provider configuration failed: {result.error or 'unknown error'}"
-                )
+            # One reentrant lock spans local attachment stage, remote sync,
+            # and compensation so detach cannot interleave a partial configure.
+            with pi_credential_lock(name):
+                fresh_host, _fresh_type, fresh_record = safe_resolve_agent(name)
+                if (
+                    fresh_host.get("hostname") != hostname
+                    or fresh_record.get("type") != "pi"
+                ):
+                    emit_error(
+                        "Pi agent changed while configuring provider; retry the command"
+                    )
+                previous_providers = fresh_record.get("providers", [])
+                _attach_provider_for_configure(name, hostname, agent_key, provider)
+                try:
+                    result = sync_agent_canonical(
+                        name, restart=False, verify=False, push_workspace=False
+                    )
+                except CanonicalSyncError as exc:
+                    result = None
+                    failure_detail = str(exc)
+                else:
+                    failure_detail = (
+                        None if result.success else (result.error or "unknown error")
+                    )
+                if failure_detail is not None:
+                    # Reconfiguration may already have replaced the old
+                    # remote credential. Retain the newly staged attachment
+                    # rather than claiming restoration to an old provider
+                    # whose credential no longer exists.
+                    if previous_providers:
+                        emit_error(
+                            f"Pi provider configuration failed: {failure_detail}; the previous provider may have been replaced remotely. The new attachment was retained for recovery; run agent sync or detach before retrying."
+                        )
+                    # First-time provisioning can safely compensate by
+                    # removing any partially written credential before local
+                    # rollback, so detached state never masks a live bearer.
+                    try:
+                        revoke_pi_openrouter(agent_name=name, host=fresh_host)
+                    except CanonicalSyncError as revoke_exc:
+                        emit_error(
+                            f"Pi provider configuration failed: {failure_detail}; remote credential cleanup failed: {revoke_exc}. Provider attachment was retained; manually detach the provider before retrying."
+                        )
+                    rollback_error = _restore_pi_provider_attachment(
+                        hostname, agent_key, previous_providers
+                    )
+                    detail = f"Pi provider configuration failed: {failure_detail}"
+                    if rollback_error:
+                        detail += f"; rollback also failed ({rollback_error}). Manually detach the provider before retrying."
+                    emit_error(detail)
             stream_action(
                 resource=f"agent/{name}",
                 message="Pi provider access provisioned; no daemon restart",

@@ -870,14 +870,31 @@ def _verify_pi_remote_ownership(client: Any, *, agent_name: str, family: str) ->
         else f"/var/lib/clawrium/pi/{agent_name}.json"
     )
     # Keep all validation on the remote privileged side before creating any path.
-    program = r"""import json, os, pwd, stat, sys
+    # Stock macOS does not ship /usr/bin/python3.  Its system Perl does ship
+    # JSON::PP and Fcntl, and getpwnam reads the Directory Services account.
+    if family == "darwin":
+        program = r"""use strict; use warnings; use Fcntl qw(O_RDONLY O_NOFOLLOW); use JSON::PP qw(decode_json);
+my ($name, $home, $marker) = @ARGV; exit 1 unless @ARGV == 3;
+my @before = lstat($marker); exit 1 unless @before && ($before[2] & 0170000) == 0100000 && $before[4] == 0 && ($before[2] & 07777) == 0600;
+sysopen(my $fh, $marker, O_RDONLY | O_NOFOLLOW) or exit 1;
+my @opened = stat($fh); exit 1 unless @opened && $opened[0] == $before[0] && $opened[1] == $before[1] && $opened[4] == 0 && ($opened[2] & 07777) == 0600;
+my $raw = do { local $/; <$fh> }; close($fh) or exit 1;
+my $data = eval { decode_json($raw) }; exit 1 if $@ || ref($data) ne 'HASH';
+my @account = getpwnam($name); exit 1 unless @account;
+my $transaction = $data->{transaction_id};
+exit 1 unless $data->{schema} == 2 && defined($data->{agent_name}) && $data->{agent_name} eq $name && defined($data->{home}) && $data->{home} eq $home && defined($data->{uid}) && $data->{uid} == $account[2] && $account[7] eq $home && defined($transaction) && !ref($transaction) && $transaction =~ /\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z/ && $account[6] eq "clawrium-pi-$transaction";"""
+        interpreter = "/usr/bin/perl"
+    else:
+        program = r"""import json, os, pwd, stat, sys
 name, home, marker = sys.argv[1:]
 st = os.lstat(marker)
 if stat.S_ISLNK(st.st_mode) or st.st_uid != 0 or stat.S_IMODE(st.st_mode) != 0o600: raise SystemExit(1)
 data = json.load(open(marker))
 p = pwd.getpwnam(name)
 if not (data.get("schema") == 2 and data.get("agent_name") == name and data.get("home") == home and data.get("uid") == p.pw_uid and p.pw_dir == home and isinstance(data.get("transaction_id"), str) and p.pw_gecos == "clawrium-pi-" + data["transaction_id"]): raise SystemExit(1)"""
-    command = "sudo -n /usr/bin/python3 -c {} {} {} {}".format(
+        interpreter = "/usr/bin/python3"
+    command = "sudo -n {} -c {} {} {} {}".format(
+        interpreter,
         shlex.quote(program),
         shlex.quote(agent_name),
         shlex.quote(f"{root}/{agent_name}"),
@@ -2730,14 +2747,23 @@ def sync_agent_canonical(
             if not has_completed_install(_claw_record):
                 raise CanonicalSyncError(incomplete_install_message(agent_type, "sync"))
             if agent_type == "pi":
-                return _sync_pi_openrouter(
-                    agent_name=agent_name,
-                    host=host,
-                    claw_record=_claw_record,
-                    workspace_only=workspace_only,
-                    dry_run=dry_run,
-                    on_event=on_event,
-                )
+                from clawrium.core.pi import pi_credential_lock
+
+                # Re-resolve under the per-agent lock so a queued sync cannot
+                # use attachments detached by another CLI process.
+                with pi_credential_lock(agent_name):
+                    fresh = get_agent_by_name(agent_name)
+                    if fresh is None:
+                        raise CanonicalSyncError(f"agent {agent_name!r} not found")
+                    fresh_host, _fresh_type, fresh_record = fresh
+                    return _sync_pi_openrouter(
+                        agent_name=agent_name,
+                        host=fresh_host,
+                        claw_record=fresh_record,
+                        workspace_only=workspace_only,
+                        dry_run=dry_run,
+                        on_event=on_event,
+                    )
             if agent_type == "claude":
                 return _sync_claude_settings(
                     agent_name=agent_name,

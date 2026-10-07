@@ -57,8 +57,16 @@
       become: true
       become_user: "{{ agent_name }}"
       register: pi_chat_result
-      failed_when: pi_chat_result.rc != 0
+      # The capture bootstrap returns zero after encrypting a native Pi result,
+      # including Pi's own nonzero rc/stderr. Only a failure before encryption
+      # is a transport failure and must not be emitted as a chat result.
+      failed_when: false
       changed_when: false
+      no_log: true
+    - name: Reject Pi chat transport failure before encrypted result
+      ansible.builtin.fail:
+        msg: "Pi chat transport failed before encrypted result"
+      when: pi_chat_result.rc != 0
       no_log: true
     - name: Emit encrypted Pi chat result
       ansible.builtin.debug: { msg: "PI_CHAT_RESULT={{ pi_chat_result.stdout | default('') }}" }
