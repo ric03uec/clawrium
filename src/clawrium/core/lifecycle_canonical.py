@@ -1104,11 +1104,115 @@ def _verify_pi_bedrock_sso_readiness(
             recovery = f" Then run the validated system AWS CLI as the Pi account: `{login_command}`."
         safe_agent_name = sanitize_passthrough(agent_name)
         safe_profile = sanitize_passthrough(profile)
-        recovery = recovery.replace(profile, safe_profile).replace(agent_name, safe_agent_name)
+        safe_region = sanitize_passthrough(region)
+        recovery = (
+            recovery.replace(profile, safe_profile)
+            .replace(agent_name, safe_agent_name)
+            .replace(region, safe_region)
+        )
         raise SSOAuthRequiredError(
             "SSO_AUTH_REQUIRED: Pi Bedrock SSO is not ready for the dedicated account. Install AWS CLI v2 "
             f"on the host if necessary.{recovery} Then re-run `clawctl agent sync {safe_agent_name}`."
         )
+
+
+# Cache cleanup deliberately uses a separate, non-secret remote program.  The
+# AWS CLI writes usable SSO bearer and role credentials below these paths, so
+# removing just Clawrium's profile files is not a revocation.
+_PI_BEDROCK_CACHE_CLEANUP_PYTHON = r"""import os, stat, sys
+home, trusted_parent, trusted_uid = sys.argv[1:]
+uid = os.getuid()
+def opened(parent_fd, name, owner):
+    fd = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent_fd)
+    status = os.fstat(fd)
+    if not stat.S_ISDIR(status.st_mode) or status.st_uid != owner:
+        os.close(fd); raise SystemExit(1)
+    return fd
+def clear(directory_fd):
+    for name in os.listdir(directory_fd):
+        status = os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
+        if stat.S_ISLNK(status.st_mode) or status.st_uid != uid: raise SystemExit(1)
+        if stat.S_ISDIR(status.st_mode):
+            child_fd = opened(directory_fd, name, uid)
+            try: clear(child_fd)
+            finally: os.close(child_fd)
+            os.rmdir(name, dir_fd=directory_fd)
+        elif stat.S_ISREG(status.st_mode): os.unlink(name, dir_fd=directory_fd)
+        else: raise SystemExit(1)
+if os.path.dirname(home) != trusted_parent: raise SystemExit(1)
+parent_fd = os.open(trusted_parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+try:
+    parent_status = os.fstat(parent_fd)
+    if not stat.S_ISDIR(parent_status.st_mode) or parent_status.st_uid != int(trusted_uid): raise SystemExit(1)
+    home_fd = opened(parent_fd, os.path.basename(home), uid)
+    try:
+        for branch in ("sso", "cli"):
+            try: aws_fd = opened(home_fd, ".aws", uid)
+            except FileNotFoundError: continue
+            try:
+                try: branch_fd = opened(aws_fd, branch, uid)
+                except FileNotFoundError: continue
+                try:
+                    try: cache_fd = opened(branch_fd, "cache", uid)
+                    except FileNotFoundError: continue
+                    try: clear(cache_fd)
+                    finally: os.close(cache_fd)
+                finally: os.close(branch_fd)
+            finally: os.close(aws_fd)
+    finally: os.close(home_fd)
+finally: os.close(parent_fd)
+"""
+
+# Both platforms retain descriptor anchors from the root-owned home parent to
+# every cache component.  The macOS Perl variant uses chdir(FILEHANDLE), which
+# is fchdir, because stock macOS does not ship Python/openat bindings.
+_PI_BEDROCK_CACHE_CLEANUP_PERL = r"""use strict; use warnings; use Fcntl qw(O_RDONLY O_DIRECTORY O_NOFOLLOW);
+my ($home,$trusted_parent,$trusted_uid)=@ARGV; my $uid=$<;
+sub opened { my ($parent,$name,$owner)=@_; chdir($parent) or exit 1; sysopen(my $fh,$name,O_RDONLY|O_DIRECTORY|O_NOFOLLOW) or die $!{ENOENT} ? q{missing} : q{bad}; my @st=stat($fh); exit 1 unless @st && ($st[2]&0170000)==0040000 && $st[4] == $owner; return $fh; }
+sub clear { my ($dir)=@_; chdir($dir) or exit 1; opendir(my $dh,q{.}) or exit 1; while (defined(my $name=readdir($dh))) { next if $name eq q{.} || $name eq q{..}; my @st=lstat($name); exit 1 unless @st && ($st[2]&0170000)!=0120000 && $st[4] == $uid; if (($st[2]&0170000)==0040000) { my $child=opened($dir,$name,$uid); clear($child); chdir($dir) or exit 1; rmdir($name) or exit 1; } elsif (($st[2]&0170000)==0100000) { unlink($name) or exit 1; } else { exit 1; } } closedir($dh) or exit 1; }
+exit 1 unless substr($home,0,length($trusted_parent)+1) eq $trusted_parent.q{/} && index(substr($home,length($trusted_parent)+1),q{/}) < 0;
+sysopen(my $parent,$trusted_parent,O_RDONLY|O_DIRECTORY|O_NOFOLLOW) or exit 1; my @parent_st=stat($parent); exit 1 unless @parent_st && ($parent_st[2]&0170000)==0040000 && $parent_st[4] == $trusted_uid;
+my $home_fh=opened($parent,substr($home,length($trusted_parent)+1),$uid); for my $branch (q{sso},q{cli}) { my $aws=eval { opened($home_fh,q{.aws},$uid) }; exit 1 if $@ && $@ !~ /missing/; next if $@; my $branch_fh=eval { opened($aws,$branch,$uid) }; exit 1 if $@ && $@ !~ /missing/; next if $@; my $cache=eval { opened($branch_fh,q{cache},$uid) }; exit 1 if $@ && $@ !~ /missing/; next if $@; clear($cache); }
+"""
+
+
+def _pi_bedrock_cache_cleanup_program(os_family: str) -> tuple[str, str, str]:
+    """Return the stock interpreter, execution flag, and cache cleanup program."""
+    if os_family == "darwin":
+        # ``-c`` only syntax-checks Perl; revocation must execute with ``-e``.
+        return "/usr/bin/perl", "-e", _PI_BEDROCK_CACHE_CLEANUP_PERL
+    return "/usr/bin/python3", "-c", _PI_BEDROCK_CACHE_CLEANUP_PYTHON
+
+
+def _clear_pi_bedrock_aws_caches(
+    client: Any,
+    *,
+    agent_name: str,
+    home: str,
+    os_family: str,
+    trusted_parent: str | None = None,
+    trusted_parent_uid: int = 0,
+    phase: str = "revoking Bedrock credentials",
+) -> None:
+    """Empty Pi-owned AWS caches without following attacker-controlled paths.
+
+    This must follow ``_verify_pi_remote_ownership``.  It runs as the dedicated
+    Pi user and removes no files outside the two AWS cache directories.
+    """
+    interpreter, execution_flag, program = _pi_bedrock_cache_cleanup_program(os_family)
+    parent = trusted_parent or str(Path(home).parent)
+    command = "sudo -n -u {} -- {} {} {} {} {} {}".format(
+        shlex.quote(agent_name),
+        interpreter,
+        execution_flag,
+        shlex.quote(program),
+        shlex.quote(home),
+        shlex.quote(parent),
+        trusted_parent_uid,
+    )
+    _, stdout, _ = client.exec_command(command, timeout=30)
+    if stdout.channel.recv_exit_status() != 0:
+        raise CanonicalSyncError(f"could not clean Pi Bedrock AWS cache while {phase}")
 
 
 def revoke_pi_openrouter(*, agent_name: str, host: dict) -> None:
@@ -1125,6 +1229,13 @@ def revoke_pi_openrouter(*, agent_name: str, host: dict) -> None:
     client = _open_ssh(host)
     try:
         _verify_pi_remote_ownership(client, agent_name=agent_name, family=family)
+        _clear_pi_bedrock_aws_caches(
+            client,
+            agent_name=agent_name,
+            home=root,
+            os_family=family,
+            phase="revoking Bedrock credentials",
+        )
         for relative_path in (
             PI_PROVIDER_ENVIRONMENT_PATH,
             PI_AWS_CONFIG_PATH,
@@ -1206,20 +1317,41 @@ def _sync_pi_openrouter(
     client = _open_ssh(host)
     try:
         _verify_pi_remote_ownership(client, agent_name=agent_name, family=family)
+        # Pi has a singleton provider attachment.  An OpenRouter replacement
+        # must revoke AWS's independent caches and managed files before its new
+        # provider environment becomes active.
+        if aws_config is None:
+            _clear_pi_bedrock_aws_caches(
+                client,
+                agent_name=agent_name,
+                home=root,
+                os_family=family,
+                phase="switching Pi provider",
+            )
+            _pi_user_environment_operation(
+                client, agent_name=agent_name, path=f"{root}/{PI_AWS_CONFIG_PATH}", body=None
+            )
+            _pi_user_environment_operation(
+                client,
+                agent_name=agent_name,
+                path=f"{root}/{PI_AWS_CREDENTIALS_PATH}",
+                body=None,
+            )
         _pi_user_environment_operation(
             client, agent_name=agent_name, path=f"{root}/{PI_PROVIDER_ENVIRONMENT_PATH}", body=body
         )
         # The SSO profile is public configuration, not a token. Keep it in the
-        # dedicated account and remove it when switching back to OpenRouter.
-        _pi_user_environment_operation(
-            client, agent_name=agent_name, path=f"{root}/{PI_AWS_CONFIG_PATH}", body=aws_config
-        )
-        _pi_user_environment_operation(
-            client,
-            agent_name=agent_name,
-            path=f"{root}/{PI_AWS_CREDENTIALS_PATH}",
-            body="" if aws_config is not None else None,
-        )
+        # dedicated account for Bedrock only.
+        if aws_config is not None:
+            _pi_user_environment_operation(
+                client, agent_name=agent_name, path=f"{root}/{PI_AWS_CONFIG_PATH}", body=aws_config
+            )
+            _pi_user_environment_operation(
+                client,
+                agent_name=agent_name,
+                path=f"{root}/{PI_AWS_CREDENTIALS_PATH}",
+                body="",
+            )
         if aws_config is not None:
             _verify_pi_bedrock_sso_readiness(
                 client,

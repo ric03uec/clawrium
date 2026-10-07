@@ -128,7 +128,22 @@ def _mock_remote(
 ):
     """Mock only SSH ownership and the remote credential write/revocation."""
 
+    class Channel:
+        def recv_exit_status(self):
+            return 0
+
+    class Stream:
+        def __init__(self):
+            self.channel = Channel()
+
+        def read(self):
+            return b""
+
     class Client:
+        def exec_command(self, command, timeout):
+            remote.setdefault("cache_cleanup_commands", []).append((command, timeout))
+            return Stream(), Stream(), Stream()
+
         def close(self):
             pass
 

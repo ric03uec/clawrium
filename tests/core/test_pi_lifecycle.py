@@ -7,6 +7,10 @@ import sys
 
 import pytest
 
+from clawrium.core.pi import (
+    render_bedrock_sso_config,
+    render_bedrock_sso_environment,
+)
 from clawrium.core.lifecycle_canonical import (
     CanonicalSyncError,
     SSOAuthRequiredError,
@@ -81,18 +85,29 @@ def test_canonical_pi_sync_writes_only_account_private_environment(monkeypatch):
 
     assert result.success is True
     assert client.closed is True
-    assert len(writes) == 3
-    assert writes[0]["path"] == "/home/pi-demo/.pi/agent/clawrium-provider.env"
-    assert writes[0]["body"] == "OPENROUTER_API_KEY=private-key\n"
-    assert writes[1]["path"] == "/home/pi-demo/.pi/agent/clawrium-aws-config"
-    assert writes[1]["body"] is None
-    assert writes[2]["path"] == "/home/pi-demo/.pi/agent/clawrium-aws-credentials"
-    assert writes[2]["body"] is None
+    assert writes == [
+        {
+            "agent_name": "pi-demo",
+            "path": "/home/pi-demo/.pi/agent/clawrium-aws-config",
+            "body": None,
+        },
+        {
+            "agent_name": "pi-demo",
+            "path": "/home/pi-demo/.pi/agent/clawrium-aws-credentials",
+            "body": None,
+        },
+        {
+            "agent_name": "pi-demo",
+            "path": "/home/pi-demo/.pi/agent/clawrium-provider.env",
+            "body": "OPENROUTER_API_KEY=private-key\n",
+        },
+    ]
     assert "private-key" not in client.commands[0][0]
 
 
-def test_canonical_pi_sync_closes_ssh_when_private_write_fails(monkeypatch):
+def test_canonical_pi_sync_stops_before_activation_when_aws_removal_fails(monkeypatch):
     client = _Client()
+    operations = []
     monkeypatch.setattr("clawrium.core.lifecycle_canonical._open_ssh", lambda _: client)
     monkeypatch.setattr(
         "clawrium.core.providers.storage.get_provider",
@@ -101,13 +116,17 @@ def test_canonical_pi_sync_closes_ssh_when_private_write_fails(monkeypatch):
     monkeypatch.setattr(
         "clawrium.core.providers.get_provider_api_key", lambda _: "private-key"
     )
+
+    def fail_aws_config_removal(_client, **kwargs):
+        operations.append(kwargs)
+        raise CanonicalSyncError("AWS config removal failed")
+
     monkeypatch.setattr(
         "clawrium.core.lifecycle_canonical._pi_user_environment_operation",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(
-            CanonicalSyncError("write failed")
-        ),
+        fail_aws_config_removal,
     )
-    with pytest.raises(CanonicalSyncError, match="write failed"):
+
+    with pytest.raises(CanonicalSyncError, match="AWS config removal failed"):
         _sync_pi_openrouter(
             agent_name="pi-demo",
             host={"hostname": "wolf-i", "os_family": "linux"},
@@ -116,6 +135,14 @@ def test_canonical_pi_sync_closes_ssh_when_private_write_fails(monkeypatch):
             dry_run=False,
             on_event=None,
         )
+
+    assert operations == [
+        {
+            "agent_name": "pi-demo",
+            "path": "/home/pi-demo/.pi/agent/clawrium-aws-config",
+            "body": None,
+        }
+    ]
     assert client.closed is True
 
 
@@ -186,6 +213,51 @@ def test_pi_environment_write_streams_secret_only_on_stdin():
     ]
 
 
+@pytest.mark.parametrize(
+    ("os_family", "root"),
+    [("linux", "/home"), ("darwin", "/Users")],
+)
+def test_pi_revocation_removes_all_agent_scoped_provider_files(
+    monkeypatch, os_family, root
+):
+    client = _Client()
+    client.exec_command = lambda command, timeout: (
+        None,
+        type("O", (), {"channel": type("C", (), {"recv_exit_status": lambda self: 0})()})(),
+        None,
+    )
+    removals = []
+    monkeypatch.setattr("clawrium.core.lifecycle_canonical._open_ssh", lambda _: client)
+    monkeypatch.setattr(
+        "clawrium.core.lifecycle_canonical._pi_user_environment_operation",
+        lambda _client, **kwargs: removals.append(kwargs),
+    )
+
+    revoke_pi_openrouter(
+        agent_name="pi-demo",
+        host={"hostname": "wolf-i", "os_family": os_family},
+    )
+
+    assert removals == [
+        {
+            "agent_name": "pi-demo",
+            "path": f"{root}/pi-demo/.pi/agent/clawrium-provider.env",
+            "body": None,
+        },
+        {
+            "agent_name": "pi-demo",
+            "path": f"{root}/pi-demo/.pi/agent/clawrium-aws-config",
+            "body": None,
+        },
+        {
+            "agent_name": "pi-demo",
+            "path": f"{root}/pi-demo/.pi/agent/clawrium-aws-credentials",
+            "body": None,
+        },
+    ]
+    assert client.closed is True
+
+
 def test_pi_revocation_fails_closed(monkeypatch):
     client = _Client()
     monkeypatch.setattr("clawrium.core.lifecycle_canonical._open_ssh", lambda _: client)
@@ -204,16 +276,25 @@ def test_pi_revocation_fails_closed(monkeypatch):
         )(),
         None,
     )
-    with pytest.raises(CanonicalSyncError, match="remove Pi provider activation"):
+    with pytest.raises(
+        CanonicalSyncError,
+        match="clean Pi Bedrock AWS cache while revoking Bedrock credentials",
+    ):
         revoke_pi_openrouter(
             agent_name="pi-demo", host={"hostname": "wolf-i", "os_family": "linux"}
         )
     assert client.closed
 
 
-def test_canonical_pi_sync_provisions_only_agent_scoped_sso_configuration(monkeypatch):
+@pytest.mark.parametrize(
+    ("host_os_family", "os_family", "root"),
+    [("linux", "linux", "/home"), ("macos", "darwin", "/Users")],
+)
+def test_canonical_pi_sync_provisions_only_agent_scoped_sso_configuration(
+    monkeypatch, host_os_family, os_family, root
+):
     client = _Client()
-    writes = []
+    events = []
     provider = {
         "type": "bedrock", "credential_source": "aws-sso",
         "default_model": "anthropic.claude-3-haiku-20240307-v1:0",
@@ -227,21 +308,112 @@ def test_canonical_pi_sync_provisions_only_agent_scoped_sso_configuration(monkey
         "clawrium.core.lifecycle_canonical._verify_pi_remote_ownership",
         lambda *_args, **_kwargs: None,
     )
-    monkeypatch.setattr("clawrium.core.lifecycle_canonical._pi_user_environment_operation", lambda _client, **kwargs: writes.append(kwargs))
+    monkeypatch.setattr(
+        "clawrium.core.lifecycle_canonical._pi_user_environment_operation",
+        lambda _client, **kwargs: events.append(("write", kwargs)),
+    )
     monkeypatch.setattr(
         "clawrium.core.lifecycle_canonical._verify_pi_bedrock_sso_readiness",
-        lambda *_args, **_kwargs: None,
+        lambda readiness_client, **kwargs: events.append(
+            ("readiness", readiness_client, kwargs)
+        ),
     )
-    result = _sync_pi_openrouter(agent_name="pi-demo", host={"hostname": "wolf-i", "os_family": "linux"}, claw_record={"providers": ["bedrock"]}, workspace_only=False, dry_run=False, on_event=None)
+
+    result = _sync_pi_openrouter(
+        agent_name="pi-demo",
+        host={"hostname": "wolf-i", "os_family": host_os_family},
+        claw_record={"providers": ["bedrock"]},
+        workspace_only=False,
+        dry_run=False,
+        on_event=None,
+    )
+
     assert result.files_written == (
         ".pi/agent/clawrium-provider.env",
         ".pi/agent/clawrium-aws-config",
         ".pi/agent/clawrium-aws-credentials",
     )
-    assert writes[0]["body"] == "AWS_PROFILE=pi-bedrock\nAWS_REGION=us-east-1\nAWS_CONFIG_FILE=$HOME/.pi/agent/clawrium-aws-config\n"
-    assert "sso_start_url" in writes[1]["body"]
-    assert "secret" not in writes[1]["body"].lower()
-    assert "aws_access_key" not in str(writes)
+    assert events == [
+        (
+            "write",
+            {
+                "agent_name": "pi-demo",
+                "path": f"{root}/pi-demo/.pi/agent/clawrium-provider.env",
+                "body": render_bedrock_sso_environment(
+                    provider["aws_profile"], provider["region"]
+                ),
+            },
+        ),
+        (
+            "write",
+            {
+                "agent_name": "pi-demo",
+                "path": f"{root}/pi-demo/.pi/agent/clawrium-aws-config",
+                "body": render_bedrock_sso_config(provider),
+            },
+        ),
+        (
+            "write",
+            {
+                "agent_name": "pi-demo",
+                "path": f"{root}/pi-demo/.pi/agent/clawrium-aws-credentials",
+                "body": "",
+            },
+        ),
+        (
+            "readiness",
+            client,
+            {
+                "agent_name": "pi-demo",
+                "profile": provider["aws_profile"],
+                "region": provider["region"],
+                "config_path": f"{root}/pi-demo/.pi/agent/clawrium-aws-config",
+                "credentials_path": f"{root}/pi-demo/.pi/agent/clawrium-aws-credentials",
+                "account_id": provider["sso_account_id"],
+                "role_name": provider["sso_role_name"],
+                "os_family": os_family,
+            },
+        ),
+    ]
+
+
+def test_canonical_pi_sync_propagates_bedrock_sso_readiness_failure(monkeypatch):
+    client = _Client()
+    provider = {
+        "type": "bedrock", "credential_source": "aws-sso",
+        "default_model": "anthropic.claude-3-haiku-20240307-v1:0",
+        "aws_profile": "pi-bedrock", "region": "us-east-1",
+        "sso_start_url": "https://company.awsapps.com/start", "sso_region": "us-east-1",
+        "sso_account_id": "123456789012", "sso_role_name": "BedrockPiRole",
+    }
+    monkeypatch.setattr("clawrium.core.lifecycle_canonical._open_ssh", lambda _: client)
+    monkeypatch.setattr("clawrium.core.providers.storage.get_provider", lambda _: provider)
+    monkeypatch.setattr(
+        "clawrium.core.lifecycle_canonical._verify_pi_remote_ownership",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        "clawrium.core.lifecycle_canonical._pi_user_environment_operation",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        "clawrium.core.lifecycle_canonical._verify_pi_bedrock_sso_readiness",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            SSOAuthRequiredError("SSO_AUTH_REQUIRED")
+        ),
+    )
+
+    with pytest.raises(SSOAuthRequiredError, match="SSO_AUTH_REQUIRED"):
+        _sync_pi_openrouter(
+            agent_name="pi-demo",
+            host={"hostname": "wolf-i", "os_family": "linux"},
+            claw_record={"providers": ["bedrock"]},
+            workspace_only=False,
+            dry_run=False,
+            on_event=None,
+        )
+
+    assert client.closed is True
 
 
 def test_pi_bedrock_readiness_does_not_emit_profile_or_config_contents():
@@ -477,12 +649,13 @@ def test_pi_bedrock_readiness_sanitizes_recovery_display_values():
     )
     profile = "pi\u202ebedrock"
     agent_name = "pi\u202edemo"
+    region = "us\u2066-east-1\u200b"
     with pytest.raises(CanonicalSyncError) as exc_info:
         _verify_pi_bedrock_sso_readiness(
             client,
             agent_name=agent_name,
             profile=profile,
-            region="us-east-1",
+            region=region,
             config_path="/home/pi-demo/.pi/agent/clawrium-aws-config",
             credentials_path="/home/pi-demo/.pi/agent/clawrium-aws-credentials",
             account_id="123456789012",
@@ -490,8 +663,11 @@ def test_pi_bedrock_readiness_sanitizes_recovery_display_values():
         )
     message = str(exc_info.value)
     assert "\u202e" not in message
+    assert "\u2066" not in message
+    assert "\u200b" not in message
     assert "pibedrock" in message
     assert "pidemo" in message
+    assert "us-east-1" in message
 
 
 def test_canonical_pi_sync_rejects_missing_provider_before_remote_io(monkeypatch):

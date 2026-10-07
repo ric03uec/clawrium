@@ -29,10 +29,12 @@ cut. The `itx-release` skill archives this section into a new
 
 ### Fixed
 
+- Fixed Pi Bedrock provider replacement during `clawctl agent configure --stage providers` so the prior dedicated-account SSO and CLI caches are cleared before a different Identity Center profile activates, while failed cleanup retains the prior provider and same-identity updates retain warm caches (#1039).
 - Fixed a process-wide umask race during config-directory initialization that could cause intermittent Ubuntu 3.12 permission failures (#1046).
 
 ### Documentation
 
+- Document Pi Bedrock detach and provider-switch cache-cleanup boundaries, including the separate upstream AWS session-revocation step (#1039).
 - Document fail-closed recovery steps for an interrupted Codex OAuth activation without exposing native auth credentials (#1036).
 
 ### Internal
