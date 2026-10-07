@@ -1,0 +1,232 @@
+"""End-to-end race regression coverage for Pi credential lifecycle (#1038)."""
+
+import json
+import threading
+from contextlib import contextmanager
+from pathlib import Path
+
+from typer.testing import CliRunner
+
+from clawrium.cli import app
+from clawrium.core.config import get_config_dir
+from clawrium.core.lifecycle_canonical import CanonicalSyncError, sync_agent_canonical
+from clawrium.core.providers.storage import set_provider_api_key
+
+runner = CliRunner()
+
+
+def _seed_disk_state() -> Path:
+    """Create the real local control-plane state used by sync and detach."""
+    config_dir = get_config_dir()
+    config_dir.mkdir(parents=True, exist_ok=True)
+    (config_dir / "hosts.json").write_text(
+        json.dumps(
+            [
+                {
+                    "hostname": "wolf-i",
+                    "os_family": "linux",
+                    "agents": {
+                        "pi-race": {
+                            "type": "pi",
+                            "agent_name": "pi-race",
+                            "providers": ["router"],
+                            "status": "installed",
+                            "installed_at": "2026-01-01T00:00:00+00:00",
+                        }
+                    },
+                }
+            ]
+        )
+    )
+    (config_dir / "providers.json").write_text(
+        json.dumps(
+            [
+                {
+                    "name": "router",
+                    "type": "openrouter",
+                    "default_model": "openai/gpt-4o",
+                }
+            ]
+        )
+    )
+    set_provider_api_key("router", "test-openrouter-key")
+    return config_dir / "hosts.json"
+
+
+def _providers(hosts_path: Path) -> list:
+    return json.loads(hosts_path.read_text())[0]["agents"]["pi-race"]["providers"]
+
+
+def _mock_sync_remote(monkeypatch, remote, *, started=None, release=None):
+    """Mock only SSH and the remote private credential operation."""
+
+    class Client:
+        def close(self):
+            pass
+
+    def environment_operation(_client, *, body, **_kwargs):
+        if body is not None:
+            if started is not None:
+                started.set()
+            if release is not None:
+                assert release.wait(2)
+            remote["credential"] = True
+
+    monkeypatch.setattr(
+        "clawrium.core.lifecycle_canonical._open_ssh", lambda _host: Client()
+    )
+    monkeypatch.setattr(
+        "clawrium.core.lifecycle_canonical._verify_pi_remote_ownership",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        "clawrium.core.lifecycle_canonical._pi_user_environment_operation",
+        environment_operation,
+    )
+
+
+def _run_sync(result):
+    try:
+        result["value"] = sync_agent_canonical("pi-race")
+    except Exception as exc:  # asserted by the calling deterministic ordering test
+        result["error"] = exc
+
+
+def _run_detach(result):
+    result["value"] = runner.invoke(
+        app, ["agent", "provider", "detach", "router", "--agent", "pi-race"]
+    )
+
+
+def test_pi_sync_first_then_detach_keeps_remote_credential_absent(
+    tmp_path, monkeypatch
+):
+    """A queued final detach wins after an already-started full sync."""
+    hosts_path = _seed_disk_state()
+    remote = {"credential": False}
+    sync_started = threading.Event()
+    allow_sync_write = threading.Event()
+    _mock_sync_remote(
+        monkeypatch,
+        remote,
+        started=sync_started,
+        release=allow_sync_write,
+    )
+
+    def revoke(**_kwargs):
+        remote["credential"] = False
+
+    monkeypatch.setattr("clawrium.core.lifecycle_canonical.revoke_pi_openrouter", revoke)
+    # Keep the real flock and announce immediately before the detach attempts
+    # it, so releasing sync cannot race ahead of the detach lock request.
+    from clawrium.core import pi as pi_mod
+
+    detach_waiting_for_lock = threading.Event()
+    real_lock = pi_mod.pi_credential_lock
+
+    @contextmanager
+    def observed_lock(agent_name):
+        if threading.current_thread().name == "detach-after-sync":
+            detach_waiting_for_lock.set()
+        with real_lock(agent_name):
+            yield
+
+    monkeypatch.setattr(pi_mod, "pi_credential_lock", observed_lock)
+    sync_result = {}
+    detach_result = {}
+    syncing = threading.Thread(target=_run_sync, args=(sync_result,))
+    detaching = threading.Thread(
+        target=_run_detach, args=(detach_result,), name="detach-after-sync"
+    )
+    syncing.start()
+    assert sync_started.wait(2)
+    detaching.start()
+    assert detach_waiting_for_lock.wait(2)
+    assert detaching.is_alive()
+    allow_sync_write.set()
+    syncing.join(2)
+    detaching.join(2)
+
+    assert not syncing.is_alive()
+    assert not detaching.is_alive()
+    assert "error" not in sync_result
+    assert detach_result["value"].exit_code == 0, detach_result["value"].output
+    assert _providers(hosts_path) == []
+    assert remote["credential"] is False
+
+
+def test_pi_detach_first_prevents_queued_sync_from_restoring_credential(
+    tmp_path, monkeypatch
+):
+    """Sync re-reads durable attachments after detach releases the lock."""
+    hosts_path = _seed_disk_state()
+    remote = {"credential": True}
+    revocation_started = threading.Event()
+    allow_revocation = threading.Event()
+    _mock_sync_remote(monkeypatch, remote)
+
+    def revoke(**_kwargs):
+        revocation_started.set()
+        assert allow_revocation.wait(2)
+        remote["credential"] = False
+
+    monkeypatch.setattr("clawrium.core.lifecycle_canonical.revoke_pi_openrouter", revoke)
+    # Observe the real lock boundary without replacing it: the sync thread
+    # announces immediately before attempting flock, then must remain blocked
+    # until the in-flight CLI detach finishes remote revocation and persistence.
+    from clawrium.core import pi as pi_mod
+
+    sync_waiting_for_lock = threading.Event()
+    real_lock = pi_mod.pi_credential_lock
+
+    @contextmanager
+    def observed_lock(agent_name):
+        if threading.current_thread().name == "sync-after-detach":
+            sync_waiting_for_lock.set()
+        with real_lock(agent_name):
+            yield
+
+    monkeypatch.setattr(pi_mod, "pi_credential_lock", observed_lock)
+    detach_result = {}
+    sync_result = {}
+    detaching = threading.Thread(target=_run_detach, args=(detach_result,))
+    syncing = threading.Thread(
+        target=_run_sync, args=(sync_result,), name="sync-after-detach"
+    )
+    detaching.start()
+    assert revocation_started.wait(2)
+    syncing.start()
+    assert sync_waiting_for_lock.wait(2)
+    assert syncing.is_alive()
+    allow_revocation.set()
+    detaching.join(2)
+    syncing.join(2)
+
+    assert not detaching.is_alive()
+    assert not syncing.is_alive()
+    assert detach_result["value"].exit_code == 0, detach_result["value"].output
+    assert isinstance(sync_result.get("error"), CanonicalSyncError)
+    assert "exactly one attached" in str(sync_result["error"])
+    assert _providers(hosts_path) == []
+    assert remote["credential"] is False
+
+
+def test_pi_detach_remote_failure_releases_lock_for_later_sync(tmp_path, monkeypatch):
+    """A failed revocation leaves the attachment durable and never wedges sync."""
+    hosts_path = _seed_disk_state()
+    remote = {"credential": False}
+    _mock_sync_remote(monkeypatch, remote)
+
+    def revoke(**_kwargs):
+        raise CanonicalSyncError("remote revoke failed")
+
+    monkeypatch.setattr("clawrium.core.lifecycle_canonical.revoke_pi_openrouter", revoke)
+    detached = runner.invoke(
+        app, ["agent", "provider", "detach", "router", "--agent", "pi-race"]
+    )
+
+    assert detached.exit_code != 0
+    assert _providers(hosts_path) == ["router"]
+    synced = sync_agent_canonical("pi-race")
+    assert synced.success is True
+    assert remote["credential"] is True

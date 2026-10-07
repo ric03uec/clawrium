@@ -97,6 +97,7 @@ _CLAUDE_RESPONSE_TIMEOUT_SECONDS = 120.0
 _CLAUDE_SESSION_KEY_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 _CLAUDE_MAX_PROMPT_CHARS = 100_000
 _PI_BROWSER_SESSIONS: dict[tuple[str, str], "_PiBrowserSession"] = {}
+_PI_BROWSER_SESSION_GENERATION = 0
 
 
 @dataclass
@@ -110,8 +111,10 @@ class _ClaudeBrowserSession:
 class _PiBrowserSession:
     backend: PiChatBackend
     identity: tuple[str, str, str, str, str]
+    generation: int
     lock: asyncio.Lock
     last_used: float
+    invalidated: bool = False
 
 
 _CLAUDE_BROWSER_SESSIONS: dict[tuple[str, str], _ClaudeBrowserSession] = {}
@@ -173,6 +176,27 @@ def _get_claude_browser_session(
     return session
 
 
+def _invalidate_pi_browser_session(
+    cache_key: tuple[str, str], session: _PiBrowserSession
+) -> None:
+    """Retire one generation without closing a backend under an active turn."""
+    session.invalidated = True
+    if _PI_BROWSER_SESSIONS.get(cache_key) is session:
+        _PI_BROWSER_SESSIONS.pop(cache_key)
+
+
+def _pi_browser_session_is_current(
+    cache_key: tuple[str, str], session: _PiBrowserSession
+) -> bool:
+    """Whether a turn still belongs to the currently resolved Pi identity."""
+    current = _PI_BROWSER_SESSIONS.get(cache_key)
+    return (
+        not session.invalidated
+        and current is session
+        and current.generation == session.generation
+    )
+
+
 def _get_pi_browser_session(
     *,
     agent_key: str,
@@ -193,8 +217,9 @@ def _get_pi_browser_session(
     # agent to its predecessor. Prefer a fresh finite Pi turn over continuity
     # until the record is migrated by a normal install.
     if not installation_id:
+        if cached is not None:
+            _invalidate_pi_browser_session(cache_key, cached)
         cached = None
-        _PI_BROWSER_SESSIONS.pop(cache_key, None)
     if (
         cached is not None
         and cached.identity == identity
@@ -205,15 +230,18 @@ def _get_pi_browser_session(
     ):
         cached.last_used = now
         return cached
-    if cached is not None and not cached.lock.locked():
-        _PI_BROWSER_SESSIONS.pop(cache_key, None)
+    if cached is not None:
+        # A replaced identity can have an active turn. It retains its own
+        # backend until its finally block closes it, but loses authority to
+        # start (or return) a turn after the replacement generation exists.
+        _invalidate_pi_browser_session(cache_key, cached)
 
     for key, value in tuple(_PI_BROWSER_SESSIONS.items()):
         if (
             not value.lock.locked()
             and now - value.last_used > _CLAUDE_BROWSER_SESSION_TTL_SECONDS
         ):
-            _PI_BROWSER_SESSIONS.pop(key, None)
+            _invalidate_pi_browser_session(key, value)
     while len(_PI_BROWSER_SESSIONS) >= _CLAUDE_BROWSER_SESSION_MAX:
         evictable = [
             (value.last_used, key)
@@ -223,11 +251,14 @@ def _get_pi_browser_session(
         if not evictable:
             break
         _, oldest_key = min(evictable)
-        _PI_BROWSER_SESSIONS.pop(oldest_key, None)
+        _invalidate_pi_browser_session(oldest_key, _PI_BROWSER_SESSIONS[oldest_key])
 
+    global _PI_BROWSER_SESSION_GENERATION
+    _PI_BROWSER_SESSION_GENERATION += 1
     session = _PiBrowserSession(
         backend=PiChatBackend(hostname, agent_name, model),
         identity=identity,
+        generation=_PI_BROWSER_SESSION_GENERATION,
         lock=asyncio.Lock(),
         last_used=now,
     )
@@ -1286,15 +1317,27 @@ async def _chat_pi(
     # Pi print mode returns one finite response rather than incremental deltas.
     # Complete the bounded operation before creating an SSE response so backend
     # failures retain a meaningful non-2xx HTTP status.
+    cache_key = (agent_key, body.session)
     async with session.lock:
         try:
+            # A same-key reinstall/reassignment can replace the cache while a
+            # prior request waits for this lock. Never let that queued request
+            # connect to its predecessor after the new identity is current.
+            if not _pi_browser_session_is_current(cache_key, session):
+                raise HTTPException(status_code=409, detail="Pi agent identity changed")
             await session.backend.connect()
             text = await session.backend.send_message(
                 body.message,
                 body.session,
                 response_timeout_seconds=_CLAUDE_RESPONSE_TIMEOUT_SECONDS,
             )
+            # An in-flight old-host request cannot be interrupted safely, but
+            # its completed response must not be served as the replacement.
+            if not _pi_browser_session_is_current(cache_key, session):
+                raise HTTPException(status_code=409, detail="Pi agent identity changed")
         except asyncio.CancelledError:
+            raise
+        except HTTPException:
             raise
         except Exception:
             raise HTTPException(status_code=502, detail=_CHAT_GENERIC_ERROR) from None

@@ -73,6 +73,7 @@ def test_pi_exec_actual_transport_encrypts_sentinel_output(
         capture_output=True,
     )
     sentinel = "pi-sensitive-sentinel-never-in-ansible-event"
+    inherited_bearer = "inherited-bearer-must-not-reach-diagnostic-exec"
     # The bootstrap reads the private artifact as data, never shell source.
     home = tmp_path / "pi-home"
     credential = home / ".pi" / "agent" / "clawrium-openrouter.env"
@@ -95,14 +96,20 @@ def test_pi_exec_actual_transport_encrypts_sentinel_output(
             "clawrium-pi-exec",
             playbook["vars"]["pi_exec_capture_program"],
             public_key.read_text(),
+            "diagnostic",
             "/bin/sh",
             "-c",
-            f'printf "%s" "{sentinel}"; printf "%s" "{sentinel}" >&2; exit 17',
+            f'printf "%s:%s" "{sentinel}" "${{OPENROUTER_API_KEY-unset}}"; printf "%s" "{sentinel}" >&2; exit 17',
         ],
         check=True,
         capture_output=True,
         text=True,
-        env={**os.environ, "HOME": str(home), "PATH": f"{shim_dir}:{os.environ['PATH']}"},
+        env={
+            **os.environ,
+            "HOME": str(home),
+            "PATH": f"{shim_dir}:{os.environ['PATH']}",
+            "OPENROUTER_API_KEY": inherited_bearer,
+        },
     )
 
     # The account-writable PATH is ignored before capture begins, so a planted
@@ -111,6 +118,8 @@ def test_pi_exec_actual_transport_encrypts_sentinel_output(
     # This is precisely what the debug event persists: opaque CMS bytes only.
     assert sentinel not in completed.stdout
     assert sentinel not in completed.stderr
+    assert inherited_bearer not in completed.stdout
+    assert inherited_bearer not in completed.stderr
     decrypted = subprocess.run(
         [
             openssl,
@@ -127,7 +136,7 @@ def test_pi_exec_actual_transport_encrypts_sentinel_output(
         capture_output=True,
     ).stdout
     assert json.loads(decrypted) == {
-        "stdout": sentinel,
+        "stdout": sentinel + ":unset",
         "stderr": sentinel,
         "rc": 17,
     }
@@ -149,6 +158,8 @@ def test_pi_exec_playbook_task_flow_never_emits_raw_output(filename: str) -> Non
     assert run["ansible.builtin.command"]["expand_argument_vars"] is False
     assert "pi_exec_capture_bootstrap" in run["ansible.builtin.command"]["argv"]
     assert "pi_exec_recipient_certificate" in run["ansible.builtin.command"]["argv"]
+    assert "pi_exec_mode" in run["ansible.builtin.command"]["argv"]
+    assert run["ansible.builtin.command"]["stdin_add_newline"] is False
     assert "pi_exec_safe_result.stdout" in emit["ansible.builtin.debug"]["msg"]
     source = (PLAYBOOK_ROOT / filename).read_text()
     assert "PATH=/usr/bin:/bin; export PATH" in source
@@ -164,3 +175,5 @@ def test_pi_exec_playbook_task_flow_never_emits_raw_output(filename: str) -> Non
     assert "EXEC_RC=" not in source
     assert "pi_exec.stdout" not in source
     assert "pi_exec.stderr" not in source
+    assert 'case "$mode" in inference)' in source
+    assert "diagnostic) ;;" in source

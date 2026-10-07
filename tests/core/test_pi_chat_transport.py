@@ -1,9 +1,14 @@
 """Direct Pi finite transport boundary coverage (#1038)."""
 
+import asyncio
 from pathlib import Path
 import threading
 from types import SimpleNamespace
-from clawrium.core.chat_pi import run_pi_chat
+
+import pytest
+
+from clawrium.core.chat import ChatAuthenticationError, ChatProtocolError
+from clawrium.core.chat_pi import PiChatBackend, run_pi_chat
 
 
 def setup(monkeypatch, tmp_path, result):
@@ -61,9 +66,41 @@ def test_run_pi_chat_maps_timeout_unsuccessful_and_cancel(monkeypatch, tmp_path)
 
     def async_run(**kw):
         seen.append(kw)
-        return SimpleNamespace(join=lambda: None), result
+        return SimpleNamespace(join=lambda timeout=None: None, is_alive=lambda: False), result
 
     monkeypatch.setattr("clawrium.core.chat_pi.ansible_runner.run_async", async_run)
     event = threading.Event()
     assert run_pi_chat("wolf-i", "pi-demo", ["x"], "p", 1, event) == ("ok", "", 0)
     assert seen[0]["cancel_callback"]() is False
+
+
+def test_run_pi_chat_preserves_encrypted_native_nonzero_stderr(monkeypatch, tmp_path):
+    """An encrypted Pi failure is a protocol result, not an SSH transport loss."""
+    result = SimpleNamespace(status="successful", events=[])
+    setup(monkeypatch, tmp_path, result)
+    monkeypatch.setattr("clawrium.core.chat_pi.ansible_runner.run", lambda **kw: result)
+    monkeypatch.setattr(
+        "clawrium.core.chat_pi._parse_events",
+        lambda _result, _key: ("", "Pi: invalid request", 17),
+    )
+    assert run_pi_chat("wolf-i", "pi-demo", ["--print"], "hello", 12) == (
+        "",
+        "Pi: invalid request",
+        17,
+    )
+
+
+def test_pi_backend_maps_encrypted_nonzero_and_auth_stderr():
+    async def assert_result(stderr, error):
+        backend = PiChatBackend(
+            "wolf-i",
+            "pi-demo",
+            "openai/gpt-4o",
+            command_runner=lambda *_args: ("", stderr, 17),
+        )
+        await backend.connect()
+        with pytest.raises(error):
+            await backend.send_message("hello", "session")
+
+    asyncio.run(assert_result("upstream request failed", ChatProtocolError))
+    asyncio.run(assert_result("Unauthorized API key", ChatAuthenticationError))

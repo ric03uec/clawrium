@@ -8,21 +8,54 @@ agent record or a rendered diff.
 
 from __future__ import annotations
 
+import fcntl
+import os
 import re
+import threading
+from contextlib import contextmanager
+from clawrium.core.config import init_config_dir
 
 __all__ = [
     "PI_OPENROUTER_ENVIRONMENT_PATH",
     "PiProvisioningError",
+    "pi_credential_lock",
     "pi_chat_argv",
     "render_openrouter_environment",
     "validate_openrouter_provider",
 ]
 
 PI_OPENROUTER_ENVIRONMENT_PATH = ".pi/agent/clawrium-openrouter.env"
+_PI_LOCK_STATE = threading.local()
 # Provider/model IDs accepted by OpenRouter and Pi's 0.73.1 custom-model
 # fallback.  Reject whitespace, option-like values, provider prefixes, and
 # shell/control characters rather than passing arbitrary model syntax through.
 _MODEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,191}$")
+
+
+@contextmanager
+def pi_credential_lock(agent_name: str):
+    """Serialize Pi credential lifecycle actions across local CLI processes."""
+    held = getattr(_PI_LOCK_STATE, "held", {})
+    if agent_name in held:
+        held[agent_name] += 1
+        _PI_LOCK_STATE.held = held
+        try:
+            yield
+        finally:
+            held[agent_name] -= 1
+        return
+    lock_dir = init_config_dir() / "locks"
+    lock_dir.mkdir(mode=0o700, exist_ok=True)
+    fd = os.open(str(lock_dir / f"pi-{agent_name}.lock"), os.O_CREAT | os.O_RDWR, 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        held[agent_name] = 1
+        _PI_LOCK_STATE.held = held
+        yield
+    finally:
+        held.pop(agent_name, None)
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        os.close(fd)
 
 
 class PiProvisioningError(ValueError):
