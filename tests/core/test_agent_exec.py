@@ -176,6 +176,10 @@ def test_pi_exec_encrypts_sentinel_output_preserves_nonzero_and_cleans_runner_st
     assert str(captured["playbook"]).endswith("pi/playbooks/" + expected_playbook)
     assert captured["inventory"]["all"]["vars"]["cmd_argv"] == ["--version"]
     assert captured["inventory"]["all"]["vars"]["pi_exec_mode"] == "diagnostic"
+    assert captured["inventory"]["all"]["vars"]["pi_exec_timeout"] == 120
+    # The Pi playbook owns process-group termination; runner only receives
+    # a grace window to collect the encrypted terminal result.
+    assert captured["timeout"] == 150
     assert (
         sentinel
         not in captured["inventory"]["all"]["vars"]["pi_exec_recipient_certificate"]

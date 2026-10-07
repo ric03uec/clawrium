@@ -241,7 +241,6 @@ def configure(
                 revoke_pi_openrouter,
                 sync_agent_canonical,
             )
-
             # One reentrant lock spans local attachment stage, remote sync,
             # and compensation so detach cannot interleave a partial configure.
             with pi_credential_lock(name):
@@ -296,7 +295,7 @@ def configure(
                 message="Pi provider access provisioned; no daemon restart",
             )
             return
-        if agent_type != "claude":
+        if agent_type not in {"claude", "codex"}:
             stream_action(
                 resource=f"agent/{name}",
                 message=f"{agent_type} is an installed CLI; no daemon configuration is managed yet",
@@ -306,7 +305,7 @@ def configure(
         config_data = claw_record.get("config", {})
         if not isinstance(config_data, dict):
             emit_error(
-                f"agent {name!r} on host {hostname!r}: Claude configuration must be an object"
+                f"agent {name!r} on host {hostname!r}: {agent_type.title()} configuration must be an object"
             )
 
         def on_event(stage_evt: str, message: str) -> None:
@@ -318,25 +317,39 @@ def configure(
             ).configure_agent
             success, error = configure_fn(
                 hostname=hostname,
-                claw_name="claude",
+                claw_name=agent_type,
                 config_data=dict(config_data),
                 agent_name=agent_key,
                 on_event=on_event,
             )
         except LifecycleError as exc:
+            detail = str(exc)
+            if agent_type == "codex":
+                from clawrium.core.codex_credentials import codex_oauth_activation_error_for_display
+
+                detail = codex_oauth_activation_error_for_display(detail)
             emit_error(
                 f"agent {name!r} on host {hostname!r}: "
-                f"Claude settings configure failed: {exc}"
+                f"{agent_type.title()} settings configure failed: {detail}"
             )
         if not success:
+            detail = error or "unknown error"
+            # Codex activation crosses a private OAuth transport. Do not trust
+            # a backend/playbook error to be safe for terminal output.
+            if agent_type == "codex":
+                from clawrium.core.codex_credentials import codex_oauth_activation_error_for_display
+
+                detail = codex_oauth_activation_error_for_display(detail)
             emit_error(
-                f"agent {name!r} on host {hostname!r}: Claude settings configure failed: "
-                f"{error or 'unknown error'}"
+                f"agent {name!r} on host {hostname!r}: {agent_type.title()} settings configure failed: "
+                f"{detail}"
             )
-        stream_action(
-            resource=f"agent/{name}",
-            message="Claude global settings configured; no daemon restart",
+        summary = (
+            "Claude global settings configured; no daemon restart"
+            if agent_type == "claude"
+            else "Codex private settings configured; no daemon restart"
         )
+        stream_action(resource=f"agent/{name}", message=summary)
         return
 
     if stage is None:

@@ -240,3 +240,32 @@ def test_pi_exec_playbook_task_flow_never_emits_raw_output(filename: str) -> Non
     assert "unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN" in source
     assert "AWS_SHARED_CREDENTIALS_FILE=\"$HOME/.pi/agent/clawrium-aws-credentials\"" in source
     assert "AWS_EC2_METADATA_DISABLED=true" in source
+
+
+@pytest.mark.parametrize("filename", PLAYBOOKS)
+def test_pi_exec_uses_process_group_timeout_wrapper(filename: str) -> None:
+    """Both platform playbooks kill the complete Pi process group at deadline."""
+    playbook = _playbook(filename)
+    wrapper = playbook["vars"]["pi_exec_timeout_wrapper"]
+    completed = subprocess.run(
+        [
+            "/usr/bin/perl",
+            "-e",
+            wrapper,
+            "1",
+            "/bin/sh",
+            "-c",
+            "sleep 30",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=5,
+    )
+    assert completed.returncode == 124
+    validate = _task(playbook, "Validate Pi exec argv and timeout")
+    assert "pi_exec_timeout" in validate["when"]
+    run = _task(playbook, "Run encrypted Pi native command")
+    argv = run["ansible.builtin.command"]["argv"]
+    assert "pi_exec_mode" in argv
+    assert "pi_exec_timeout_wrapper" in argv
+    assert "pi_exec_timeout | string" in argv

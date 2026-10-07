@@ -49,6 +49,7 @@ __all__ = [
     "render_claude_native_files",
     "render_claude_api_key_environment",
     "render_claude_oauth_credentials",
+    "render_codex_oauth_credentials",
     "build_render_inputs",
     "render_hermes",
     "render_zeroclaw",
@@ -573,6 +574,24 @@ def render_claude_api_key_environment(api_key: str) -> str:
             "render_claude_api_key_environment requires a non-empty API key"
         )
     return f"export ANTHROPIC_API_KEY={shlex.quote(api_key)}\n"
+
+
+def render_codex_oauth_credentials(stored_oauth: str) -> str:
+    """Render one validated native Codex ``auth.json`` document privately.
+
+    This is intentionally credential-only: Codex's bounded managed state for
+    this lifecycle is its documented file-backed ChatGPT auth document.  The
+    caller must keep the result out of diffs, events, and public metadata.
+    """
+    if not isinstance(stored_oauth, str):
+        raise AgentConfigError("Codex OAuth document is invalid")
+    try:
+        from clawrium.core.codex_credentials import normalize_codex_oauth_document
+
+        normalized = normalize_codex_oauth_document(stored_oauth)
+        return json.dumps(json.loads(normalized), indent=2, sort_keys=True) + "\n"
+    except (ValueError, TypeError, json.JSONDecodeError):
+        raise AgentConfigError("Codex OAuth document is invalid") from None
 
 
 def render_claude_oauth_credentials(stored_oauth: str) -> str:

@@ -106,7 +106,7 @@ def test_pi_install_transaction_recovers_only_the_bound_account():
             assert "rm -rf" not in lock["ansible.builtin.shell"]
             assert "manually removing" in lock["ansible.builtin.shell"]
             transaction = task(tasks, "Allocate and promote dedicated Pi account transaction")
-            assert task(transaction["block"], "Create dedicated Pi account")
+            assert task(transaction["block"], "Create or recover dedicated Pi account")
             release = transaction["always"][0]
             assert "{{ agent_name }}:{{ pi_uid_lock.stdout | trim }}" in release["ansible.builtin.shell"]
             assert "rmdir" in release["ansible.builtin.shell"]
@@ -128,9 +128,13 @@ def test_pi_install_transaction_recovers_only_the_bound_account():
         account = (
             task(tasks, "Create dedicated Pi agent account")
             if name == "install.yaml"
-            else task(tasks, "Create dedicated Pi account")
+            else task(tasks, "Create or recover dedicated Pi account")
         )
         assert "clawrium-pi-" in str(account)  # Account metadata binds the intent.
+        if name.endswith("_macos.yaml"):
+            # A root-owned schema-1 intent permits a rerun to complete every
+            # dscl attribute after an interrupted account creation.
+            assert "not (pi_marker_stat.stat.exists | bool)" in account["when"]
         assert task(tasks, "Clear promoted Pi install intent")["ansible.builtin.file"]
 
 
@@ -211,6 +215,25 @@ def test_pi_recovery_and_remove_fail_closed_for_foreign_or_tampered_state():
         assert task(tasks, "Remove Pi install intent")["ansible.builtin.file"]
 
 
+def test_macos_intent_recovers_or_removes_interrupted_dscl_account() -> None:
+    install = task(
+        playbook("install_macos.yaml")["tasks"],
+        "Allocate and promote dedicated Pi account transaction",
+    )
+    recovery = task(install["block"], "Verify recoverable Pi install intent")[
+        "ansible.builtin.assert"
+    ]
+    assert "pi_account_comment" not in str(recovery)
+    remove = task(
+        playbook("remove_macos.yaml")["tasks"], "Verify Pi removal ownership binding"
+    )["ansible.builtin.assert"]
+    # Schema-1 intent cleanup permits an interrupted account missing these
+    # attributes, while the schema-2 marker path still requires both.
+    checks = "\n".join(remove["that"])
+    assert "not (pi_marker_stat.stat.exists | bool)" in checks
+    assert "pi_account_home" in checks and "pi_account_comment" in checks
+
+
 def test_pi_remove_and_exec_are_scoped_to_dedicated_account_on_both_os():
     for name, home in (
         ("remove.yaml", "/home/{{ agent_name }}"),
@@ -236,6 +259,9 @@ def test_pi_remove_and_exec_are_scoped_to_dedicated_account_on_both_os():
             assert task(p["tasks"], "Refuse non-Darwin dispatcher target")["when"] == (
                 'ansible_os_family is defined and ansible_os_family != "Darwin"'
             )
+        assert task(p["tasks"], "Validate Pi exec argv and timeout")[
+            "ansible.builtin.fail"
+        ]
         assert task(p["tasks"], "Reject untrusted Pi execution target")[
             "ansible.builtin.assert"
         ]
@@ -248,5 +274,7 @@ def test_pi_remove_and_exec_are_scoped_to_dedicated_account_on_both_os():
         assert p["vars"]["pi_binary"] == "{{ pi_home }}/.local/pi/bin/pi"
         assert "pi_exec_capture_bootstrap" in t["argv"]
         assert "pi_exec_recipient_certificate" in t["argv"]
+        assert "pi_exec_timeout_wrapper" in t["argv"]
+        assert "pi_exec_timeout | string" in t["argv"]
         assert exec_task["become_user"] == "{{ agent_name }}"
         assert exec_task["no_log"] is True

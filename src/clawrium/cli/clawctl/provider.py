@@ -55,6 +55,7 @@ from clawrium.core.providers.storage import (
     OllamaConnectionError,
     ProvidersFileCorruptedError,
     CLAUDE_OAUTH_PROVIDER_TYPE,
+    CODEX_OAUTH_PROVIDER_TYPE,
     PROVIDER_MODELS,
     add_provider,
     fetch_litellm_models,
@@ -153,7 +154,7 @@ def _provider_to_row(record: dict) -> dict:
 
 
 def _credentials_status(name: str, ptype: str) -> str:
-    if ptype in ("ollama", CLAUDE_OAUTH_PROVIDER_TYPE):
+    if ptype in ("ollama", CLAUDE_OAUTH_PROVIDER_TYPE, CODEX_OAUTH_PROVIDER_TYPE):
         return "n/a"
     if ptype == "bedrock":
         access, secret = get_provider_aws_credentials(name)
@@ -214,7 +215,7 @@ def create(
         ...,
         "--type",
         "-t",
-        help="Provider type (anthropic, claude-oauth, openai, bedrock, opencode, opencode-go, ollama, ...).",
+        help="Provider type (anthropic, claude-oauth, codex-oauth, openai, bedrock, opencode, opencode-go, ollama, ...).",
     ),
     model: Optional[str] = typer.Option(
         None, "--model", "-m", help="Default model id."
@@ -293,7 +294,7 @@ def create(
 
     now = _now_iso()
 
-    if provider_type == CLAUDE_OAUTH_PROVIDER_TYPE:
+    if provider_type in (CLAUDE_OAUTH_PROVIDER_TYPE, CODEX_OAUTH_PROVIDER_TYPE):
         if any(
             (
                 model is not None,
@@ -308,11 +309,8 @@ def create(
             )
         ):
             emit_error(
-                "claude-oauth providers do not accept provider-scoped credentials or settings",
-                hint=(
-                    "attach the provider to a Claude agent to import its OAuth "
-                    "credential into that agent's private secret scope"
-                ),
+                f"{provider_type} providers do not accept provider-scoped credentials or settings",
+                hint="attach the provider to its matching agent type to import its OAuth credential into that agent's private secret scope",
             )
         record = {
             "name": name,
@@ -324,7 +322,9 @@ def create(
             add_provider(record)
         except DuplicateProviderError as exc:
             emit_error(str(exc))
-        typer.echo(f"provider/{name}: created (type={provider_type})")
+        stream_action(
+            resource=f"provider/{name}", message=f"created (type={provider_type})"
+        )
         return
 
     if provider_type == "ollama":
@@ -561,9 +561,7 @@ def _emit_types(output: OutputFormat, *, no_headers: bool) -> None:
             "kind": "provider-type",
             "name": ptype,
             "endpoint": (cfg.get("endpoint") or ""),
-            "model_count": (
-                0 if ptype == "ollama" else get_model_count(ptype)
-            ),
+            "model_count": (0 if ptype == "ollama" else get_model_count(ptype)),
         }
         for ptype, cfg in sorted(PROVIDER_MODELS.items())
     ]
@@ -643,7 +641,7 @@ def delete(
         emit_error(f"failed to delete provider {name!r}")
     if ptype == "bedrock":
         remove_provider_aws_credentials(name)
-    elif ptype not in ("ollama", CLAUDE_OAUTH_PROVIDER_TYPE):
+    elif ptype not in ("ollama", CLAUDE_OAUTH_PROVIDER_TYPE, CODEX_OAUTH_PROVIDER_TYPE):
         remove_provider_api_key(name)
     typer.echo(f"provider/{name}: deleted")
 
@@ -696,13 +694,10 @@ def edit(
     record = _safe_get_provider(name)
     ptype = record.get("type")
 
-    if ptype == CLAUDE_OAUTH_PROVIDER_TYPE:
+    if ptype in (CLAUDE_OAUTH_PROVIDER_TYPE, CODEX_OAUTH_PROVIDER_TYPE):
         emit_error(
-            "claude-oauth providers have no provider-scoped editable settings",
-            hint=(
-                "attach the provider to a Claude agent to refresh its local OAuth "
-                "credential"
-            ),
+            f"{ptype} providers have no provider-scoped editable settings",
+            hint="attach the provider to its matching agent type to refresh its local OAuth credential",
         )
 
     if not any(
@@ -764,7 +759,9 @@ def edit(
         # currently-stored one. Probe failure surfaces as a warning so
         # an `edit` doesn't fail just because the proxy is offline.
         probe_key = (
-            api_key if api_key else (None if api_key_stdin else get_provider_api_key(name))
+            api_key
+            if api_key
+            else (None if api_key_stdin else get_provider_api_key(name))
         )
         if probe_key:
             try:

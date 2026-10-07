@@ -77,9 +77,12 @@
           - pi_owner.home == pi_home
           - pi_owner.uid | int >= 700
           - (pi_existing_uid.stdout | trim) == '' or pi_owner.uid == (pi_existing_uid.stdout | trim | int)
-          - (pi_existing_uid.stdout | trim) == '' or (pi_account_home.stdout | trim) == pi_home
+          # A schema-1 install intent is root-owned proof of the reserved
+          # account name and UID, even if a previous dscl sequence stopped
+          # before it wrote home/comment. Schema-2 remains fully bound.
+          - (not (pi_marker_stat.stat.exists | bool)) or (pi_existing_uid.stdout | trim) == '' or (pi_account_home.stdout | trim) == pi_home
           - pi_owner.transaction_id is match('^[0-9a-f-]{36}$')
-          - (pi_existing_uid.stdout | trim) == '' or (pi_account_comment.stdout | trim) == ('clawrium-pi-' ~ pi_owner.transaction_id)
+          - (not (pi_marker_stat.stat.exists | bool)) or (pi_existing_uid.stdout | trim) == '' or (pi_account_comment.stdout | trim) == ('clawrium-pi-' ~ pi_owner.transaction_id)
           - (pi_marker_stat.stat.exists | bool) or pi_owner.schema == 1
           - (not (pi_marker_stat.stat.exists | bool)) or pi_owner.schema == 2
         fail_msg: "Refusing to remove {{ agent_name }}: ownership transaction does not bind this account."
