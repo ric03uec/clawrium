@@ -44,7 +44,7 @@ import re
 import shlex
 from dataclasses import dataclass, replace as _dc_replace
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 
 import paramiko
 
@@ -859,6 +859,163 @@ def _validate_claude_credential_activation(agent_name: str) -> tuple[str, str]:
     if key not in {CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY}:
         raise CanonicalSyncError("Claude credential activation failed")
     return key, value
+
+
+def _verify_pi_remote_ownership(client: Any, *, agent_name: str, family: str) -> None:
+    """Fail closed unless the remote account is bound to Clawrium's Pi marker."""
+    root = "/Users" if family == "darwin" else "/home"
+    marker = (
+        f"/Library/Application Support/clawrium/pi/{agent_name}.json"
+        if family == "darwin"
+        else f"/var/lib/clawrium/pi/{agent_name}.json"
+    )
+    # Keep all validation on the remote privileged side before creating any path.
+    # Stock macOS does not ship /usr/bin/python3.  Its system Perl does ship
+    # JSON::PP and Fcntl, and getpwnam reads the Directory Services account.
+    if family == "darwin":
+        program = r"""use strict; use warnings; use Fcntl qw(O_RDONLY O_NOFOLLOW); use JSON::PP qw(decode_json);
+my ($name, $home, $marker) = @ARGV; exit 1 unless @ARGV == 3;
+my @before = lstat($marker); exit 1 unless @before && ($before[2] & 0170000) == 0100000 && $before[4] == 0 && ($before[2] & 07777) == 0600;
+sysopen(my $fh, $marker, O_RDONLY | O_NOFOLLOW) or exit 1;
+my @opened = stat($fh); exit 1 unless @opened && $opened[0] == $before[0] && $opened[1] == $before[1] && $opened[4] == 0 && ($opened[2] & 07777) == 0600;
+my $raw = do { local $/; <$fh> }; close($fh) or exit 1;
+my $data = eval { decode_json($raw) }; exit 1 if $@ || ref($data) ne 'HASH';
+my @account = getpwnam($name); exit 1 unless @account;
+my $transaction = $data->{transaction_id};
+exit 1 unless $data->{schema} == 2 && defined($data->{agent_name}) && $data->{agent_name} eq $name && defined($data->{home}) && $data->{home} eq $home && defined($data->{uid}) && $data->{uid} == $account[2] && $account[7] eq $home && defined($transaction) && !ref($transaction) && $transaction =~ /\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z/ && $account[6] eq "clawrium-pi-$transaction";"""
+        interpreter = "/usr/bin/perl"
+    else:
+        program = r"""import json, os, pwd, stat, sys
+name, home, marker = sys.argv[1:]
+st = os.lstat(marker)
+if stat.S_ISLNK(st.st_mode) or st.st_uid != 0 or stat.S_IMODE(st.st_mode) != 0o600: raise SystemExit(1)
+data = json.load(open(marker))
+p = pwd.getpwnam(name)
+if not (data.get("schema") == 2 and data.get("agent_name") == name and data.get("home") == home and data.get("uid") == p.pw_uid and p.pw_dir == home and isinstance(data.get("transaction_id"), str) and p.pw_gecos == "clawrium-pi-" + data["transaction_id"]): raise SystemExit(1)"""
+        interpreter = "/usr/bin/python3"
+    command = "sudo -n {} -c {} {} {} {}".format(
+        interpreter,
+        shlex.quote(program),
+        shlex.quote(agent_name),
+        shlex.quote(f"{root}/{agent_name}"),
+        shlex.quote(marker),
+    )
+    _, stdout, _ = client.exec_command(command, timeout=30)
+    if stdout.channel.recv_exit_status() != 0:
+        raise CanonicalSyncError(
+            "Pi ownership marker does not bind the dedicated account"
+        )
+
+
+def _pi_user_environment_operation(
+    client: Any, *, agent_name: str, path: str, body: str | None
+) -> None:
+    """Write or remove Pi's credential as its account, never as root.
+
+    The marker probe has already established that this is Clawrium's account.
+    Passing bytes on stdin avoids exposing the bearer in argv or runner logs.
+    A hostile Pi-owned symlink can at worst target another Pi-user-writable
+    location; it cannot make this unprivileged process alter root-owned data.
+    """
+    action = "write" if body is not None else "remove"
+    script = r"""set -eu; path=$1; dir=${path%/*}; case $2 in
+write) umask 077; mkdir -p -- "$dir"; tmp=$(mktemp "$dir/.clawrium-openrouter.XXXXXX"); trap 'rm -f -- "$tmp"' EXIT; cat >"$tmp"; chmod 0600 "$tmp"; mv -f -- "$tmp" "$path";;
+remove) rm -f -- "$path";; esac"""
+    command = "sudo -n -u {} -- /bin/bash -c {} clawrium-pi-env {} {}".format(
+        shlex.quote(agent_name), shlex.quote(script), shlex.quote(path), action
+    )
+    stdin, stdout, _ = client.exec_command(command, timeout=30)
+    if body is not None:
+        stdin.write(body)
+        stdin.flush()
+        stdin.channel.shutdown_write()
+    if stdout.channel.recv_exit_status() != 0:
+        raise CanonicalSyncError(f"could not {action} Pi OpenRouter credential")
+
+
+def revoke_pi_openrouter(*, agent_name: str, host: dict) -> None:
+    """Remove Pi's private credential before committing its final detach."""
+    from clawrium.core.pi import PI_OPENROUTER_ENVIRONMENT_PATH
+    from clawrium.core.playbook_resolver import normalize_os_family
+
+    family = normalize_os_family(host)
+    path = f"{home_root_for(family)}/{agent_name}/{PI_OPENROUTER_ENVIRONMENT_PATH}"
+    client = _open_ssh(host)
+    try:
+        _verify_pi_remote_ownership(client, agent_name=agent_name, family=family)
+        _pi_user_environment_operation(
+            client, agent_name=agent_name, path=path, body=None
+        )
+    finally:
+        client.close()
+
+
+def _sync_pi_openrouter(
+    *,
+    agent_name: str,
+    host: dict,
+    claw_record: dict,
+    workspace_only: bool,
+    dry_run: bool,
+    on_event: Callable[[str, str], None] | None,
+) -> CanonicalSyncResult:
+    """Activate the selected OpenRouter credential in Pi's isolated home.
+
+    This is intentionally outside the rendered-file/diff pipeline: the sole
+    body contains a bearer secret and must never reach a diff, event, or local
+    state.  The model remains non-secret control-plane metadata and is passed
+    as fixed Pi CLI argv by ``PiChatBackend``.
+    """
+    from clawrium.core.pi import (
+        PI_OPENROUTER_ENVIRONMENT_PATH,
+        PiProvisioningError,
+        render_openrouter_environment,
+        validate_openrouter_provider,
+    )
+    from clawrium.core.playbook_resolver import normalize_os_family
+    from clawrium.core.providers.storage import get_provider
+    from clawrium.core.providers import get_provider_api_key
+
+    hostname = host.get("hostname", "")
+    if workspace_only:
+        return CanonicalSyncResult(True, agent_name, hostname, (), (), ())
+    providers = claw_record.get("providers")
+    if (
+        not isinstance(providers, list)
+        or len(providers) != 1
+        or not isinstance(providers[0], str)
+    ):
+        raise CanonicalSyncError(
+            "Pi requires exactly one attached OpenRouter provider; run `clawctl agent provider attach <provider> --agent <name>`"
+        )
+    record = get_provider(providers[0])
+    try:
+        model = validate_openrouter_provider(record)
+        body = render_openrouter_environment(get_provider_api_key(providers[0]))
+    except PiProvisioningError as exc:
+        raise CanonicalSyncError(str(exc)) from exc
+    if dry_run:
+        # Validate access without showing secret-bearing file contents.
+        return CanonicalSyncResult(
+            True, agent_name, hostname, (), (PI_OPENROUTER_ENVIRONMENT_PATH,), ()
+        )
+    family = normalize_os_family(host)
+    path = f"{home_root_for(family)}/{agent_name}/{PI_OPENROUTER_ENVIRONMENT_PATH}"
+    client = _open_ssh(host)
+    try:
+        _verify_pi_remote_ownership(client, agent_name=agent_name, family=family)
+        _pi_user_environment_operation(
+            client, agent_name=agent_name, path=path, body=body
+        )
+    finally:
+        client.close()
+    if on_event is not None:
+        on_event(
+            "sync", f"Pi OpenRouter model {model!r} provisioned; no daemon restart"
+        )
+    return CanonicalSyncResult(
+        True, agent_name, hostname, (PI_OPENROUTER_ENVIRONMENT_PATH,), (), ()
+    )
 
 
 def _sync_claude_settings(
@@ -1844,7 +2001,9 @@ def _hermes_reconcile_herdr(
         timeout=300,
     )
     if not success:
-        raise CanonicalSyncError(f"Herdr reconciliation failed for {agent_name!r}: {err}")
+        raise CanonicalSyncError(
+            f"Herdr reconciliation failed for {agent_name!r}: {err}"
+        )
 
 
 # #835: openclaw slack MCP subprocess installer. Sibling of the hermes
@@ -2452,6 +2611,24 @@ def sync_agent_canonical(
         if not has_daemon_lifecycle(agent_type):
             if not has_completed_install(_claw_record):
                 raise CanonicalSyncError(incomplete_install_message(agent_type, "sync"))
+            if agent_type == "pi":
+                from clawrium.core.pi import pi_credential_lock
+
+                # Re-resolve under the per-agent lock so a queued sync cannot
+                # use attachments detached by another CLI process.
+                with pi_credential_lock(agent_name):
+                    fresh = get_agent_by_name(agent_name)
+                    if fresh is None:
+                        raise CanonicalSyncError(f"agent {agent_name!r} not found")
+                    fresh_host, _fresh_type, fresh_record = fresh
+                    return _sync_pi_openrouter(
+                        agent_name=agent_name,
+                        host=fresh_host,
+                        claw_record=fresh_record,
+                        workspace_only=workspace_only,
+                        dry_run=dry_run,
+                        on_event=on_event,
+                    )
             if agent_type == "codex":
                 if workspace_only:
                     return CanonicalSyncResult(

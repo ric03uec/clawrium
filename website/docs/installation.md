@@ -227,14 +227,15 @@ macOS user (`/Users/<agent_name>/`), and runs the upstream installer:
   a UI. See [Claude Code Support](agent-support/claude.md) for credential,
   settings, finite-command, and removal boundaries.
 - **pi** requires Node.js 20.6 or later. Install creates a dedicated account
-  and pinned Pi prefix only: it does not invoke Pi, request provider access,
-  log in, start a service, allocate a port, or expose a native UI. Run
-  `clawctl agent exec <name> -- --version` to inspect the pinned CLI. This
-  first Pi milestone is **install/inspect/exec/remove only**: provider attachment,
-  configure/sync, and chat deliberately remain unavailable until stacked issue
-  [#1038](https://github.com/ric03uec/clawrium/issues/1038) validates scoped
-  OpenRouter provisioning and real responses. Do not attach a provider to Pi in
-  this release.
+  and pinned Pi prefix only: it does not start a service, allocate a port, or
+  expose a native UI. To chat, attach one existing OpenRouter provider with an
+  unprefixed OpenRouter `default_model`, then sync:
+  `clawctl agent provider attach <provider> --agent <name>`;
+  `clawctl agent sync <name>`; `clawctl agent chat <name>`. Clawrium writes the
+  provider credential only to that Pi account's private environment file; Pi
+  consumes it on demand and never requests a grant. `agent exec` also receives
+  that isolated environment. Pi currently supports only OpenRouter and only a
+  single provider; `agent open` remains unavailable.
 
 Configure, start, chat — same commands as Linux for daemon-backed Hermes and
 OpenClaw agents:

@@ -18,6 +18,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Optional
 
+import paramiko
 import typer
 
 from clawrium.cli.clawctl._common import stdin_is_tty
@@ -95,6 +96,16 @@ def _attach_provider_for_configure(
     # tolerant; downstream lifecycle code reads `agents.<n>.providers`
     # and looks up the provider by *that* exact string.
     canonical_name = record.get("name", provider_name)
+    # Pi is intentionally OpenRouter-only for #1038; reject before mutating
+    # attachment metadata so an unsupported selection cannot be synced later.
+    resolved = safe_resolve_agent(agent_name)
+    if resolved[1] == "pi":
+        from clawrium.core.pi import PiProvisioningError, validate_openrouter_provider
+
+        try:
+            validate_openrouter_provider(record)
+        except PiProvisioningError as exc:
+            emit_error(str(exc))
 
     def updater(h: dict) -> dict:
         agents = h.get("agents", {})
@@ -129,6 +140,24 @@ def _attach_provider_for_configure(
             f"could not write hosts.json: {type(exc).__name__}",
             hint="inspect ~/.config/clawrium/hosts.json before retrying",
         )
+
+
+def _restore_pi_provider_attachment(
+    hostname: str, agent_key: str, previous: object
+) -> str | None:
+    """Compensate Pi metadata; return a safe error if persistence fails."""
+
+    def updater(host: dict) -> dict:
+        record = (host.get("agents", {}) or {}).get(agent_key)
+        if isinstance(record, dict):
+            record["providers"] = previous
+        return host
+
+    try:
+        update_host(hostname, updater)
+    except (LifecycleError, HostsFileCorruptedError, OSError) as exc:
+        return type(exc).__name__
+    return None
 
 
 class Stage(str, Enum):
@@ -202,10 +231,85 @@ def configure(
         if not has_completed_install(claw_record):
             emit_error(incomplete_install_message(agent_type, "configure"))
         if agent_type == "pi":
-            emit_error(
-                "Pi provider configuration is not supported yet",
-                hint="Pi provider provisioning is planned for #1038.",
+            if stage not in (None, Stage.providers) or provider is None:
+                emit_error(
+                    "Pi configuration requires --stage providers --provider <openrouter-provider>",
+                    hint="attach/sync an existing OpenRouter provider for the isolated Pi account",
+                )
+            from clawrium.core.pi import pi_credential_lock
+            from clawrium.core.lifecycle_canonical import (
+                CanonicalSyncError,
+                revoke_pi_openrouter,
+                sync_agent_canonical,
             )
+            # One reentrant lock spans local attachment stage, remote sync,
+            # and compensation so detach cannot interleave a partial configure.
+            with pi_credential_lock(name):
+                fresh_host, _fresh_type, fresh_record = safe_resolve_agent(name)
+                if (
+                    fresh_host.get("hostname") != hostname
+                    or fresh_record.get("type") != "pi"
+                ):
+                    emit_error(
+                        "Pi agent changed while configuring provider; retry the command"
+                    )
+                previous_providers = fresh_record.get("providers", [])
+                _attach_provider_for_configure(name, hostname, agent_key, provider)
+                try:
+                    result = sync_agent_canonical(
+                        name, restart=False, verify=False, push_workspace=False
+                    )
+                except CanonicalSyncError as exc:
+                    result = None
+                    failure_detail = str(exc)
+                except (paramiko.SSHException, OSError, EOFError):
+                    result = None
+                    failure_detail = "remote synchronization did not finish"
+                else:
+                    failure_detail = (
+                        None if result.success else (result.error or "unknown error")
+                    )
+                if failure_detail is not None:
+                    # Reconfiguration may already have replaced the old
+                    # remote credential. Retain the newly staged attachment
+                    # rather than claiming restoration to an old provider
+                    # whose credential no longer exists.
+                    if previous_providers:
+                        emit_error(
+                            f"Pi provider configuration failed: {failure_detail}; the previous provider may have been replaced remotely. The new attachment was retained for recovery; run agent sync or detach before retrying."
+                        )
+                    # First-time provisioning can safely compensate by
+                    # removing any partially written credential before local
+                    # rollback, so detached state never masks a live bearer.
+                    try:
+                        revoke_pi_openrouter(agent_name=name, host=fresh_host)
+                    except (
+                        CanonicalSyncError,
+                        paramiko.SSHException,
+                        OSError,
+                        EOFError,
+                    ):
+                        emit_error(
+                            "Pi provider configuration failed: "
+                            f"{failure_detail}; remote credential cleanup did not finish. "
+                            "Provider attachment was retained for recovery.",
+                            hint=(
+                                "retry: clawctl agent provider detach "
+                                f"{provider} --agent {name}"
+                            ),
+                        )
+                    rollback_error = _restore_pi_provider_attachment(
+                        hostname, agent_key, previous_providers
+                    )
+                    detail = f"Pi provider configuration failed: {failure_detail}"
+                    if rollback_error:
+                        detail += f"; rollback also failed ({rollback_error}). Manually detach the provider before retrying."
+                    emit_error(detail)
+            stream_action(
+                resource=f"agent/{name}",
+                message="Pi OpenRouter credential provisioned; no daemon restart",
+            )
+            return
         if agent_type not in {"claude", "codex"}:
             stream_action(
                 resource=f"agent/{name}",

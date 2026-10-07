@@ -2,10 +2,11 @@ agent:
   type: pi
   description: "Pi coding agent (on-demand CLI; no daemon or native web UI)"
 
-# Pi is invoked only through finite `agent exec` calls. It has no service,
-# listener, gateway, or native dashboard. Provider/model provisioning follows
-# in later milestones; this first milestone deliberately installs no auth.
-features: {}
+# Pi is invoked only through finite `agent exec` / chat calls. It has no
+# service, listener, gateway, or native dashboard.
+features:
+  chat:
+    type: pi
 
 platforms:
   - version: "0.73.1"

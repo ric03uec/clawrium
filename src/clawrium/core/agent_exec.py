@@ -69,6 +69,14 @@ _AGENT_NAME_RE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
 # escape the logs root (ATX iter-1 W4).
 _LOG_DIR_SAFE_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
 
+# Pi's dedicated account owns the provisioned OpenRouter bearer. Generic native
+# argv would let Pi tools, extensions, or context files read and reflect that
+# bearer, so only fixed diagnostics and a fixed one-shot inference shape cross
+# this boundary. The prompt travels on stdin rather than Pi argv; Ansible may
+# retain its base64 transport in a transient runner workdir, but never the bearer.
+_PI_EXEC_DIAGNOSTICS = frozenset({("--version",), ("--help",)})
+_PI_EXEC_PROMPT_MAX_CHARS = 100_000
+
 
 class AgentExecError(Exception):
     """Raised for caller-recoverable errors before invoking ansible_runner."""
@@ -372,6 +380,75 @@ def _parse_events(result) -> tuple[str, str, int | None]:
     return stdout, stderr, rc
 
 
+def _prepare_pi_exec(
+    hostname: str, agent_name: str, cmd_argv: list[str]
+) -> tuple[list[str], str | None, str]:
+    """Return fixed Pi argv, optional stdin prompt, and credential mode.
+
+    Pi 0.73.1 accepts ``--provider``, ``--model``, and ``--print``. Its
+    positional print prompt is deliberately moved to stdin so operator text is
+    not an argv element. Inference disables every local discovery/execution
+    feature capable of reading the dedicated account's credential file.
+    """
+    if tuple(cmd_argv) in _PI_EXEC_DIAGNOSTICS:
+        return cmd_argv, None, "diagnostic"
+    if (
+        len(cmd_argv) != 2
+        or cmd_argv[0] != "--print"
+        or not cmd_argv[1].strip()
+        or len(cmd_argv[1]) > _PI_EXEC_PROMPT_MAX_CHARS
+    ):
+        raise AgentExecError(
+            "Pi exec accepts only `--version`, `--help`, or "
+            "`--print <prompt>`; use `clawctl agent chat` for sessions"
+        )
+
+    # Provider-specific fixed argv belongs here. #1039 must add its Bedrock
+    # branch (and any distinct remote credential mode) explicitly; accepting
+    # caller-supplied provider/model flags would reopen this credential boundary.
+    from clawrium.core.hosts import get_agent_by_name
+    from clawrium.core.pi import PiProvisioningError, validate_openrouter_provider
+    from clawrium.core.providers.storage import get_provider
+
+    resolved = get_agent_by_name(agent_name)
+    if resolved is None:
+        raise AgentExecError(f"Pi agent {agent_name!r} not found")
+    agent_host, agent_type, agent_record = resolved
+    if agent_type != "pi" or agent_host.get("hostname") != hostname:
+        raise AgentExecError("Pi agent ownership changed; retry the command")
+    providers = agent_record.get("providers")
+    if (
+        not isinstance(providers, list)
+        or len(providers) != 1
+        or not isinstance(providers[0], str)
+    ):
+        raise AgentExecError(
+            "Pi requires exactly one attached OpenRouter provider before native inference"
+        )
+    try:
+        model = validate_openrouter_provider(get_provider(providers[0]))
+    except PiProvisioningError as exc:
+        raise AgentExecError(str(exc)) from exc
+    return (
+        [
+            "--provider",
+            "openrouter",
+            "--model",
+            model,
+            "--print",
+            "--no-session",
+            "--no-tools",
+            "--no-context-files",
+            "--no-extensions",
+            "--no-skills",
+            "--no-prompt-templates",
+            "--no-themes",
+        ],
+        cmd_argv[1],
+        "inference",
+    )
+
+
 def _extract_failure_message(result, default: str) -> str:
     for event in result.events:
         if event.get("event") == "runner_on_unreachable":
@@ -450,6 +527,16 @@ def run_agent_exec(
         )
 
     extra_vars = {"agent_name": agent_name, "cmd_argv": cmd_argv}
+    if claw_type == "pi":
+        pi_argv, pi_prompt, pi_exec_mode = _prepare_pi_exec(
+            host["hostname"], agent_name, cmd_argv
+        )
+        extra_vars["cmd_argv"] = pi_argv
+        extra_vars["pi_exec_mode"] = pi_exec_mode
+        if pi_prompt is not None:
+            extra_vars["pi_exec_prompt_b64"] = base64.b64encode(
+                pi_prompt.encode("utf-8")
+            ).decode("ascii")
     if claw_type in {"claude", "codex"}:
         # The remote wrapper owns the canonical kill path. Never pass
         # credential contents: native auth is private agent-home state on the

@@ -25,11 +25,12 @@ import json
 import uuid
 from typing import Optional
 
+import paramiko
 import typer
 
 from clawrium.cli.clawctl._common import OutputFormat, confirm_destructive
 from clawrium.cli.clawctl.agent._shared import resolve_agent_key, safe_resolve_agent
-from clawrium.cli.output._sanitize import sanitize_passthrough
+from clawrium.cli.output._sanitize import sanitize, sanitize_passthrough
 from clawrium.cli.output import (
     dump_json,
     dump_name,
@@ -74,6 +75,7 @@ from clawrium.core.providers.storage import (
     ProvidersFileCorruptedError,
     get_provider,
 )
+from clawrium.core.pi import PiProvisioningError, validate_openrouter_provider
 
 __all__ = ["provider_app"]
 
@@ -431,9 +433,10 @@ def _reconcile_codex_oauth_transaction(
     provider_name = transaction["provider_name"]
     document = transaction["document"]
     previous_document = transaction["previous_document"]
-    selected = _find_attachment(
-        _get_attachments(host, agent_key, "codex"), provider_name
-    ) is not None
+    selected = (
+        _find_attachment(_get_attachments(host, agent_key, "codex"), provider_name)
+        is not None
+    )
     if transaction["operation"] == "attach":
         if selected:
             _set_document_if_prior_matches(secret_key, previous_document, document)
@@ -544,7 +547,9 @@ def _attach_codex_oauth_provider_locked(
         emit_error(f"failed to attach provider {provider_name!r} to agent {agent!r}")
     _clear_codex_pending_transaction(secret_key, transaction)
     if attached_now:
-        stream_action(resource=f"agent/{agent}", message=f"attached provider {provider_name!r}")
+        stream_action(
+            resource=f"agent/{agent}", message=f"attached provider {provider_name!r}"
+        )
     else:
         stream_action(
             resource=f"agent/{agent}",
@@ -585,10 +590,13 @@ def attach(
     agent_key = resolve_agent_key(host, agent)
     agent_type = _agent_type(claw)
     if agent_type == "pi":
-        emit_error(
-            "provider attachment is not supported for pi yet",
-            hint="Pi provider provisioning is planned for #1038.",
-        )
+        try:
+            validate_openrouter_provider(provider_record)
+        except PiProvisioningError as exc:
+            emit_error(
+                str(exc),
+                hint="select an OpenRouter provider with a supported default model",
+            )
     if (
         provider_record.get("type") == CLAUDE_OAUTH_PROVIDER_TYPE
         and agent_type != "claude"
@@ -746,7 +754,9 @@ def _detach_codex_oauth_provider(*, agent: str, name: str) -> None:
                     CODEX_OAUTH_DOCUMENT: None,
                     CODEX_OAUTH_PENDING_ACTIVATION: None,
                 },
-                descriptions={CODEX_OAUTH_PENDING_TRANSACTION: "Codex OAuth operation journal"},
+                descriptions={
+                    CODEX_OAUTH_PENDING_TRANSACTION: "Codex OAuth operation journal"
+                },
             )
         except Exception:
             emit_error(
@@ -758,11 +768,15 @@ def _detach_codex_oauth_provider(*, agent: str, name: str) -> None:
         try:
             metadata_written = _set_attachments(hostname, agent_key, "codex", remaining)
         except BaseException:
-            _reconcile_codex_oauth_transaction(host=host, agent_key=agent_key, agent=agent)
+            _reconcile_codex_oauth_transaction(
+                host=host, agent_key=agent_key, agent=agent
+            )
             raise
         _after_codex_oauth_durable_step("detach_metadata")
         if not metadata_written:
-            _reconcile_codex_oauth_transaction(host=host, agent_key=agent_key, agent=agent)
+            _reconcile_codex_oauth_transaction(
+                host=host, agent_key=agent_key, agent=agent
+            )
             emit_error(f"failed to detach provider {name!r} from agent {agent!r}")
         _clear_codex_pending_transaction(secret_key, transaction)
         stream_action(
@@ -836,6 +850,60 @@ def detach(
                     else "detach auxiliary attachments first"
                 ),
             )
+
+    if agent_type == "pi":
+        # Serialize from the fresh attachment read through remote revocation
+        # and hosts.json persistence; a concurrent sync re-resolves under the
+        # same lock and therefore cannot resurrect a detached credential.
+        from clawrium.core.lifecycle_canonical import (
+            CanonicalSyncError,
+            revoke_pi_openrouter,
+        )
+        from clawrium.core.pi import pi_credential_lock
+
+        with pi_credential_lock(agent):
+            # Re-read hosts.json after acquiring the lock; the earlier object
+            # may predate a concurrent attach/detach in another process.
+            locked_host, _locked_type, locked_record = safe_resolve_agent(agent)
+            locked_key = resolve_agent_key(locked_host, agent)
+            if (
+                locked_host.get("hostname") != hostname
+                or locked_key != agent_key
+                or _agent_type(locked_record) != "pi"
+            ):
+                emit_error(
+                    "Pi agent changed while detaching provider; retry the command"
+                )
+            host = locked_host
+            current = _get_attachments(host, locked_key, agent_type)
+            target = _find_attachment(current, name)
+            if target is None:
+                emit_error(f"provider {name!r} not attached to agent {agent!r}")
+            remaining = [entry for entry in current if entry is not target]
+            if not remaining:
+                try:
+                    revoke_pi_openrouter(agent_name=agent, host=host)
+                except (CanonicalSyncError, paramiko.SSHException, OSError, EOFError):
+                    emit_error(
+                        "failed to revoke Pi provider credential; detach did not finish",
+                        hint=f"retry: clawctl agent provider detach {name} --agent {agent}",
+                    )
+            try:
+                metadata_persisted = _set_attachments(
+                    hostname, agent_key, agent_type, remaining
+                )
+            except Exception:
+                metadata_persisted = False
+            if not metadata_persisted:
+                # Do not recreate credentials after a failed local commit.
+                # Keep the durable attachment unchanged so this idempotent
+                # detach can be retried; remote rm -f remains safe.
+                emit_error(
+                    f"failed to persist Pi provider detach for {name!r}; detach did not finish",
+                    hint=f"retry: clawctl agent provider detach {name} --agent {agent}",
+                )
+        typer.echo(f"agent/{sanitize(agent)}: detached provider {sanitize(name)!r}")
+        return
 
     remaining = [e for e in current if e is not target]
     provider_record = _safe_get_provider(name)

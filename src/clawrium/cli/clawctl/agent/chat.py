@@ -37,12 +37,7 @@ def chat(
     ),
 ) -> None:
     """Start an interactive chat with an agent."""
-    _, agent_type, _ = safe_resolve_agent(name)  # validates existence
-    if agent_type == "pi":
-        raise typer.BadParameter(
-            "Pi chat is unavailable in the install-only foundation; use `agent exec` "
-            "or wait for #1038 provider support."
-        )
+    safe_resolve_agent(name)  # validates existence
     from clawrium.cli.chat import chat as _legacy_chat
 
     _legacy_chat(
