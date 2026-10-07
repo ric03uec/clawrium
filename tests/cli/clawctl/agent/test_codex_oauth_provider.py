@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import json
-
 import pytest
 from typer.testing import CliRunner
 
 from clawrium.cli import app
 from clawrium.cli.clawctl.agent import provider as agent_provider
-from clawrium.core import codex_credentials
-from clawrium.core.codex_credentials import CODEX_OAUTH_DOCUMENT, CodexOAuthSourceError
+from clawrium.core import codex_credentials, lifecycle
+from clawrium.core.codex_credentials import (
+    CODEX_OAUTH_DOCUMENT,
+    CODEX_OAUTH_PENDING_ACTIVATION,
+    CodexOAuthSourceError,
+)
 from clawrium.core.providers.storage import get_provider
 from clawrium.core.secrets import (
     get_instance_key,
@@ -22,13 +25,13 @@ runner = CliRunner()
 
 
 def _add_codex_agent(
-    fleet_dir, name: str = "codex-cli", agent_type: str = "codex"
+    fleet_dir, name: str = "codex-cli", agent_type: str = "codex", agent_name: str | None = None
 ) -> None:
     path = fleet_dir / "hosts.json"
     hosts = json.loads(path.read_text())
     hosts[0]["agents"][name] = {
         "type": agent_type,
-        "agent_name": name,
+        "agent_name": agent_name or name,
         "status": "installed",
         "config": {},
     }
@@ -68,6 +71,171 @@ def _document() -> str:
     )
 
 
+def test_codex_configure_dispatches_to_native_lifecycle(
+    fleet_dir, monkeypatch
+) -> None:
+    _add_codex_agent(fleet_dir, name="fleet-codex", agent_name="codex-unix")
+    hosts = json.loads((fleet_dir / "hosts.json").read_text())
+    hosts[0]["agents"]["fleet-codex"]["installed_at"] = "2026-10-06T00:00:00Z"
+    (fleet_dir / "hosts.json").write_text(json.dumps(hosts))
+    hostname = hosts[0]["hostname"]
+    calls: list[dict] = []
+
+    class Backend:
+        @staticmethod
+        def configure_agent(**kwargs):
+            calls.append(kwargs)
+            return True, None
+
+    monkeypatch.setattr(
+        "clawrium.cli.clawctl.agent.configure.resolve_lifecycle_backend",
+        lambda _os_family: Backend(),
+    )
+    result = runner.invoke(app, ["agent", "configure", "fleet-codex"])
+
+    assert result.exit_code == 0, result.output
+    assert "Codex private settings configured" in result.output
+    assert len(calls) == 1
+    assert calls[0]["hostname"] == hostname
+    assert calls[0]["claw_name"] == "codex"
+    assert calls[0]["agent_name"] == "fleet-codex"
+    assert calls[0]["config_data"] == {}
+    assert callable(calls[0]["on_event"])
+
+
+def test_codex_sync_dispatches_to_refresh_safe_canonical_path(fleet_dir, monkeypatch) -> None:
+    _add_codex_agent(fleet_dir, name="fleet-codex", agent_name="codex-unix")
+    hosts = json.loads((fleet_dir / "hosts.json").read_text())
+    hosts[0]["agents"]["fleet-codex"]["installed_at"] = "2026-10-06T00:00:00Z"
+    (fleet_dir / "hosts.json").write_text(json.dumps(hosts))
+    calls: list[tuple[tuple, dict]] = []
+
+    class Result:
+        success = True
+        files_written = (".codex/auth.json",)
+        files_unchanged = ()
+        error = None
+
+    def sync(*args, **kwargs):
+        calls.append((args, kwargs))
+        return Result()
+
+    monkeypatch.setattr("clawrium.core.lifecycle_canonical.sync_agent_canonical", sync)
+    result = runner.invoke(app, ["agent", "sync", "fleet-codex"])
+    assert result.exit_code == 0, result.output
+    assert "synced Codex private settings" in result.output
+    assert len(calls) == 1
+    args, kwargs = calls[0]
+    assert args == ("codex-unix",)
+    assert kwargs["agent_key"] == "fleet-codex"
+    assert kwargs["restart"] is False
+    assert kwargs["verify"] is False
+    assert kwargs["push_workspace"] is False
+    assert kwargs["workspace_only"] is False
+    assert kwargs["dry_run"] is False
+    assert callable(kwargs["on_event"])
+
+
+def test_codex_sync_result_error_is_credential_safe(fleet_dir, monkeypatch) -> None:
+    _add_codex_agent(fleet_dir)
+    hosts = json.loads((fleet_dir / "hosts.json").read_text())
+    hosts[0]["agents"]["codex-cli"]["installed_at"] = "2026-10-06T00:00:00Z"
+    (fleet_dir / "hosts.json").write_text(json.dumps(hosts))
+
+    class Result:
+        success = False
+        error = "access-test-token"
+
+    monkeypatch.setattr(
+        "clawrium.core.lifecycle_canonical.sync_agent_canonical",
+        lambda *_args, **_kwargs: Result(),
+    )
+    result = runner.invoke(app, ["agent", "sync", "codex-cli"])
+    assert result.exit_code != 0
+    assert "access-test-token" not in result.output
+    assert "credential activation failed; re-attach the codex-oauth provider" in result.output
+    assert "synced Codex private settings" not in result.output
+
+
+def test_codex_configure_exception_is_credential_safe(fleet_dir, monkeypatch) -> None:
+    _add_codex_agent(fleet_dir)
+    hosts = json.loads((fleet_dir / "hosts.json").read_text())
+    hosts[0]["agents"]["codex-cli"]["installed_at"] = "2026-10-06T00:00:00Z"
+    (fleet_dir / "hosts.json").write_text(json.dumps(hosts))
+    from clawrium.core.lifecycle import LifecycleError
+
+    class Backend:
+        @staticmethod
+        def configure_agent(**_kwargs):
+            raise LifecycleError("access-test-token")
+
+    monkeypatch.setattr("clawrium.cli.clawctl.agent.configure.resolve_lifecycle_backend", lambda _os: Backend())
+    result = runner.invoke(app, ["agent", "configure", "codex-cli"])
+    assert result.exit_code != 0
+    assert "access-test-token" not in result.output
+    assert "Codex settings configure failed" in result.output
+
+
+def test_codex_sync_exception_is_credential_safe(fleet_dir, monkeypatch) -> None:
+    _add_codex_agent(fleet_dir)
+    hosts = json.loads((fleet_dir / "hosts.json").read_text())
+    hosts[0]["agents"]["codex-cli"]["installed_at"] = "2026-10-06T00:00:00Z"
+    (fleet_dir / "hosts.json").write_text(json.dumps(hosts))
+    from clawrium.core.lifecycle_canonical import CanonicalSyncError
+
+    def sync(*_args, **_kwargs):
+        raise CanonicalSyncError("access-test-token")
+
+    monkeypatch.setattr("clawrium.core.lifecycle_canonical.sync_agent_canonical", sync)
+    result = runner.invoke(app, ["agent", "sync", "codex-cli"])
+    assert result.exit_code != 0
+    assert "access-test-token" not in result.output
+    assert "sync failed" in result.output
+
+
+def test_codex_configure_operational_failure_preserves_fixed_diagnostic(fleet_dir, monkeypatch) -> None:
+    _add_codex_agent(fleet_dir)
+    hosts = json.loads((fleet_dir / "hosts.json").read_text())
+    hosts[0]["agents"]["codex-cli"]["installed_at"] = "2026-10-06T00:00:00Z"
+    (fleet_dir / "hosts.json").write_text(json.dumps(hosts))
+
+    class Backend:
+        @staticmethod
+        def configure_agent(**_kwargs):
+            return False, "SSH key not found"
+
+    monkeypatch.setattr(
+        "clawrium.cli.clawctl.agent.configure.resolve_lifecycle_backend",
+        lambda _os_family: Backend(),
+    )
+    result = runner.invoke(app, ["agent", "configure", "codex-cli"])
+
+    assert result.exit_code != 0
+    assert "SSH key not found" in result.output
+
+
+def test_codex_configure_failure_is_credential_safe(fleet_dir, monkeypatch) -> None:
+    _add_codex_agent(fleet_dir)
+    hosts = json.loads((fleet_dir / "hosts.json").read_text())
+    hosts[0]["agents"]["codex-cli"]["installed_at"] = "2026-10-06T00:00:00Z"
+    (fleet_dir / "hosts.json").write_text(json.dumps(hosts))
+
+    class Backend:
+        @staticmethod
+        def configure_agent(**_kwargs):
+            return False, "activation rejected for access-test-token"
+
+    monkeypatch.setattr(
+        "clawrium.cli.clawctl.agent.configure.resolve_lifecycle_backend",
+        lambda _os_family: Backend(),
+    )
+    result = runner.invoke(app, ["agent", "configure", "codex-cli"])
+
+    assert result.exit_code != 0
+    assert "Codex settings configure failed" in result.output
+    assert "access-test-token" not in result.output
+
+
 def test_attach_imports_only_to_selected_codex_agent_and_reattaches(
     fleet_dir, stdin_not_tty, monkeypatch
 ):
@@ -84,6 +252,7 @@ def test_attach_imports_only_to_selected_codex_agent_and_reattaches(
     assert "access-test-token" not in result.output
     key = get_instance_key("10.0.0.1", "codex", "codex-cli")
     assert CODEX_OAUTH_DOCUMENT in get_instance_secrets(key)
+    assert get_instance_secrets(key)[CODEX_OAUTH_PENDING_ACTIVATION]["value"].startswith("pending:")
     other = get_instance_key("10.0.0.1", "codex", "codex-second")
     assert get_instance_secrets(other) == {}
     hosts = json.loads((fleet_dir / "hosts.json").read_text())
@@ -119,6 +288,7 @@ def test_attach_imports_only_to_selected_codex_agent_and_reattaches(
     )
     assert detached.exit_code == 0, detached.output
     assert CODEX_OAUTH_DOCUMENT not in get_instance_secrets(key)
+    assert CODEX_OAUTH_PENDING_ACTIVATION not in get_instance_secrets(key)
     assert get_instance_secrets(other) == {}
 
 
@@ -171,11 +341,26 @@ def test_initial_attach_never_selects_stale_credential_if_metadata_write_is_inte
     assert result.exit_code != 0
     hosts = json.loads((fleet_dir / "hosts.json").read_text())
     assert "providers" not in hosts[0]["agents"]["codex-cli"]
+    hosts[0]["agents"]["codex-cli"].update(
+        status="installed", installed_at="2026-10-06T00:00:00Z"
+    )
+    (fleet_dir / "hosts.json").write_text(json.dumps(hosts))
     # The compare-and-swap rollback restores the pre-existing unselected
     # snapshot; neither stale nor fresh auth is activated without metadata.
     assert json.loads(
         get_instance_secrets(key)[CODEX_OAUTH_DOCUMENT]["value"]
     ) == json.loads(stale_document)
+    assert CODEX_OAUTH_PENDING_ACTIVATION not in get_instance_secrets(key)
+
+    activation_calls: list[dict] = []
+    monkeypatch.setattr(
+        lifecycle,
+        "_configure_codex_credentials",
+        lambda **kwargs: activation_calls.append(kwargs) or (True, None),
+    )
+    sync_result = lifecycle.sync_agent("10.0.0.1", "codex", agent_name="codex-cli")
+    assert sync_result["success"] is True
+    assert activation_calls[0]["agent_key"] == "codex-cli"
 
 
 def test_metadata_failure_removes_new_document_without_prior_secret(
@@ -194,6 +379,7 @@ def test_metadata_failure_removes_new_document_without_prior_secret(
     assert result.exit_code != 0
     key = get_instance_key("10.0.0.1", "codex", "codex-cli")
     assert CODEX_OAUTH_DOCUMENT not in get_instance_secrets(key)
+    assert CODEX_OAUTH_PENDING_ACTIVATION not in get_instance_secrets(key)
 
 
 def test_attach_secret_transaction_failure_cannot_select_provider_when_error_handler_returns(

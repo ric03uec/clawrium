@@ -28,13 +28,18 @@ from clawrium.core.secrets import (
 
 __all__ = [
     "CODEX_OAUTH_DOCUMENT",
+    "CODEX_OAUTH_PENDING_ACTIVATION",
     "CodexCredentialError",
     "CodexCredentialState",
     "CodexOAuthCredentialReader",
     "CodexOAuthSourceError",
     "configure_codex_oauth",
+    "codex_oauth_activation_error_for_display",
+    "codex_oauth_activation_id",
+    "codex_oauth_activation_pending",
     "codex_oauth_operation_lock",
     "get_codex_oauth_document",
+    "mark_codex_oauth_activated",
     "get_codex_oauth_instance_key",
     "get_codex_credential_state",
     "import_codex_oauth_from_local_reader",
@@ -43,6 +48,20 @@ __all__ = [
 ]
 
 CODEX_OAUTH_DOCUMENT = "CODEX_OAUTH_DOCUMENT"
+# Set by provider attach (including an explicit re-attach).  Lifecycle consumes
+# this private marker only after a successful remote replacement, so routine
+# syncs leave a Codex-refreshed remote document alone.
+CODEX_OAUTH_PENDING_ACTIVATION = "CODEX_OAUTH_PENDING_ACTIVATION"
+_CODEX_OAUTH_REATTACH_MESSAGE = "credential activation failed; re-attach the codex-oauth provider"
+# These strings originate solely from the lifecycle's fixed failure categories.
+# Never display a backend/playbook exception that is not on this allowlist.
+_CODEX_SAFE_ACTIVATION_ERRORS = frozenset({
+    "Codex configuration does not accept extra variables",
+    "SSH key not found",
+    "Codex activation playbook did not complete successfully; inspect agent-host Ansible logs",
+    "Codex activation playbook is unavailable",
+    "Codex activation encountered an internal error",
+})
 _CODEX_HOME_ENVIRONMENT_VARIABLE = "CODEX_HOME"
 _CODEX_AUTH_FILENAME = "auth.json"
 _CODEX_AUTH_MAX_BYTES = 64 * 1024
@@ -257,6 +276,38 @@ def configure_codex_oauth(agent_name: str, *, document: object) -> CodexCredenti
         description="Codex OAuth credential document",
     )
     return CodexCredentialState(configured=True)
+
+
+def codex_oauth_activation_error_for_display(error: object) -> str:
+    """Return only a fixed, credential-safe Codex activation diagnostic."""
+    if isinstance(error, str) and (
+        error in _CODEX_SAFE_ACTIVATION_ERRORS
+        or error.startswith("Codex activation is interrupted; preserve the current auth. ")
+    ):
+        return error
+    return _CODEX_OAUTH_REATTACH_MESSAGE
+
+
+def codex_oauth_activation_id(agent_name: str) -> str | None:
+    """Return the durable, non-secret activation attempt identifier, if any."""
+    entries = get_instance_secrets(_resolve_codex_instance_key(agent_name))
+    entry = entries.get(CODEX_OAUTH_PENDING_ACTIVATION)
+    value = entry.get("value") if isinstance(entry, dict) else None
+    return value if isinstance(value, str) and value.startswith("pending:") else None
+
+
+def codex_oauth_activation_pending(agent_name: str) -> bool:
+    """Whether the selected snapshot must explicitly replace remote auth."""
+    return codex_oauth_activation_id(agent_name) is not None
+
+
+def mark_codex_oauth_activated(agent_name: str) -> None:
+    """Clear the replacement request after the remote activation succeeds."""
+    from clawrium.core.secrets import remove_instance_secret
+
+    remove_instance_secret(
+        _resolve_codex_instance_key(agent_name), CODEX_OAUTH_PENDING_ACTIVATION
+    )
 
 
 def get_codex_oauth_document(agent_name: str) -> str:

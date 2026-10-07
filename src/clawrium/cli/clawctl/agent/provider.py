@@ -22,6 +22,7 @@ non-secret attachment and its OAuth token stays in per-instance secrets.
 from __future__ import annotations
 
 import json
+import uuid
 from typing import Optional
 
 import typer
@@ -45,6 +46,7 @@ from clawrium.core.claude_credentials import (
 )
 from clawrium.core.codex_credentials import (
     CODEX_OAUTH_DOCUMENT,
+    CODEX_OAUTH_PENDING_ACTIVATION,
     CodexCredentialError,
     codex_oauth_operation_lock,
     get_codex_oauth_instance_key,
@@ -439,6 +441,21 @@ def _reconcile_codex_oauth_transaction(
             _restore_document_if_operation_matches(
                 secret_key, previous_document, document
             )
+            # A replacement marker only authorizes activation for a selected
+            # attachment. The same durable write installed it alongside this
+            # attach transaction, so an unselected rollback must remove it
+            # before a later sync can mistake the rolled-back import for an
+            # explicit activation request.
+            activation = get_instance_secrets(secret_key).get(
+                CODEX_OAUTH_PENDING_ACTIVATION
+            )
+            activation_value = (
+                activation.get("value") if isinstance(activation, dict) else None
+            )
+            if isinstance(activation_value, str):
+                remove_instance_secret_if_matches(
+                    secret_key, CODEX_OAUTH_PENDING_ACTIVATION, activation_value
+                )
     elif selected:
         if previous_document is not None:
             restore_instance_secret_if_absent(
@@ -496,10 +513,15 @@ def _attach_codex_oauth_provider_locked(
     try:
         replace_instance_secrets(
             secret_key,
-            {CODEX_OAUTH_PENDING_TRANSACTION: transaction, CODEX_OAUTH_DOCUMENT: document},
+            {
+                CODEX_OAUTH_PENDING_TRANSACTION: transaction,
+                CODEX_OAUTH_DOCUMENT: document,
+                CODEX_OAUTH_PENDING_ACTIVATION: f"pending:{uuid.uuid4().hex}",
+            },
             descriptions={
                 CODEX_OAUTH_PENDING_TRANSACTION: "Codex OAuth operation journal",
                 CODEX_OAUTH_DOCUMENT: "Codex OAuth credential document",
+                CODEX_OAUTH_PENDING_ACTIVATION: "Codex OAuth activation request",
             },
         )
     except Exception:
@@ -714,7 +736,11 @@ def _detach_codex_oauth_provider(*, agent: str, name: str) -> None:
         try:
             replace_instance_secrets(
                 secret_key,
-                {CODEX_OAUTH_PENDING_TRANSACTION: transaction, CODEX_OAUTH_DOCUMENT: None},
+                {
+                    CODEX_OAUTH_PENDING_TRANSACTION: transaction,
+                    CODEX_OAUTH_DOCUMENT: None,
+                    CODEX_OAUTH_PENDING_ACTIVATION: None,
+                },
                 descriptions={CODEX_OAUTH_PENDING_TRANSACTION: "Codex OAuth operation journal"},
             )
         except Exception:

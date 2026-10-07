@@ -18,11 +18,14 @@ cut. The `itx-release` skill archives this section into a new
 
 - Add the daemonless, dedicated-account Codex CLI agent with pinned native command execution on supported Ubuntu and macOS hosts (#1034).
 - Add selection-only `codex-oauth` providers that safely import a local file-backed Codex ChatGPT login into the chosen Codex agent's encrypted secrets (#1035).
+- Activate Codex OAuth credentials privately on configure and sync while preserving tokens refreshed on the remote agent; re-attaching explicitly replaces remote credentials (#1036).
 
 ### Changed
 
 ### Fixed
 
 ### Documentation
+
+- Document fail-closed recovery steps for an interrupted Codex OAuth activation without exposing native auth credentials (#1036).
 
 ### Internal

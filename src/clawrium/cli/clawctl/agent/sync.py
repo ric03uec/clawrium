@@ -323,7 +323,7 @@ def sync(
     if not has_daemon_lifecycle(agent_type):
         if not has_completed_install(claw_record):
             emit_error(incomplete_install_message(agent_type, "sync"))
-        if agent_type != "claude":
+        if agent_type not in {"claude", "codex"}:
             stream_action(
                 resource=f"agent/{name}",
                 message=(
@@ -346,40 +346,51 @@ def sync(
 
         on_host_name = claw_record.get("agent_name") or agent_key
 
-        def claude_event(stage_evt: str, message: str) -> None:
+        def native_cli_event(stage_evt: str, message: str) -> None:
             stream_action(resource=f"agent/{name}", message=f"[{stage_evt}] {message}")
 
         try:
             result = sync_agent_canonical(
                 on_host_name,
+                **({"agent_key": agent_key} if agent_type == "codex" else {}),
                 restart=False,
                 verify=False,
                 push_workspace=False,
                 workspace_only=workspace_only,
                 dry_run=dry_run,
-                on_event=claude_event,
+                on_event=native_cli_event,
             )
         except CanonicalSyncError as exc:
+            detail = str(exc)
+            if agent_type == "codex":
+                from clawrium.core.codex_credentials import codex_oauth_activation_error_for_display
+
+                detail = codex_oauth_activation_error_for_display(detail)
             emit_error(
-                f"agent {name!r} on host {host['hostname']!r}: sync failed: {exc}"
+                f"agent {name!r} on host {host['hostname']!r}: sync failed: {detail}"
             )
         if not result.success:
+            detail = result.error or "unknown error"
+            if agent_type == "codex":
+                from clawrium.core.codex_credentials import codex_oauth_activation_error_for_display
+
+                detail = codex_oauth_activation_error_for_display(detail)
             emit_error(
-                f"agent {name!r} on host {host['hostname']!r}: sync failed: "
-                f"{result.error or 'unknown error'}"
+                f"agent {name!r} on host {host['hostname']!r}: sync failed: {detail}"
             )
         if dry_run:
             stream_action(
                 resource=f"agent/{name}", message="dry-run complete; no changes pushed"
             )
             return
-        stream_action(
-            resource=f"agent/{name}",
-            message=(
-                f"synced Claude global settings ({len(result.files_written)} written, "
-                f"{len(result.files_unchanged)} unchanged); no daemon restart"
-            ),
+        summary = (
+            f"synced Claude global settings ({len(result.files_written)} written, "
+            f"{len(result.files_unchanged)} unchanged); no daemon restart"
+            if agent_type == "claude"
+            else f"synced Codex private settings ({len(result.files_written)} written, "
+            f"{len(result.files_unchanged)} unchanged); no daemon restart"
         )
+        stream_action(resource=f"agent/{name}", message=summary)
         return
 
     # F8 (parent #555): `--diff` implies `--dry-run`. Promote here so
@@ -611,6 +622,7 @@ def sync(
     try:
         canonical_result = sync_agent_canonical(
             on_host_name,
+            **({"agent_key": agent_key} if agent_type == "codex" else {}),
             force=False,
             restart=not (no_restart or workspace_only),
             verify=not (no_restart or workspace_only),
