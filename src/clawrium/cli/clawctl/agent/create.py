@@ -38,7 +38,7 @@ def create(
         None,
         "--type",
         "-t",
-        help="Agent type (e.g., openclaw, zeroclaw, hermes, claude, pi; Claude and Pi are install-only).",
+        help="Agent type (e.g., openclaw, zeroclaw, hermes, claude, codex, pi; Claude, Codex, and Pi are install-only)."
     ),
     host: Optional[str] = typer.Option(
         None, "--host", "-H", help="Target host (name or alias)."

@@ -177,3 +177,32 @@ def test_pi_exec_playbook_task_flow_never_emits_raw_output(filename: str) -> Non
     assert "pi_exec.stderr" not in source
     assert 'case "$mode" in inference)' in source
     assert "diagnostic) ;;" in source
+
+
+@pytest.mark.parametrize("filename", PLAYBOOKS)
+def test_pi_exec_uses_process_group_timeout_wrapper(filename: str) -> None:
+    """Both platform playbooks kill the complete Pi process group at deadline."""
+    playbook = _playbook(filename)
+    wrapper = playbook["vars"]["pi_exec_timeout_wrapper"]
+    completed = subprocess.run(
+        [
+            "/usr/bin/perl",
+            "-e",
+            wrapper,
+            "1",
+            "/bin/sh",
+            "-c",
+            "sleep 30",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=5,
+    )
+    assert completed.returncode == 124
+    validate = _task(playbook, "Validate Pi exec argv and timeout")
+    assert "pi_exec_timeout" in validate["when"]
+    run = _task(playbook, "Run encrypted Pi native command")
+    argv = run["ansible.builtin.command"]["argv"]
+    assert "pi_exec_mode" in argv
+    assert "pi_exec_timeout_wrapper" in argv
+    assert "pi_exec_timeout | string" in argv

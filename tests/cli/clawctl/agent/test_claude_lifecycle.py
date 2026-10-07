@@ -76,20 +76,20 @@ def test_claude_help_and_exec_use_the_native_dedicated_binary(
     assert help_result.exit_code == 0
     normalized_help = " ".join(help_result.output.split())
     for text in (
-        "create Install an agent on a host (Claude and Pi are install-only).",
-        "start Start a daemon-backed agent (not Claude Code or Pi).",
-        "stop Stop a daemon-backed agent (not Claude Code or Pi).",
-        "restart Restart a daemon-backed agent (not Claude Code or Pi).",
-        "logs Logs for daemon-backed agents (not Claude or Pi).",
+        "create Install agent (Claude Code, Codex, and Pi are CLI-only).",
+        "start Start daemon agent (not CLI-only agents).",
+        "stop Stop daemon agent (not CLI-only agents).",
+        "restart Restart daemon agent (not CLI-only agents).",
+        "logs Stream agent logs (not CLI-only agents).",
         "chat Chat with a chat-enabled agent.",
-        "open Open a native web UI (not available for Claude Code or Pi).",
+        "open Open native UI (not available for CLI-only agents).",
     ):
         assert text in normalized_help
     assert create_help_result.exit_code == 0
     assert shell_help_result.exit_code == 0
     assert exec_help_result.exit_code == 0
     assert (
-        "Agent type (e.g., openclaw, zeroclaw, hermes, claude, pi; Claude and Pi are install-only)."
+        "Agent type (e.g., openclaw, zeroclaw, hermes, claude, codex, pi; Claude, Codex, and Pi are install-only)."
         in " ".join(create_help_result.output.split())
     )
     assert "Execute a native CLI command on the agent host." in " ".join(

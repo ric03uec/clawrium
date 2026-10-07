@@ -92,6 +92,8 @@ def test_pi_darwin_exec_selects_macos_playbook_and_decodes_success(
     )
     assert captured["inventory"]["all"]["vars"]["agent_name"] == "pi-one"
     assert captured["inventory"]["all"]["vars"]["cmd_argv"] == ["--version"]
+    assert captured["inventory"]["all"]["vars"]["pi_exec_timeout"] == 120
+    assert captured["timeout"] == 150
     assert "BEGIN CERTIFICATE" in captured["inventory"]["all"]["vars"][
         "pi_exec_recipient_certificate"
     ]

@@ -50,7 +50,14 @@ def test_resolve_ignores_unexpected_stored_value():
 
 
 def test_resolve_returns_none_for_non_local_providers():
-    for t in ("openai", "anthropic", "bedrock", "openrouter", "opencode", "opencode-go"):
+    for t in (
+        "openai",
+        "anthropic",
+        "bedrock",
+        "openrouter",
+        "opencode",
+        "opencode-go",
+    ):
         assert _resolve_accelerator_vendor({"name": "p", "type": t}) is None
 
 
@@ -329,7 +336,7 @@ def test_provider_types_returns_rich_model_metadata():
     result = asyncio.run(providers_mod.provider_types())
     types = result["types"]
 
-    # All eleven provider types are present
+    # All twelve provider types are present
     assert set(types.keys()) == {
         "openai",
         "anthropic",
@@ -342,6 +349,7 @@ def test_provider_types_returns_rich_model_metadata():
         "ollama",
         "litellm",
         "claude-oauth",
+        "codex-oauth",
     }
 
     # Cloud providers carry catalog-shaped models
@@ -363,6 +371,8 @@ def test_provider_types_returns_rich_model_metadata():
     # the selected Claude agent rather than the provider registry.
     assert types["claude-oauth"]["models"] == []
     assert types["claude-oauth"]["requires_api_key"] is False
+    assert types["codex-oauth"]["models"] == []
+    assert types["codex-oauth"]["requires_api_key"] is False
 
 
 # ─── bedrock branch (issue #694) ────────────────────────────────────

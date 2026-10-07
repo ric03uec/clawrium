@@ -10,6 +10,8 @@
     # Native output is encrypted to this per-run controller certificate before
     # it enters any Ansible event. The matching private key never leaves the
     # controller's mode-0700 runner directory.
+    pi_exec_timeout_wrapper: >-
+      use POSIX qw(setsid); my $timeout = shift @ARGV; my $pid = fork(); die "could not fork Pi" unless defined $pid; if ($pid == 0) { setsid() or die "could not create Pi session"; exec @ARGV; die "could not exec Pi"; } $SIG{ALRM} = sub { kill 'KILL', -$pid; waitpid($pid, 0); exit 124; }; alarm($timeout); waitpid($pid, 0); alarm(0); my $status = $?; exit($status & 127 ? 128 + ($status & 127) : $status >> 8);
     pi_exec_capture_bootstrap: >-
       PATH=/usr/bin:/bin; export PATH; umask 077; tmpdir="$(/usr/bin/mktemp -d "${TMPDIR:-/tmp}/clawrium-pi-exec.XXXXXX")" || exit 125; trap '/bin/rm -rf "$tmpdir"' EXIT HUP INT TERM; program=$1; recipient_certificate=$2; mode=$3; shift 3; unset OPENROUTER_API_KEY; printf '%s\n' "$recipient_certificate" > "$tmpdir/recipient.pem" || exit 125; case "$mode" in inference) line=$(/usr/bin/cat "$HOME/.pi/agent/clawrium-openrouter.env") || exit 126; case "$line" in OPENROUTER_API_KEY=*) OPENROUTER_API_KEY=${line#OPENROUTER_API_KEY=} ;; *) exit 126 ;; esac; export OPENROUTER_API_KEY ;; diagnostic) ;; *) exit 125 ;; esac; "$@" >"$tmpdir/stdout" 2>"$tmpdir/stderr"; rc=$?; set -o pipefail; /usr/bin/perl -e "$program" "$tmpdir/stdout" "$tmpdir/stderr" "$rc" | /usr/bin/openssl cms -encrypt -binary -outform DER -aes-256-cbc -recip "$tmpdir/recipient.pem" | /usr/bin/base64 | /usr/bin/tr -d '\n'
     pi_exec_capture_program: >-
@@ -21,6 +23,15 @@
     - name: Validate Pi agent name
       ansible.builtin.fail: { msg: "Invalid agent_name" }
       when: agent_name is not match('^[a-z][a-z0-9_-]{0,31}$')
+    - name: Validate Pi exec argv and timeout
+      ansible.builtin.fail:
+        msg: "Pi exec requires a non-empty string argv and a timeout from 1 to 120 seconds"
+      when: >-
+        (cmd_argv is not defined) or (cmd_argv is string) or (cmd_argv | length == 0)
+        or (cmd_argv | reject('string') | list | length > 0)
+        or (cmd_argv | select('equalto', '') | list | length > 0)
+        or (pi_exec_timeout is not defined) or (pi_exec_timeout | int < 1)
+        or (pi_exec_timeout | int > 120)
     - name: Read dedicated Pi account UID
       ansible.builtin.shell: "PATH=/usr/bin:/bin; export PATH; /usr/bin/dscl . -read /Users/{{ agent_name | quote }} UniqueID 2>/dev/null | /usr/bin/awk '/UniqueID:/{print $2}'"
       args: { executable: /bin/bash }
@@ -68,7 +79,7 @@
     - name: Run encrypted Pi native command
       ansible.builtin.command:
         expand_argument_vars: false
-        argv: "{{ ['/bin/bash', '-c', pi_exec_capture_bootstrap, 'clawrium-pi-exec', pi_exec_capture_program, pi_exec_recipient_certificate, pi_exec_mode, pi_binary] + cmd_argv }}"
+        argv: "{{ ['/bin/bash', '-c', pi_exec_capture_bootstrap, 'clawrium-pi-exec', pi_exec_capture_program, pi_exec_recipient_certificate, pi_exec_mode, '/usr/bin/perl', '-e', pi_exec_timeout_wrapper, pi_exec_timeout | string, pi_binary] + cmd_argv }}"
         chdir: "{{ pi_home }}"
         stdin: "{{ pi_exec_prompt_b64 | default('') | b64decode }}"
         stdin_add_newline: false

@@ -1,0 +1,133 @@
+---
+# Darwin counterpart; resolver owns OS dispatch.
+- hosts: all
+  become: yes
+  tasks:
+    - name: Refuse to run on non-Darwin hosts (dispatcher contract)
+      ansible.builtin.fail:
+        msg: configure_macos.yaml invoked against a non-Darwin host
+      when: ansible_os_family != "Darwin"
+
+    - name: Validate agent_name
+      ansible.builtin.fail:
+        msg: Invalid agent_name
+      when: agent_name is not match('^[a-z][a-z0-9_-]{0,31}$')
+
+    - name: Validate private Codex OAuth document
+      ansible.builtin.assert:
+        that:
+          - codex_oauth_credentials is string
+          - codex_oauth_credentials | length > 0
+          - codex_activation_fingerprint is match('^[0-9a-f]{64}$')
+          - not codex_replace_auth or codex_activation_id is match('^pending:[0-9a-f]{32}$')
+      no_log: true
+
+    # All filesystem operations below run as the dedicated agent. Its home is
+    # agent-controlled, so root must not follow paths the agent can replace.
+    - name: Create private Codex home as the dedicated agent
+      become_user: "{{ agent_name }}"
+      ansible.builtin.file:
+        path: "/Users/{{ agent_name }}/.codex"
+        state: directory
+        mode: "0700"
+
+    - name: Validate existing native Codex auth document without following links
+      become_user: "{{ agent_name }}"
+      ansible.builtin.command:
+        argv:
+          - "{{ ansible_python.executable }}"
+          - -c
+          - >-
+            import json,os,stat,sys; fd=os.open(sys.argv[1], os.O_RDONLY | os.O_NOFOLLOW);
+            s=os.fstat(fd); assert stat.S_ISREG(s.st_mode); d=json.load(os.fdopen(fd)); t=d['tokens'];
+            assert d['auth_mode'] == 'chatgpt' and all(isinstance(t[k], str) and t[k].strip() for k in ('access_token', 'refresh_token', 'id_token'))
+          - "/Users/{{ agent_name }}/.codex/auth.json"
+      register: codex_remote_auth_valid
+      changed_when: false
+      failed_when: false
+      no_log: true
+
+    - name: Read prior private Codex activation receipt
+      become_user: "{{ agent_name }}"
+      ansible.builtin.slurp:
+        src: "/Users/{{ agent_name }}/.codex/.clawrium-oauth-fingerprint"
+      register: codex_activation_receipt
+      failed_when: false
+      changed_when: false
+      no_log: true
+      when: codex_replace_auth
+
+    - name: Determine Codex activation receipt state
+      ansible.builtin.set_fact:
+        codex_replacement_already_applied: >-
+          {{ (codex_activation_receipt.content | default('') | b64decode | trim) == 'complete:' ~ codex_activation_id ~ ':' ~ codex_activation_fingerprint }}
+        codex_replacement_interrupted: >-
+          {{ (codex_activation_receipt.content | default('') | b64decode | trim) is match('^pending:[0-9a-f]{32}$') }}
+      no_log: true
+
+    # A pending receipt deliberately proves nothing: interruption can occur
+    # either side of the independent auth.json write, and Codex may refresh
+    # that document in place. Only a completed receipt, written after the
+    # atomic auth write, authorizes local marker cleanup. Retrying an
+    # interrupted activation therefore requires explicit operator recovery.
+    # A new attachment ID cannot bypass this guard: it might overwrite a
+    # credential Codex refreshed after the interrupted write. After checking
+    # the on-host auth document, the operator must remove this non-secret
+    # receipt before intentionally re-attaching.
+    - name: Refuse interrupted Codex activation without a committed receipt
+      ansible.builtin.fail:
+        msg: Interrupted Codex activation requires operator recovery before re-attach
+      when: codex_replace_auth and codex_replacement_interrupted | default(false)
+
+    - name: Record pending Codex OAuth activation privately
+      become_user: "{{ agent_name }}"
+      ansible.builtin.copy:
+        content: "{{ codex_activation_id }}\n"
+        dest: "/Users/{{ agent_name }}/.codex/.clawrium-oauth-fingerprint"
+        mode: "0600"
+        unsafe_writes: false
+        follow: false
+      no_log: true
+      diff: false
+      when: >-
+        codex_replace_auth and not (codex_replacement_already_applied | default(false)) and
+        not (codex_replacement_interrupted | default(false))
+
+    - name: Atomically activate selected Codex OAuth document
+      become_user: "{{ agent_name }}"
+      ansible.builtin.copy:
+        content: "{{ codex_oauth_credentials }}"
+        dest: "/Users/{{ agent_name }}/.codex/auth.json"
+        mode: "0600"
+        unsafe_writes: false
+        follow: false
+      no_log: true
+      diff: false
+      when: >-
+        (codex_remote_auth_valid.rc | default(1)) != 0 or
+        (codex_replace_auth and not (codex_replacement_already_applied | default(false)) and
+         not (codex_replacement_interrupted | default(false)))
+
+    - name: Record completed Codex OAuth activation privately
+      become_user: "{{ agent_name }}"
+      ansible.builtin.copy:
+        content: "complete:{{ codex_activation_id }}:{{ codex_activation_fingerprint }}\n"
+        dest: "/Users/{{ agent_name }}/.codex/.clawrium-oauth-fingerprint"
+        mode: "0600"
+        unsafe_writes: false
+        follow: false
+      no_log: true
+      diff: false
+      when: >-
+        codex_replace_auth and not (codex_replacement_already_applied | default(false)) and
+        not (codex_replacement_interrupted | default(false))
+
+    - name: Enforce native Codex auth permissions when preserved
+      become_user: "{{ agent_name }}"
+      ansible.builtin.file:
+        path: "/Users/{{ agent_name }}/.codex/auth.json"
+        mode: "0600"
+        follow: false
+      no_log: true
+      when: >-
+        not codex_replace_auth and (codex_remote_auth_valid.rc | default(1)) == 0

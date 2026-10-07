@@ -1,0 +1,242 @@
+---
+# Install-only Codex CLI boundary. The package is installed into a prefix
+# owned by a Clawrium-created account; no shared npm prefix is touched.
+- hosts: all
+  become: yes
+  vars:
+    codex_package_name: "@openai/codex"
+    codex_default_version: "0.160.1"
+    codex_home: "/home/{{ agent_name }}"
+    codex_prefix: "{{ codex_home }}/.local/codex"
+    codex_package_metadata: "{{ codex_prefix }}/lib/node_modules/@openai/codex/package.json"
+    codex_install_state: "{{ codex_prefix }}/.clawrium-install-state.json"
+    codex_ownership_dir: "/var/lib/clawrium/codex"
+    codex_ownership_marker: "{{ codex_ownership_dir }}/{{ agent_name }}.json"
+  tasks:
+    - name: Validate agent_name (defense-in-depth)
+      ansible.builtin.fail:
+        msg: "Invalid agent_name"
+      when: agent_name is not match('^[a-z][a-z0-9_-]{0,31}$')
+
+    - name: Normalize target Codex CLI package version
+      ansible.builtin.set_fact:
+        codex_package_version: "{{ (claw_version | default('v' ~ codex_default_version)) | regex_replace('^v', '') }}"
+
+    - name: Reject non-immutable Codex CLI package version
+      ansible.builtin.fail:
+        msg: "Codex CLI version must be an immutable semantic version"
+      when: codex_package_version is not match('^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$')
+
+    - name: Check whether dedicated Codex CLI account exists
+      ansible.builtin.command:
+        argv:
+          - getent
+          - passwd
+          - "{{ agent_name }}"
+      register: codex_agent_account
+      changed_when: false
+      failed_when: false
+
+    - name: Check Codex CLI account ownership marker
+      ansible.builtin.stat:
+        path: "{{ codex_ownership_marker }}"
+      register: codex_ownership_marker_stat
+
+    - name: Check Codex CLI ownership marker directory
+      ansible.builtin.stat:
+        path: "{{ codex_ownership_dir }}"
+      register: codex_ownership_dir_stat
+      when: codex_ownership_marker_stat.stat.exists
+
+    - name: Verify trusted Codex CLI ownership marker permissions
+      ansible.builtin.assert:
+        that:
+          - codex_ownership_dir_stat.stat.pw_name == "root"
+          - codex_ownership_dir_stat.stat.gr_name == "root"
+          - codex_ownership_dir_stat.stat.mode == "0700"
+          - codex_ownership_marker_stat.stat.pw_name == "root"
+          - codex_ownership_marker_stat.stat.gr_name == "root"
+          - codex_ownership_marker_stat.stat.mode == "0600"
+        fail_msg: "Refusing to trust an ownership marker that is not root-owned and private."
+      when: codex_ownership_marker_stat.stat.exists
+
+    - name: Read Codex CLI account ownership marker
+      ansible.builtin.slurp:
+        src: "{{ codex_ownership_marker }}"
+      register: codex_ownership_marker_content
+      when: codex_ownership_marker_stat.stat.exists
+
+    - name: Parse Codex CLI account ownership marker
+      ansible.builtin.set_fact:
+        codex_ownership: >-
+          {{ codex_ownership_marker_content.content | b64decode | from_json }}
+      when: codex_ownership_marker_stat.stat.exists
+
+    - name: Refuse unmanaged or incomplete dedicated Codex CLI account
+      ansible.builtin.fail:
+        msg: >-
+          Refusing to use {{ agent_name }}: an existing account must have a
+          matching root-owned Codex CLI ownership marker, and a marker must
+          never exist without its dedicated account.
+      when: >-
+        (codex_agent_account.rc == 0) !=
+        (codex_ownership_marker_stat.stat.exists | bool)
+
+    - name: Verify existing Codex CLI account ownership
+      ansible.builtin.assert:
+        that:
+          - codex_ownership.agent_name == agent_name
+          - (codex_ownership.uid | string) == (codex_agent_account.stdout.split(':')[2] | string)
+          - codex_ownership.home == codex_home
+        fail_msg: "Refusing to use {{ agent_name }} because its ownership marker does not match the account."
+      when: codex_ownership_marker_stat.stat.exists
+
+    - name: Create dedicated Codex CLI agent account
+      ansible.builtin.user:
+        name: "{{ agent_name }}"
+        state: present
+        create_home: yes
+        shell: /bin/bash
+      when: codex_agent_account.rc != 0
+
+    - name: Read dedicated Codex CLI account UID
+      ansible.builtin.command:
+        argv:
+          - id
+          - -u
+          - "{{ agent_name }}"
+      register: codex_agent_uid
+      changed_when: false
+
+    - name: Create Codex CLI ownership marker directory
+      ansible.builtin.file:
+        path: "{{ codex_ownership_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0700"
+      when: codex_agent_account.rc != 0
+
+    - name: Record dedicated Codex CLI account ownership
+      ansible.builtin.copy:
+        dest: "{{ codex_ownership_marker }}"
+        content: |
+          {
+            "schema": 1,
+            "agent_name": "{{ agent_name }}",
+            "uid": {{ codex_agent_uid.stdout | trim }},
+            "home": "{{ codex_home }}"
+          }
+        owner: root
+        group: root
+        mode: "0600"
+      when: codex_agent_account.rc != 0
+
+    - name: Create owned Codex CLI install prefix
+      ansible.builtin.file:
+        path: "{{ codex_prefix }}"
+        state: directory
+        owner: "{{ agent_name }}"
+        group: "{{ agent_name }}"
+        mode: "0755"
+
+    - name: Check installed Codex CLI package metadata
+      ansible.builtin.stat:
+        path: "{{ codex_package_metadata }}"
+      register: codex_package_metadata_stat
+
+    - name: Read installed Codex CLI package metadata
+      ansible.builtin.slurp:
+        src: "{{ codex_package_metadata }}"
+      register: codex_package_metadata_content
+      when: codex_package_metadata_stat.stat.exists
+
+    - name: Determine whether installed package metadata matches the pin
+      ansible.builtin.set_fact:
+        codex_package_at_target: >-
+          {{
+            (codex_package_metadata_stat.stat.exists | bool)
+            and (codex_package_metadata_content.content is defined)
+            and (
+              (codex_package_metadata_content.content | b64decode
+              | regex_search('"version"\\s*:\\s*"' ~ codex_package_version ~ '"'))
+              is not none
+            )
+          }}
+
+    - name: Set install skip condition
+      ansible.builtin.set_fact:
+        codex_already_installed: >-
+          {{
+            (codex_package_at_target | bool)
+            and not (force_install | default(false) | bool)
+          }}
+
+    - name: Mark install as skipped when already installed
+      ansible.builtin.debug:
+        msg: "Codex CLI package v{{ codex_package_version }} is already installed in the dedicated prefix."
+      when: codex_already_installed | bool
+
+    - name: Install pinned Codex CLI package into owned prefix
+      ansible.builtin.command:
+        argv:
+          - npm
+          - install
+          - --global
+          - --prefix
+          - "{{ codex_prefix }}"
+          - --ignore-scripts
+          - --no-audit
+          - --no-fund
+          - "{{ codex_package_name }}@{{ codex_package_version }}"
+      become_user: "{{ agent_name }}"
+      environment:
+        HOME: "{{ codex_home }}"
+      when: not (codex_already_installed | bool)
+
+    - name: Record installed Codex CLI package state
+      ansible.builtin.copy:
+        dest: "{{ codex_install_state }}"
+        content: |
+          {
+            "schema": 1,
+            "package": "{{ codex_package_name }}",
+            "version": "{{ codex_package_version }}"
+          }
+        owner: "{{ agent_name }}"
+        group: "{{ agent_name }}"
+        mode: "0600"
+
+    - name: Ensure dedicated Codex CLI agent .bashrc exists
+      ansible.builtin.copy:
+        dest: "{{ codex_home }}/.bashrc"
+        content: ""
+        force: false
+        owner: "{{ agent_name }}"
+        group: "{{ agent_name }}"
+        mode: "0644"
+
+    # Prepend the managed block at the beginning of ~/.bashrc so Ubuntu's
+    # default early-return guard (``[ -z "$PS1" ] && return`` / ``case $-
+    # in *i*) ... *) return;; esac``) cannot skip the PATH export in a
+    # non-interactive ``agent shell`` session. ``insertbefore: BOF``
+    # places the managed block at BOF the first time the markers are
+    # absent; the ``# BEGIN``/``# END`` marker makes subsequent runs
+    # idempotent (same block content → no change). #1021 is explicitly
+    # scoped to new agents; migrating existing marked blocks installed
+    # at EOF in prior runs is out of scope here. Operators upgrading
+    # from the pre-fix layout should remove the stale block manually
+    # (``clawctl agent shell <name> -- sed -i '/CLAWRIUM-CODEX-MANAGED/,
+    # /CLAWRIUM-CODEX-MANAGED/d' ~/.bashrc``) before re-running
+    # install, or recreate the agent.
+    - name: Expose Codex CLI binary on PATH and disable upstream auto-updater
+      ansible.builtin.blockinfile:
+        path: "{{ codex_home }}/.bashrc"
+        marker: "# {mark} CLAWRIUM-CODEX-MANAGED"
+        insertbefore: BOF
+        block: |
+          export PATH="{{ codex_prefix }}/bin:$PATH"
+          export CODEX_DISABLE_AUTO_UPDATE=1
+        owner: "{{ agent_name }}"
+        group: "{{ agent_name }}"
+        mode: "0644"
