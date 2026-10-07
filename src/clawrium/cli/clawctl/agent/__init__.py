@@ -65,7 +65,10 @@ agent_app.command(name="delete", help="Delete an agent.")(_delete.delete)
 agent_app.command(name="edit", help="Edit an agent record in $EDITOR.")(_edit.edit)
 agent_app.command(
     name="configure",
-    help="Configure an agent (daemonless CLIs manage no runtime service).",
+    help=(
+        "Configure an agent (Pi provider configuration is unavailable; "
+        "daemonless CLIs manage no runtime service)."
+    ),
 )(_configure.configure)
 agent_app.command(name="start", help="Start daemon agent (not CLI-only agents).")(
     _start.start
@@ -81,7 +84,10 @@ agent_app.command(
 )(_restart.restart)
 agent_app.command(
     name="sync",
-    help="Sync local state (Pi provider provisioning is unsupported; daemonless CLIs do not restart).",
+    help=(
+        "Sync local state (Pi provider provisioning and sync are unsupported; "
+        "daemonless CLIs do not restart)."
+    ),
 )(_sync.sync)
 agent_app.command(
     name="upgrade",

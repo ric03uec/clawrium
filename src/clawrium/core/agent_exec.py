@@ -455,6 +455,10 @@ def run_agent_exec(
         # credential contents: native auth is private agent-home state on the
         # host.
         extra_vars[f"{claw_type}_exec_timeout"] = effective_timeout
+    elif claw_type == "pi":
+        # Keep the playbook contract explicit: both Pi OS variants validate
+        # this exact extra var before their process-group timeout wrapper runs.
+        extra_vars["pi_exec_timeout"] = effective_timeout
 
     try:
         inventory = _build_inventory(host, ssh_key, extra_vars)
@@ -503,7 +507,7 @@ def run_agent_exec(
             quiet=True,
             timeout=(
                 effective_timeout + _NATIVE_CLI_RUNNER_GRACE_SECONDS
-                if claw_type in {"claude", "codex"}
+                if claw_type in {"claude", "codex", "pi"}
                 else effective_timeout
             ),
         )
