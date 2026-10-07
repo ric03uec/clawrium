@@ -1,0 +1,14 @@
+{
+  "session_id": "b8240f1c-dac7-4e00-bcb5-d346ebc50d14",
+  "review_id": "rev-746209f0-1a6d-4cf5-99c3-fe5f2870ff15",
+  "transport": "cli",
+  "commit_sha": "accf3b07b04398e0fb2a29d6900ff4b5cb56d1d2",
+  "iteration": 3,
+  "last_rating": 2,
+  "last_blockers": [
+    "Rendered leader review: sync must parse non-secret STS identity and reject an account different from sso_account_id or an assumed role different from sso_role_name.",
+    "Live Bedrock model-entitlement validation remains externally blocked by absent operator SSO profile, account/role entitlement, model entitlement, and wolf-i AWS CLI v2."
+  ],
+  "started_at": "2026-10-06T17:49:50-07:00",
+  "updated_at": "2026-10-06T17:52:32-07:00"
+}

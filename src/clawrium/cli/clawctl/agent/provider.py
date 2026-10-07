@@ -75,7 +75,7 @@ from clawrium.core.providers.storage import (
     ProvidersFileCorruptedError,
     get_provider,
 )
-from clawrium.core.pi import PiProvisioningError, validate_openrouter_provider
+from clawrium.core.pi import PiProvisioningError, validate_pi_provider
 
 __all__ = ["provider_app"]
 
@@ -591,11 +591,11 @@ def attach(
     agent_type = _agent_type(claw)
     if agent_type == "pi":
         try:
-            validate_openrouter_provider(provider_record)
+            validate_pi_provider(provider_record)
         except PiProvisioningError as exc:
             emit_error(
                 str(exc),
-                hint="select an OpenRouter provider with a supported default model",
+                hint="select an OpenRouter or AWS SSO-backed Bedrock provider with a supported default model",
             )
     if (
         provider_record.get("type") == CLAUDE_OAUTH_PROVIDER_TYPE

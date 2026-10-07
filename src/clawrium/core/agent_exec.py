@@ -403,11 +403,11 @@ def _prepare_pi_exec(
             "`--print <prompt>`; use `clawctl agent chat` for sessions"
         )
 
-    # Provider-specific fixed argv belongs here. #1039 must add its Bedrock
-    # branch (and any distinct remote credential mode) explicitly; accepting
-    # caller-supplied provider/model flags would reopen this credential boundary.
+    # Provider-specific fixed argv belongs here. Selecting the provider/model
+    # from the attached registry record, rather than caller argv, preserves the
+    # credential boundary for both OpenRouter and AWS SSO-backed Bedrock.
     from clawrium.core.hosts import get_agent_by_name
-    from clawrium.core.pi import PiProvisioningError, validate_openrouter_provider
+    from clawrium.core.pi import PiProvisioningError, validate_pi_provider
     from clawrium.core.providers.storage import get_provider
 
     resolved = get_agent_by_name(agent_name)
@@ -423,18 +423,18 @@ def _prepare_pi_exec(
         or not isinstance(providers[0], str)
     ):
         raise AgentExecError(
-            "Pi requires exactly one attached OpenRouter provider before native inference"
+            "Pi requires exactly one attached OpenRouter or AWS SSO-backed Bedrock provider before native inference"
         )
     try:
-        model = validate_openrouter_provider(get_provider(providers[0]))
+        selection = validate_pi_provider(get_provider(providers[0]))
     except PiProvisioningError as exc:
         raise AgentExecError(str(exc)) from exc
     return (
         [
             "--provider",
-            "openrouter",
+            selection.provider,
             "--model",
-            model,
+            selection.model,
             "--print",
             "--no-session",
             "--no-tools",

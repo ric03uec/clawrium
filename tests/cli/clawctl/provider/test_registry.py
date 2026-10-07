@@ -9,10 +9,15 @@ from __future__ import annotations
 import json
 from unittest.mock import patch
 
+import pytest
 from typer.testing import CliRunner
 
 from clawrium.cli import app
-from clawrium.core.providers.storage import get_provider
+from clawrium.core.providers.storage import (
+    get_provider,
+    get_provider_api_key,
+    get_provider_aws_credentials,
+)
 from clawrium.core.render import build_render_inputs, render_hermes, render_openclaw
 
 runner = CliRunner()
@@ -108,6 +113,25 @@ def test_create_duplicate_fails(fleet_dir, stdin_not_tty) -> None:
     assert "already exists" in result.output
 
 
+@pytest.mark.parametrize(
+    ("flag", "value", "message"),
+    [
+        ("--ollama-url", "http://localhost:11434", "--ollama-url only valid for ollama providers"),
+        ("--litellm-url", "http://localhost:4000", "--litellm-url only valid for litellm providers"),
+    ],
+)
+def test_create_bedrock_rejects_incompatible_endpoint_options(
+    fleet_dir, stdin_not_tty, flag, value, message
+) -> None:
+    result = runner.invoke(
+        app,
+        ["provider", "registry", "create", "bedrock", "--type", "bedrock", flag, value],
+    )
+    assert result.exit_code != 0
+    assert message in result.output
+    assert get_provider("bedrock") is None
+
+
 def test_create_bedrock_with_aws_triplet(fleet_dir, stdin_not_tty) -> None:
     result = runner.invoke(
         app,
@@ -127,6 +151,179 @@ def test_create_bedrock_with_aws_triplet(fleet_dir, stdin_not_tty) -> None:
         ],
     )
     assert result.exit_code == 0, result.output
+
+
+def test_create_bedrock_sso_stores_only_nonsecret_profile_metadata(fleet_dir, stdin_not_tty) -> None:
+    result = runner.invoke(
+        app,
+        [
+            "provider", "registry", "create", "pi-bedrock", "--type", "bedrock",
+            "--model", "anthropic.claude-3-haiku-20240307-v1:0", "--region", "us-east-1",
+            "--sso-profile", "pi-bedrock", "--sso-start-url", "https://company.awsapps.com/start",
+            "--sso-region", "us-east-1", "--sso-account-id", "123456789012",
+            "--sso-role-name", "BedrockPiRole",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    provider = get_provider("pi-bedrock")
+    assert provider["credential_source"] == "aws-sso"
+    assert provider["aws_profile"] == "pi-bedrock"
+    assert "access_key" not in str(provider).lower()
+    assert "secret" not in str(provider).lower()
+
+
+@pytest.mark.parametrize(
+    ("credential_flags",),
+    [
+        (["--access-key", "AKIA-SHOULD-NOT-PERSIST"],),
+        (["--secret-key", "SECRET-SHOULD-NOT-PERSIST"],),
+        (["--access-key", "AKIA-SHOULD-NOT-PERSIST", "--secret-key", "SECRET-SHOULD-NOT-PERSIST"],),
+    ],
+)
+def test_create_bedrock_sso_rejects_static_keys_without_persisting_them(
+    fleet_dir, stdin_not_tty, credential_flags
+) -> None:
+    name = "mixed-sso"
+    result = runner.invoke(
+        app,
+        [
+            "provider", "registry", "create", name, "--type", "bedrock",
+            "--model", "anthropic.claude-3-haiku-20240307-v1:0", "--region", "us-east-1",
+            "--sso-profile", "pi-bedrock", "--sso-start-url", "https://company.awsapps.com/start",
+            "--sso-region", "us-east-1", "--sso-account-id", "123456789012",
+            "--sso-role-name", "BedrockPiRole", *credential_flags,
+        ],
+    )
+    assert result.exit_code != 0
+    assert "cannot combine static AWS keys with AWS Identity Center SSO" in result.output
+    assert "AKIA-SHOULD-NOT-PERSIST" not in result.output
+    assert "SECRET-SHOULD-NOT-PERSIST" not in result.output
+    assert get_provider(name) is None
+    assert get_provider_aws_credentials(name) == (None, None)
+
+
+@pytest.mark.parametrize(
+    "credential_flags",
+    [
+        ["--api-key", "API-KEY-SHOULD-NOT-PERSIST"],
+        ["--api-key-stdin"],
+    ],
+)
+def test_create_bedrock_sso_rejects_api_keys_without_persisting_them(
+    fleet_dir, stdin_not_tty, credential_flags
+) -> None:
+    name = "mixed-sso-api"
+    result = runner.invoke(
+        app,
+        [
+            "provider", "registry", "create", name, "--type", "bedrock",
+            "--model", "anthropic.claude-3-haiku-20240307-v1:0", "--region", "us-east-1",
+            "--sso-profile", "pi-bedrock", "--sso-start-url", "https://company.awsapps.com/start",
+            "--sso-region", "us-east-1", "--sso-account-id", "123456789012",
+            "--sso-role-name", "BedrockPiRole", *credential_flags,
+        ],
+        input="API-KEY-SHOULD-NOT-PERSIST\n",
+    )
+    assert result.exit_code != 0
+    assert "cannot combine API keys with AWS Identity Center SSO" in result.output
+    assert "API-KEY-SHOULD-NOT-PERSIST" not in result.output
+    assert get_provider(name) is None
+    assert get_provider_api_key(name) is None
+
+
+@pytest.mark.parametrize(
+    "credential_flags",
+    [
+        ["--api-key", "API-KEY-SHOULD-NOT-PERSIST"],
+        ["--api-key-stdin"],
+    ],
+)
+def test_edit_bedrock_sso_rejects_api_keys_without_persisting_them(
+    fleet_dir, stdin_not_tty, credential_flags
+) -> None:
+    name = "sso-edit-api"
+    created = runner.invoke(
+        app,
+        [
+            "provider", "registry", "create", name, "--type", "bedrock",
+            "--model", "anthropic.claude-3-haiku-20240307-v1:0", "--region", "us-east-1",
+            "--sso-profile", "pi-bedrock", "--sso-start-url", "https://company.awsapps.com/start",
+            "--sso-region", "us-east-1", "--sso-account-id", "123456789012",
+            "--sso-role-name", "BedrockPiRole",
+        ],
+    )
+    assert created.exit_code == 0, created.output
+    result = runner.invoke(
+        app,
+        ["provider", "registry", "edit", name, *credential_flags],
+        input="API-KEY-SHOULD-NOT-PERSIST\n",
+    )
+    assert result.exit_code != 0
+    assert "cannot combine API keys with AWS Identity Center SSO" in result.output
+    assert "API-KEY-SHOULD-NOT-PERSIST" not in result.output
+    assert get_provider_api_key(name) is None
+
+
+def test_create_bedrock_sso_rejects_mixed_api_and_static_credentials(
+    fleet_dir, stdin_not_tty
+) -> None:
+    name = "mixed-sso-all"
+    result = runner.invoke(
+        app,
+        [
+            "provider", "registry", "create", name, "--type", "bedrock",
+            "--model", "anthropic.claude-3-haiku-20240307-v1:0", "--region", "us-east-1",
+            "--sso-profile", "pi-bedrock", "--sso-start-url", "https://company.awsapps.com/start",
+            "--sso-region", "us-east-1", "--sso-account-id", "123456789012",
+            "--sso-role-name", "BedrockPiRole", "--api-key", "API-KEY-SHOULD-NOT-PERSIST",
+            "--access-key", "AKIA-SHOULD-NOT-PERSIST", "--secret-key", "SECRET-SHOULD-NOT-PERSIST",
+        ],
+    )
+    assert result.exit_code != 0
+    assert get_provider(name) is None
+    assert get_provider_api_key(name) is None
+    assert get_provider_aws_credentials(name) == (None, None)
+
+
+def test_edit_bedrock_sso_rejects_static_keys(fleet_dir, stdin_not_tty) -> None:
+    name = "sso-edit"
+    result = runner.invoke(
+        app,
+        [
+            "provider", "registry", "create", name, "--type", "bedrock",
+            "--model", "anthropic.claude-3-haiku-20240307-v1:0", "--region", "us-east-1",
+            "--sso-profile", "pi-bedrock", "--sso-start-url", "https://company.awsapps.com/start",
+            "--sso-region", "us-east-1", "--sso-account-id", "123456789012",
+            "--sso-role-name", "BedrockPiRole",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    result = runner.invoke(
+        app,
+        ["provider", "registry", "edit", name, "--access-key", "AKIA-SHOULD-NOT-PERSIST", "--secret-key", "SECRET-SHOULD-NOT-PERSIST"],
+    )
+    assert result.exit_code != 0
+    assert "cannot combine static AWS keys with AWS Identity Center SSO" in result.output
+    assert "AKIA-SHOULD-NOT-PERSIST" not in result.output
+    assert "SECRET-SHOULD-NOT-PERSIST" not in result.output
+    assert get_provider_aws_credentials(name) == (None, None)
+
+
+@pytest.mark.parametrize("api_flags", [["--api-key", "API-KEY-SHOULD-NOT-PERSIST"], ["--api-key-stdin"]])
+def test_create_static_bedrock_rejects_api_key_without_persisting_it(
+    fleet_dir, stdin_not_tty, api_flags
+) -> None:
+    name = "static-mixed-api"
+    result = runner.invoke(
+        app,
+        ["provider", "registry", "create", name, "--type", "bedrock", "--access-key", "AKIA", "--secret-key", "secret", *api_flags],
+        input="API-KEY-SHOULD-NOT-PERSIST\n",
+    )
+    assert result.exit_code != 0
+    assert "--api-key/--api-key-stdin are not valid for bedrock providers" in result.output
+    assert get_provider(name) is None
+    assert get_provider_api_key(name) is None
+    assert get_provider_aws_credentials(name) == (None, None)
 
 
 def test_create_bedrock_missing_access_key_fails(fleet_dir, stdin_not_tty) -> None:

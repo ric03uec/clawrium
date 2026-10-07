@@ -60,7 +60,21 @@ def _providers(hosts_path: Path) -> list:
 def _mock_sync_remote(monkeypatch, remote, *, started=None, release=None):
     """Mock only SSH and the remote private credential operation."""
 
+    class Channel:
+        def recv_exit_status(self):
+            return 0
+
+    class Stream:
+        channel = Channel()
+
+        def read(self):
+            return b""
+
     class Client:
+        def exec_command(self, command, timeout):
+            remote.setdefault("cache_cleanup_requests", []).append((command, timeout))
+            return Stream(), Stream(), Stream()
+
         def close(self):
             pass
 
@@ -153,6 +167,7 @@ def test_pi_sync_first_then_detach_keeps_remote_credential_absent(
     assert detach_result["value"].exit_code == 0, detach_result["value"].output
     assert _providers(hosts_path) == []
     assert remote["credential"] is False
+    assert len(remote["cache_cleanup_requests"]) == 1
 
 
 def test_pi_detach_first_prevents_queued_sync_from_restoring_credential(
@@ -230,3 +245,4 @@ def test_pi_detach_remote_failure_releases_lock_for_later_sync(tmp_path, monkeyp
     synced = sync_agent_canonical("pi-race")
     assert synced.success is True
     assert remote["credential"] is True
+    assert len(remote["cache_cleanup_requests"]) == 1

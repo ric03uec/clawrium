@@ -39,10 +39,17 @@ async def _exercise_identity_replacement(monkeypatch: pytest.MonkeyPatch) -> Non
     class FakePiBackend:
         instances: list["FakePiBackend"] = []
 
-        def __init__(self, hostname: str, agent_name: str, model: str):
+        def __init__(
+            self,
+            hostname: str,
+            agent_name: str,
+            model: str,
+            provider: str = "openrouter",
+        ):
             self.hostname = hostname
             self.agent_name = agent_name
             self.model = model
+            self.provider = provider
             self.calls: list[str] = []
             self.close_calls = 0
             self.instances.append(self)
