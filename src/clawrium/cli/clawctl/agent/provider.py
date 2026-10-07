@@ -23,6 +23,7 @@ from __future__ import annotations
 
 from typing import Optional
 
+import paramiko
 import typer
 
 from clawrium.cli.clawctl._common import OutputFormat
@@ -522,9 +523,9 @@ def detach(
             if not remaining:
                 try:
                     revoke_pi_openrouter(agent_name=agent, host=host)
-                except CanonicalSyncError as exc:
+                except (CanonicalSyncError, paramiko.SSHException, OSError):
                     emit_error(
-                        f"failed to revoke Pi provider credential: {exc}",
+                        "failed to revoke Pi provider credential; detach did not finish",
                         hint=f"retry: clawctl agent provider detach {name} --agent {agent}",
                     )
             try:

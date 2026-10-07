@@ -2,6 +2,7 @@
 
 import json
 
+import paramiko
 from typer.testing import CliRunner
 
 from clawrium.cli import app
@@ -70,6 +71,38 @@ def test_final_pi_detach_revocation_failure_keeps_persisted_attachment(
             },
         )
     ]
+    assert load()["agents"]["pi-key"]["providers"] == ["router"]
+
+
+def test_final_pi_detach_transport_failure_keeps_persisted_attachment(
+    tmp_path, monkeypatch
+):
+    """Raw SSH failures must become the safe retryable detach outcome."""
+    calls = []
+    load = _setup(tmp_path, monkeypatch, calls)
+
+    def revoke(**kwargs):
+        calls.append(("revoke", kwargs))
+        raise paramiko.SSHException("connection reset")
+
+    monkeypatch.setattr(
+        "clawrium.core.lifecycle_canonical.revoke_pi_openrouter", revoke
+    )
+    result = runner.invoke(
+        app, ["agent", "provider", "detach", "router", "--agent", "pi-test"]
+    )
+
+    assert result.exit_code != 0
+    assert (
+        "failed to revoke Pi provider credential; detach did not finish"
+        in result.output
+    )
+    assert (
+        "retry: clawctl agent provider detach router --agent pi-test" in result.output
+    )
+    assert "connection reset" not in result.output
+    assert calls[0][0] == "revoke"
+    assert "persist" not in calls
     assert load()["agents"]["pi-key"]["providers"] == ["router"]
 
 
