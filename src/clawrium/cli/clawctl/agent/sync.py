@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import time
 
+import paramiko
 import typer
 
 from clawrium.cli.clawctl._common import OutputFormat
@@ -337,6 +338,8 @@ def sync(
                 )
             except CanonicalSyncError as exc:
                 emit_error(f"Pi sync failed: {exc}")
+            except (paramiko.SSHException, OSError, EOFError):
+                emit_error("Pi sync failed: remote synchronization did not finish")
             if not result.success:
                 emit_error(f"Pi sync failed: {result.error or 'unknown error'}")
             stream_action(

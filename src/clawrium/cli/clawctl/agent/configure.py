@@ -18,6 +18,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Optional
 
+import paramiko
 import typer
 
 from clawrium.cli.clawctl._common import stdin_is_tty
@@ -141,6 +142,39 @@ def _attach_provider_for_configure(
         )
 
 
+def _pi_bedrock_sso_identity(provider_name: str) -> tuple[str, ...] | None:
+    """Validate a Pi provider and return its non-secret SSO identity tuple."""
+    from clawrium.core.pi import PiProvisioningError, validate_pi_provider
+
+    try:
+        record = get_provider(provider_name)
+        selection = validate_pi_provider(record)
+    except (
+        ProvidersFileCorruptedError,
+        FileNotFoundError,
+        PermissionError,
+        OSError,
+        KeyError,
+        TypeError,
+        ValueError,
+        PiProvisioningError,
+    ) as exc:
+        raise LifecycleError("Pi provider transition validation failed") from exc
+    if selection.provider != "amazon-bedrock":
+        return None
+    assert isinstance(record, dict)
+    return tuple(
+        record[key]
+        for key in (
+            "aws_profile",
+            "sso_start_url",
+            "sso_region",
+            "sso_account_id",
+            "sso_role_name",
+        )
+    )
+
+
 def _restore_pi_provider_attachment(
     hostname: str, agent_key: str, previous: object
 ) -> str | None:
@@ -232,8 +266,8 @@ def configure(
         if agent_type == "pi":
             if stage not in (None, Stage.providers) or provider is None:
                 emit_error(
-                    "Pi configuration requires --stage providers --provider <openrouter-provider>",
-                    hint="attach/sync an existing OpenRouter provider for the isolated Pi account",
+                    "Pi configuration requires --stage providers --provider <provider>",
+                    hint="attach/sync an existing Pi OpenRouter or AWS SSO Bedrock provider",
                 )
             from clawrium.core.pi import pi_credential_lock
             from clawrium.core.lifecycle_canonical import (
@@ -253,7 +287,59 @@ def configure(
                         "Pi agent changed while configuring provider; retry the command"
                     )
                 previous_providers = fresh_record.get("providers", [])
-                _attach_provider_for_configure(name, hostname, agent_key, provider)
+                if (
+                    previous_providers
+                    and (
+                        not isinstance(previous_providers, list)
+                        or len(previous_providers) != 1
+                        or not isinstance(previous_providers[0], str)
+                    )
+                ):
+                    emit_error(
+                        "Pi provider transition validation failed",
+                        hint="repair the Pi provider attachment before retrying",
+                    )
+                try:
+                    selected_identity = _pi_bedrock_sso_identity(provider)
+                    previous_identity = (
+                        _pi_bedrock_sso_identity(previous_providers[0])
+                        if previous_providers
+                        else None
+                    )
+                except LifecycleError:
+                    emit_error(
+                        "Pi provider transition validation failed",
+                        hint="verify the selected and currently attached providers before retrying",
+                    )
+                bedrock_cache_transition = previous_identity is not None and (
+                    selected_identity is None
+                    or previous_identity != selected_identity
+                )
+                if bedrock_cache_transition:
+                    try:
+                        # This marker-bound operation clears A's cache and all
+                        # A activation files before the replacement is recorded
+                        # or activated, including an OpenRouter replacement.
+                        revoke_pi_openrouter(agent_name=name, host=fresh_host)
+                    except (
+                        CanonicalSyncError,
+                        paramiko.SSHException,
+                        OSError,
+                        EOFError,
+                    ):
+                        emit_error(
+                            "Pi Bedrock provider transition cleanup did not finish; the existing attachment was retained.",
+                            hint="retry the same provider configure command after confirming remote access",
+                        )
+                try:
+                    _attach_provider_for_configure(name, hostname, agent_key, provider)
+                except typer.Exit:
+                    if bedrock_cache_transition:
+                        emit_error(
+                            "Pi Bedrock provider transition metadata update failed after credential cleanup.",
+                            hint="retry the provider configure command or run agent sync after repairing local storage",
+                        )
+                    raise
                 try:
                     result = sync_agent_canonical(
                         name, restart=False, verify=False, push_workspace=False
@@ -261,6 +347,9 @@ def configure(
                 except CanonicalSyncError as exc:
                     result = None
                     failure_detail = str(exc)
+                except (paramiko.SSHException, OSError, EOFError):
+                    result = None
+                    failure_detail = "remote synchronization did not finish"
                 else:
                     failure_detail = (
                         None if result.success else (result.error or "unknown error")
@@ -279,9 +368,20 @@ def configure(
                     # rollback, so detached state never masks a live bearer.
                     try:
                         revoke_pi_openrouter(agent_name=name, host=fresh_host)
-                    except CanonicalSyncError as revoke_exc:
+                    except (
+                        CanonicalSyncError,
+                        paramiko.SSHException,
+                        OSError,
+                        EOFError,
+                    ):
                         emit_error(
-                            f"Pi provider configuration failed: {failure_detail}; remote credential cleanup failed: {revoke_exc}. Provider attachment was retained; manually detach the provider before retrying."
+                            "Pi provider configuration failed: "
+                            f"{failure_detail}; remote credential cleanup did not finish. "
+                            "Provider attachment was retained for recovery.",
+                            hint=(
+                                "retry: clawctl agent provider detach "
+                                f"{provider} --agent {name}"
+                            ),
                         )
                     rollback_error = _restore_pi_provider_attachment(
                         hostname, agent_key, previous_providers

@@ -1,15 +1,18 @@
 """End-to-end locking regressions for Pi configure and provider detach (#1038)."""
 
+import base64
 import json
 import threading
 from contextlib import contextmanager
 from pathlib import Path
+from types import SimpleNamespace
 
 import typer
 from typer.testing import CliRunner
 
 from clawrium.cli import app
 from clawrium.cli.clawctl.agent import provider as provider_mod
+from clawrium.core import agent_exec as agent_exec_mod
 from clawrium.core.config import get_config_dir
 from clawrium.core.providers.storage import set_provider_api_key
 
@@ -125,7 +128,22 @@ def _mock_remote(
 ):
     """Mock only SSH ownership and the remote credential write/revocation."""
 
+    class Channel:
+        def recv_exit_status(self):
+            return 0
+
+    class Stream:
+        def __init__(self):
+            self.channel = Channel()
+
+        def read(self):
+            return b""
+
     class Client:
+        def exec_command(self, command, timeout):
+            remote.setdefault("cache_cleanup_commands", []).append((command, timeout))
+            return Stream(), Stream(), Stream()
+
         def close(self):
             pass
 
@@ -288,6 +306,102 @@ def test_failed_configure_releases_lock_for_waiting_detach(tmp_path, monkeypatch
     assert detach_acquired.is_set()
     assert _attachments(hosts_path) == []
     assert remote["credential"] is False
+
+
+def test_configure_native_dispatch_then_detach_retry_keeps_lifecycle_retryable(
+    tmp_path, monkeypatch
+):
+    """Compose public Pi configure/detach with bounded native dispatch (#1038)."""
+    hosts_path = _seed_disk_state(attached=False)
+    remote = {"credential": False}
+    operations = []
+    _mock_remote(monkeypatch, remote, operations=operations)
+
+    configured = CliRunner().invoke(
+        app,
+        [
+            "agent",
+            "configure",
+            AGENT,
+            "--stage",
+            "providers",
+            "--provider",
+            PROVIDER,
+        ],
+    )
+    assert configured.exit_code == 0, configured.output
+    assert _attachments(hosts_path) == [PROVIDER]
+    assert remote["credential"] is True
+
+    captured = {}
+    fake_key = tmp_path / "id_ed25519"
+    fake_key.write_text("fixture key")
+
+    def fake_run(**kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace(events=[], status="successful")
+
+    monkeypatch.setattr(
+        agent_exec_mod.core_keys, "get_host_private_key", lambda _key: fake_key
+    )
+    monkeypatch.setattr(agent_exec_mod.ansible_runner, "run", fake_run)
+    monkeypatch.setattr(
+        agent_exec_mod,
+        "_parse_pi_secure_result",
+        lambda _result, _key: ("bounded-native\n", "", 0),
+    )
+    native = CliRunner().invoke(
+        app,
+        ["agent", "exec", AGENT, "--", "--print", "reply exactly: bounded-native"],
+    )
+    assert native.exit_code == 0, native.output
+    assert native.output == "bounded-native\n"
+    vars = captured["inventory"]["all"]["vars"]
+    assert vars["pi_exec_mode"] == "inference"
+    assert vars["cmd_argv"] == [
+        "--provider",
+        "openrouter",
+        "--model",
+        "openai/gpt-4o",
+        "--print",
+        "--no-session",
+        "--no-tools",
+        "--no-context-files",
+        "--no-extensions",
+        "--no-skills",
+        "--no-prompt-templates",
+        "--no-themes",
+    ]
+    assert base64.b64decode(vars["pi_exec_prompt_b64"]).decode() == (
+        "reply exactly: bounded-native"
+    )
+    assert "test-openrouter-key" not in json.dumps(vars)
+
+    original_set = provider_mod._set_attachments
+    calls = 0
+
+    def fail_once(*args):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return False
+        return original_set(*args)
+
+    monkeypatch.setattr(provider_mod, "_set_attachments", fail_once)
+    first = CliRunner().invoke(
+        app, ["agent", "provider", "detach", PROVIDER, "--agent", AGENT]
+    )
+    assert first.exit_code != 0
+    assert _attachments(hosts_path) == [PROVIDER]
+    assert remote["credential"] is False
+    assert "retry: clawctl agent provider detach router --agent pi-race" in first.output
+
+    second = CliRunner().invoke(
+        app, ["agent", "provider", "detach", PROVIDER, "--agent", AGENT]
+    )
+    assert second.exit_code == 0, second.output
+    assert _attachments(hosts_path) == []
+    assert operations == ["provision", "revoke", "revoke"]
 
 
 def test_pi_detach_persistence_failure_keeps_attachment_for_idempotent_retry(

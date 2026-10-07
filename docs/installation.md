@@ -240,8 +240,17 @@ macOS user (`/Users/<agent_name>/`), and runs the upstream installer:
   `~/.pi` directory. Pi supports one provider; `agent open` remains unavailable.
   Bedrock chat needs AWS CLI v2 installed on the fleet host and an interactive
   `aws sso login` performed as the dedicated Pi account; an expired login produces
-  a recoverable error rather than falling back to another credential source. Pi
-  0.73.1's [Amazon Bedrock provider documentation](https://github.com/earendil-works/pi/blob/v0.73.1/packages/coding-agent/docs/providers.md#amazon-bedrock)
+  a recoverable error rather than falling back to another credential source.
+
+  **Bedrock cleanup boundary.** Detaching Bedrock or switching the Pi agent to
+  another provider removes Clawrium-managed AWS files and attempts to clear the
+  dedicated Pi account's local AWS SSO and CLI caches. This is best-effort local
+  file cleanup, not upstream AWS Identity Center session revocation. It cannot
+  invalidate credentials already copied or held in memory, or prevent concurrent
+  Pi processes running as the same account from recreating cache files. If
+  needed, separately expire or revoke the upstream AWS session.
+
+  Pi 0.73.1's [Amazon Bedrock provider documentation](https://github.com/earendil-works/pi/blob/v0.73.1/packages/coding-agent/docs/providers.md#amazon-bedrock)
   consumes `AWS_PROFILE` and `AWS_REGION` through its AWS SDK credential chain;
   on-demand Pi chat and exec do not discover or invoke an `aws` binary.
 

@@ -923,7 +923,7 @@ def detach(
                         revoke_pi_codex(agent_name=agent, host=host)
                     else:
                         revoke_pi_openrouter(agent_name=agent, host=host)
-                except (CanonicalSyncError, paramiko.SSHException, OSError):
+                except (CanonicalSyncError, paramiko.SSHException, OSError, EOFError):
                     emit_error(
                         "failed to revoke Pi provider credential; detach did not finish",
                         hint=f"retry: clawctl agent provider detach {name} --agent {agent}",
