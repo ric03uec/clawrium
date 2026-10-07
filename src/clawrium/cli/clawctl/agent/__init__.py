@@ -57,7 +57,7 @@ agent_app = typer.Typer(
 
 # Verb registration. Order matches plan §4.
 agent_app.command(
-    name="create", help="Install an agent on a host (Claude and Pi are install-only)."
+    name="create", help="Install agent (Claude Code, Codex, and Pi are CLI-only)."
 )(_create.create)
 agent_app.command(name="get", help="List agents.")(_get.get)
 agent_app.command(name="describe", help="Describe an agent.")(_describe.describe)
@@ -65,24 +65,23 @@ agent_app.command(name="delete", help="Delete an agent.")(_delete.delete)
 agent_app.command(name="edit", help="Edit an agent record in $EDITOR.")(_edit.edit)
 agent_app.command(
     name="configure",
-    help="Configure an agent (Pi provider configuration is unavailable in this release).",
+    help="Configure an agent (daemonless CLIs manage no runtime service).",
 )(_configure.configure)
+agent_app.command(name="start", help="Start daemon agent (not CLI-only agents).")(
+    _start.start
+)
+agent_app.command(name="stop", help="Stop daemon agent (not CLI-only agents).")(
+    _stop.stop
+)
 agent_app.command(
-    name="start", help="Start a daemon-backed agent (not Claude Code or Pi)."
-)(_start.start)
-agent_app.command(
-    name="stop", help="Stop a daemon-backed agent (not Claude Code or Pi)."
-)(_stop.stop)
-agent_app.command(
-    name="status",
-    help="Probe an agent runtime (use get for install-only Claude and Pi).",
+    name="status", help="Probe an agent runtime (use get for install-only CLIs)."
 )(_status.status)
 agent_app.command(
-    name="restart", help="Restart a daemon-backed agent (not Claude Code or Pi)."
+    name="restart", help="Restart daemon agent (not CLI-only agents)."
 )(_restart.restart)
 agent_app.command(
     name="sync",
-    help="Sync local state (Pi provider provisioning and sync are unsupported; Pi is install/inspect/exec/remove-only).",
+    help="Sync local state (Pi provider provisioning is unsupported; daemonless CLIs do not restart).",
 )(_sync.sync)
 agent_app.command(
     name="upgrade",
@@ -93,11 +92,11 @@ agent_app.command(
     help="Diagnose an agent's render bundle (attachments, secrets, files).",
 )(_doctor.doctor)
 agent_app.command(
-    name="logs", help="Logs for daemon-backed agents (not Claude or Pi)."
+    name="logs", help="Stream agent logs (not CLI-only agents)."
 )(_logs.logs)
 agent_app.command(name="chat", help="Chat with a chat-enabled agent.")(_chat.chat)
 agent_app.command(
-    name="open", help="Open a native web UI (not available for Claude Code or Pi)."
+    name="open", help="Open native UI (not available for CLI-only agents)."
 )(_open.open)
 agent_app.command(name="port-forward", help="Forward a local port to the agent.")(
     _port_forward.port_forward

@@ -1,0 +1,55 @@
+---
+# Darwin counterpart to exec.yaml. The fixed capture wrapper redirects raw
+# native output into a private host-side temporary directory, redacts selected
+# API-key/OAuth values there, and emits only one safe base64 result event.
+- hosts: all
+  gather_facts: false
+  vars:
+    codex_home: "/Users/{{ agent_name }}"
+    codex_binary: "{{ codex_home }}/.local/codex/bin/codex"
+    codex_exec_timeout_wrapper: >-
+      use POSIX qw(setsid); my $timeout = shift @ARGV; my $pid = fork(); die "could not fork Codex CLI" unless defined $pid; if ($pid == 0) { setsid() or die "could not create Codex CLI session"; exec @ARGV; die "could not exec Codex CLI"; } $SIG{ALRM} = sub { kill 'KILL', -$pid; waitpid($pid, 0); exit 124; }; alarm($timeout); waitpid($pid, 0); alarm(0); my $status = $?; exit($status & 127 ? 128 + ($status & 127) : $status >> 8);
+    codex_exec_capture_bootstrap: >-
+      umask 077; tmpdir="$(mktemp -d "${TMPDIR:-/tmp}/clawrium-codex-exec.XXXXXX")" || exit 125; trap 'rm -rf "$tmpdir"' EXIT HUP INT TERM; program=$1; credentials=$2; shift 2; unset OPENAI_API_KEY CODEX_HOME; export CODEX_HOME="$HOME/.codex"; if [ -r "$HOME/.codex/clawrium-credentials.env" ]; then . "$HOME/.codex/clawrium-credentials.env"; fi; "$@" >"$tmpdir/stdout" 2>"$tmpdir/stderr"; rc=$?; /usr/bin/perl -e "$program" "$tmpdir/stdout" "$tmpdir/stderr" "$rc" "$credentials"
+    codex_exec_capture_program: >-
+      use strict; use warnings; use Encode qw(decode FB_DEFAULT); use MIME::Base64 qw(encode_base64); use JSON::PP qw(decode_json encode_json); sub read_text { my ($path) = @_; return '' unless -r $path; open my $fh, '<:raw', $path or return ''; local $/; my $raw = <$fh>; return decode('UTF-8', $raw // '', FB_DEFAULT); } my ($stdout_path, $stderr_path, $rc_raw, $credentials_path) = @ARGV; my $stdout = read_text($stdout_path); my $stderr = read_text($stderr_path); my @secrets = (); push @secrets, $ENV{OPENAI_API_KEY} if defined $ENV{OPENAI_API_KEY}; sub collect { my ($value, $key, $secrets) = @_; if (ref($value) eq 'HASH') { for my $child_key (keys %$value) { collect($value->{$child_key}, $child_key, $secrets); } } elsif (ref($value) eq 'ARRAY') { for my $child_value (@$value) { collect($child_value, $key, $secrets); } } elsif (defined($value) && !ref($value) && defined($key) && ($key eq 'accessToken' || $key eq 'refreshToken' || $key eq 'trustedDeviceToken' || $key eq 'access_token' || $key eq 'refresh_token' || $key eq 'id_token' || $key eq 'api_key')) { push @$secrets, $value; } } if (-r $credentials_path) { my $credentials = eval { decode_json(read_text($credentials_path)) }; collect($credentials, undef, \@secrets) if $credentials; } sub redact { my ($value, $secrets) = @_; my %seen; for my $secret (sort { length($b) <=> length($a) } grep { defined($_) && length($_) >= 4 && !$seen{$_}++ } @$secrets) { my $escaped = quotemeta($secret); $value =~ s/$escaped/[REDACTED]/g; } return $value; } my $rc = $rc_raw =~ /\A\d+\z/ ? int($rc_raw) : 255; print encode_base64(encode_json({ stdout => redact($stdout, \@secrets), stderr => redact($stderr, \@secrets), rc => $rc }), '');
+  tasks:
+    - name: Refuse to run Codex exec on non-Darwin host
+      ansible.builtin.fail:
+        msg: "Codex macOS exec playbook requires Darwin"
+      when: ansible_os_family is defined and ansible_os_family != 'Darwin'
+
+    - name: Validate agent_name for Codex exec
+      ansible.builtin.fail:
+        msg: "Invalid agent_name"
+      when: agent_name is not match('^[a-z][a-z0-9_-]{0,31}$')
+
+    - name: Validate Codex exec argv and timeout
+      ansible.builtin.fail:
+        msg: "Codex exec requires a non-empty string argv and a timeout from 1 to 120 seconds"
+      when: >-
+        (cmd_argv is not defined) or (cmd_argv is string) or (cmd_argv | length == 0)
+        or (cmd_argv | reject('string') | list | length > 0)
+        or (cmd_argv | select('equalto', '') | list | length > 0)
+        or (codex_exec_timeout is not defined) or (codex_exec_timeout | int < 1)
+        or (codex_exec_timeout | int > 120)
+
+    - name: Run finite Codex CLI exec command as dedicated agent user
+      ansible.builtin.command:
+        expand_argument_vars: false
+        argv: "{{ ['/bin/bash', '-c', codex_exec_capture_bootstrap, 'clawrium-codex-exec', codex_exec_capture_program, codex_home ~ '/.codex/auth.json', '/usr/bin/perl', '-e', codex_exec_timeout_wrapper, codex_exec_timeout | string, codex_binary] + cmd_argv }}"
+        chdir: "{{ codex_home }}"
+      environment:
+        HOME: "{{ codex_home }}"
+        PATH: "{{ codex_home }}/.local/codex/bin:/opt/homebrew/bin:/usr/local/bin:/opt/local/bin:/usr/bin:/bin"
+        CODEX_DISABLE_AUTO_UPDATE: "1"
+      become: true
+      become_user: "{{ agent_name }}"
+      register: codex_exec_safe_result
+      failed_when: false
+      changed_when: false
+      no_log: true
+
+    - name: Emit redacted Codex exec result
+      ansible.builtin.debug:
+        msg: "CODEX_EXEC_RESULT={{ codex_exec_safe_result.stdout | default('') }}"
