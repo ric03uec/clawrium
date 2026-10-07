@@ -78,11 +78,13 @@ def test_canonical_pi_sync_writes_only_account_private_environment(monkeypatch):
 
     assert result.success is True
     assert client.closed is True
-    assert len(writes) == 2
+    assert len(writes) == 3
     assert writes[0]["path"] == "/home/pi-demo/.pi/agent/clawrium-provider.env"
     assert writes[0]["body"] == "OPENROUTER_API_KEY=private-key\n"
     assert writes[1]["path"] == "/home/pi-demo/.pi/agent/clawrium-aws-config"
     assert writes[1]["body"] is None
+    assert writes[2]["path"] == "/home/pi-demo/.pi/agent/clawrium-aws-credentials"
+    assert writes[2]["body"] is None
     assert "private-key" not in client.commands[0][0]
 
 
@@ -228,7 +230,11 @@ def test_canonical_pi_sync_provisions_only_agent_scoped_sso_configuration(monkey
         lambda *_args, **_kwargs: None,
     )
     result = _sync_pi_openrouter(agent_name="pi-demo", host={"hostname": "wolf-i", "os_family": "linux"}, claw_record={"providers": ["bedrock"]}, workspace_only=False, dry_run=False, on_event=None)
-    assert result.files_written == (".pi/agent/clawrium-provider.env", ".pi/agent/clawrium-aws-config")
+    assert result.files_written == (
+        ".pi/agent/clawrium-provider.env",
+        ".pi/agent/clawrium-aws-config",
+        ".pi/agent/clawrium-aws-credentials",
+    )
     assert writes[0]["body"] == "AWS_PROFILE=pi-bedrock\nAWS_REGION=us-east-1\nAWS_CONFIG_FILE=$HOME/.pi/agent/clawrium-aws-config\n"
     assert "sso_start_url" in writes[1]["body"]
     assert "secret" not in writes[1]["body"].lower()

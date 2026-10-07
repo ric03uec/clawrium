@@ -74,6 +74,10 @@ def test_pi_exec_actual_transport_encrypts_sentinel_output(
     )
     sentinel = "pi-sensitive-sentinel-never-in-ansible-event"
     inherited_bearer = "inherited-bearer-must-not-reach-diagnostic-exec"
+    inherited_static = "inherited-static-key-must-not-reach-diagnostic-exec"
+    inherited_secret = "inherited-static-secret-must-not-reach-diagnostic-exec"
+    inherited_session = "inherited-session-must-not-reach-diagnostic-exec"
+    inherited_shared = "/tmp/inherited-shared-credentials-must-not-reach-diagnostic-exec"
     # The bootstrap reads the private artifact as data, never shell source.
     home = tmp_path / "pi-home"
     credential = home / ".pi" / "agent" / "clawrium-provider.env"
@@ -99,7 +103,7 @@ def test_pi_exec_actual_transport_encrypts_sentinel_output(
             "diagnostic",
             "/bin/sh",
             "-c",
-            f'printf "%s:%s" "{sentinel}" "${{OPENROUTER_API_KEY-unset}}"; printf "%s" "{sentinel}" >&2; exit 17',
+            f'printf "%s:%s:%s:%s:%s:%s" "{sentinel}" "${{OPENROUTER_API_KEY-unset}}" "${{AWS_ACCESS_KEY_ID-unset}}" "${{AWS_SECRET_ACCESS_KEY-unset}}" "${{AWS_SESSION_TOKEN-unset}}" "${{AWS_SHARED_CREDENTIALS_FILE-unset}}"; printf "%s" "{sentinel}" >&2; exit 17',
         ],
         check=True,
         capture_output=True,
@@ -109,6 +113,10 @@ def test_pi_exec_actual_transport_encrypts_sentinel_output(
             "HOME": str(home),
             "PATH": f"{shim_dir}:{os.environ['PATH']}",
             "OPENROUTER_API_KEY": inherited_bearer,
+            "AWS_ACCESS_KEY_ID": inherited_static,
+            "AWS_SECRET_ACCESS_KEY": inherited_secret,
+            "AWS_SESSION_TOKEN": inherited_session,
+            "AWS_SHARED_CREDENTIALS_FILE": inherited_shared,
         },
     )
 
@@ -118,8 +126,15 @@ def test_pi_exec_actual_transport_encrypts_sentinel_output(
     # This is precisely what the debug event persists: opaque CMS bytes only.
     assert sentinel not in completed.stdout
     assert sentinel not in completed.stderr
-    assert inherited_bearer not in completed.stdout
-    assert inherited_bearer not in completed.stderr
+    for inherited in (
+        inherited_bearer,
+        inherited_static,
+        inherited_secret,
+        inherited_session,
+        inherited_shared,
+    ):
+        assert inherited not in completed.stdout
+        assert inherited not in completed.stderr
     decrypted = subprocess.run(
         [
             openssl,
@@ -136,7 +151,11 @@ def test_pi_exec_actual_transport_encrypts_sentinel_output(
         capture_output=True,
     ).stdout
     assert json.loads(decrypted) == {
-        "stdout": sentinel + ":unset",
+        "stdout": (
+            sentinel
+            + ":unset:unset:unset:unset:"
+            + str(home / ".pi" / "agent" / "clawrium-aws-credentials")
+        ),
         "stderr": sentinel,
         "rc": 17,
     }
@@ -207,3 +226,6 @@ def test_pi_exec_playbook_task_flow_never_emits_raw_output(filename: str) -> Non
     assert "pi_exec.stderr" not in source
     assert 'case "$mode" in inference)' in source
     assert "diagnostic) ;;" in source
+    assert "unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN" in source
+    assert "AWS_SHARED_CREDENTIALS_FILE=\"$HOME/.pi/agent/clawrium-aws-credentials\"" in source
+    assert "AWS_EC2_METADATA_DISABLED=true" in source

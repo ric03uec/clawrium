@@ -114,6 +114,9 @@ def test_pi_chat_playbooks_use_cms_result_transport_without_raw_output_events():
         assert "AWS_CLI_PATH" not in rendered
         assert "PATH=/usr/bin:/bin; export PATH;" in rendered
         assert "export AWS_PROFILE AWS_REGION AWS_CONFIG_FILE" in rendered
+        assert "unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN" in rendered
+        assert "AWS_SHARED_CREDENTIALS_FILE=\"$HOME/.pi/agent/clawrium-aws-credentials\"" in rendered
+        assert "AWS_EC2_METADATA_DISABLED=true" in rendered
         assert "set -o pipefail" in rendered
         task = next(
             task

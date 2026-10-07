@@ -1049,6 +1049,7 @@ def _verify_pi_bedrock_sso_readiness(
     account_id: str,
     role_name: str,
     os_family: str = "linux",
+    credentials_path: str = "/dev/null",
 ) -> None:
     """Prove the dedicated account has a usable, non-secret SSO session.
 
@@ -1057,13 +1058,16 @@ def _verify_pi_bedrock_sso_readiness(
     AWS output nor token material is returned to the controller.
     """
     command = (
-        "sudo -n -u {user} -- env AWS_PROFILE={profile} AWS_REGION={region} "
-        "AWS_CONFIG_FILE={config} PATH=/usr/bin:/bin /bin/bash -c {probe}"
+        "sudo -n -u {user} -- env -i HOME={home} AWS_PROFILE={profile} AWS_REGION={region} "
+        "AWS_CONFIG_FILE={config} AWS_SHARED_CREDENTIALS_FILE={credentials} "
+        "AWS_EC2_METADATA_DISABLED=true PATH=/usr/bin:/bin /bin/bash -c {probe}"
     ).format(
         user=shlex.quote(agent_name),
+        home=shlex.quote(str(Path(config_path).parents[2])),
         profile=shlex.quote(profile),
         region=shlex.quote(region),
         config=shlex.quote(config_path),
+        credentials=shlex.quote(credentials_path),
         probe=shlex.quote(
             _build_pi_bedrock_sso_readiness_probe(
                 account_id=account_id, role_name=role_name, os_family=os_family
@@ -1081,7 +1085,11 @@ def _verify_pi_bedrock_sso_readiness(
 
 def revoke_pi_openrouter(*, agent_name: str, host: dict) -> None:
     """Remove all Clawrium-managed Pi provider activation before final detach."""
-    from clawrium.core.pi import PI_AWS_CONFIG_PATH, PI_PROVIDER_ENVIRONMENT_PATH
+    from clawrium.core.pi import (
+        PI_AWS_CONFIG_PATH,
+        PI_AWS_CREDENTIALS_PATH,
+        PI_PROVIDER_ENVIRONMENT_PATH,
+    )
     from clawrium.core.playbook_resolver import normalize_os_family
 
     family = normalize_os_family(host)
@@ -1089,7 +1097,11 @@ def revoke_pi_openrouter(*, agent_name: str, host: dict) -> None:
     client = _open_ssh(host)
     try:
         _verify_pi_remote_ownership(client, agent_name=agent_name, family=family)
-        for relative_path in (PI_PROVIDER_ENVIRONMENT_PATH, PI_AWS_CONFIG_PATH):
+        for relative_path in (
+            PI_PROVIDER_ENVIRONMENT_PATH,
+            PI_AWS_CONFIG_PATH,
+            PI_AWS_CREDENTIALS_PATH,
+        ):
             _pi_user_environment_operation(
                 client, agent_name=agent_name, path=f"{root}/{relative_path}", body=None
             )
@@ -1115,6 +1127,7 @@ def _sync_pi_openrouter(
     """
     from clawrium.core.pi import (
         PI_AWS_CONFIG_PATH,
+        PI_AWS_CREDENTIALS_PATH,
         PI_PROVIDER_ENVIRONMENT_PATH,
         PiProvisioningError,
         render_bedrock_sso_config,
@@ -1153,7 +1166,12 @@ def _sync_pi_openrouter(
     if dry_run:
         # Validate access without showing secret-bearing file contents.
         return CanonicalSyncResult(
-            True, agent_name, hostname, (), (PI_PROVIDER_ENVIRONMENT_PATH, PI_AWS_CONFIG_PATH), ()
+            True,
+            agent_name,
+            hostname,
+            (),
+            (PI_PROVIDER_ENVIRONMENT_PATH, PI_AWS_CONFIG_PATH, PI_AWS_CREDENTIALS_PATH),
+            (),
         )
     family = normalize_os_family(host)
     root = f"{home_root_for(family)}/{agent_name}"
@@ -1168,6 +1186,12 @@ def _sync_pi_openrouter(
         _pi_user_environment_operation(
             client, agent_name=agent_name, path=f"{root}/{PI_AWS_CONFIG_PATH}", body=aws_config
         )
+        _pi_user_environment_operation(
+            client,
+            agent_name=agent_name,
+            path=f"{root}/{PI_AWS_CREDENTIALS_PATH}",
+            body="" if aws_config is not None else None,
+        )
         if aws_config is not None:
             _verify_pi_bedrock_sso_readiness(
                 client,
@@ -1175,6 +1199,7 @@ def _sync_pi_openrouter(
                 profile=record["aws_profile"],
                 region=record["region"],
                 config_path=f"{root}/{PI_AWS_CONFIG_PATH}",
+                credentials_path=f"{root}/{PI_AWS_CREDENTIALS_PATH}",
                 account_id=record["sso_account_id"],
                 role_name=record["sso_role_name"],
                 os_family=family,
@@ -1183,7 +1208,9 @@ def _sync_pi_openrouter(
         client.close()
     if on_event is not None:
         on_event("sync", f"Pi {selection.provider} model {model!r} provisioned; no daemon restart")
-    paths = (PI_PROVIDER_ENVIRONMENT_PATH,) + ((PI_AWS_CONFIG_PATH,) if aws_config else ())
+    paths = (PI_PROVIDER_ENVIRONMENT_PATH,) + (
+        (PI_AWS_CONFIG_PATH, PI_AWS_CREDENTIALS_PATH) if aws_config else ()
+    )
     return CanonicalSyncResult(True, agent_name, hostname, paths, (), ())
 
 

@@ -20,6 +20,7 @@ from clawrium.core.config import init_config_dir
 __all__ = [
     "PI_PROVIDER_ENVIRONMENT_PATH",
     "PI_AWS_CONFIG_PATH",
+    "PI_AWS_CREDENTIALS_PATH",
     "PiProvisioningError",
     "PiProviderSelection",
     "pi_credential_lock",
@@ -34,6 +35,7 @@ __all__ = [
 
 PI_PROVIDER_ENVIRONMENT_PATH = ".pi/agent/clawrium-provider.env"
 PI_AWS_CONFIG_PATH = ".pi/agent/clawrium-aws-config"
+PI_AWS_CREDENTIALS_PATH = ".pi/agent/clawrium-aws-credentials"
 _PI_LOCK_STATE = threading.local()
 # ``init_config_dir`` temporarily changes the process-wide umask. Serialize
 # first-time lock-directory setup so concurrent lifecycle operations cannot
