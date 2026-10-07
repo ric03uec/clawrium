@@ -9,12 +9,15 @@ import pytest
 
 from clawrium.core.lifecycle_canonical import (
     CanonicalSyncError,
+    SSOAuthRequiredError,
     _sync_pi_openrouter,
     revoke_pi_openrouter,
     _pi_user_environment_operation,
     _verify_pi_bedrock_sso_readiness,
     _PI_BEDROCK_STS_IDENTITY_VALIDATOR,
     _PI_BEDROCK_STS_IDENTITY_VALIDATOR_PERL,
+    _PI_BEDROCK_AWS_PATH_VALIDATOR_PERL,
+    _PI_BEDROCK_AWS_PATH_VALIDATOR_PYTHON,
     _build_pi_bedrock_sso_readiness_probe,
 )
 
@@ -313,6 +316,62 @@ def test_pi_bedrock_readiness_probe_vets_standard_symlink_and_rejects_bad_ancest
     assert subprocess.run(["/bin/bash", "-c", symlinked], check=False).returncode != 0
 
 
+def test_pi_bedrock_path_validators_accept_production_root_and_reject_untrusted_path():
+    """Default ``/`` root must not turn trusted paths into ``//`` prefixes."""
+    expected_uid = str(os.stat("/").st_uid)
+    validators = (
+        [sys.executable, "-c", _PI_BEDROCK_AWS_PATH_VALIDATOR_PYTHON],
+        ["/usr/bin/perl", "-e", _PI_BEDROCK_AWS_PATH_VALIDATOR_PERL],
+    )
+    for validator in validators:
+        assert subprocess.run(
+            validator + ["/usr/bin/dash", expected_uid, "0", "/"], check=False
+        ).returncode == 0
+        assert subprocess.run(
+            validator + ["/tmp", expected_uid, "0", "/"], check=False
+        ).returncode != 0
+
+
+def test_pi_bedrock_probe_stdout_drives_sanitized_auth_required_recovery(tmp_path):
+    """The probe emits its trusted CLI path before an expired-SSO failure."""
+    root = tmp_path / "trusted"
+    candidate = root / "usr" / "local" / "bin" / "aws"
+    candidate.parent.mkdir(parents=True)
+    candidate.write_text(
+        "#!/bin/sh\n"
+        "if test \"$1\" = --version; then echo aws-cli/2.15.0; "
+        "else echo '{}' ; exit 1; fi\n"
+    )
+    candidate.chmod(0o555)
+    for directory in (root, root / "usr", root / "usr" / "local", candidate.parent):
+        directory.chmod(0o555)
+    probe = _build_pi_bedrock_sso_readiness_probe(
+        account_id="123456789012", role_name="BedrockPiRole", os_family="linux",
+        candidates=(str(candidate),), expected_uid=os.getuid(), trusted_root=str(root),
+    )
+    result = subprocess.run(["/bin/bash", "-c", probe], text=True, capture_output=True)
+    assert result.returncode != 0
+    assert result.stdout == f"{candidate}\n"
+
+    client = _Client()
+    client.exec_command = lambda command, timeout: (
+        None,
+        type("O", (), {
+            "channel": type("C", (), {"recv_exit_status": lambda self: 1})(),
+            "read": lambda self: result.stdout.encode(),
+        })(),
+        None,
+    )
+    with pytest.raises(SSOAuthRequiredError) as exc_info:
+        _verify_pi_bedrock_sso_readiness(
+            client, agent_name="pi-demo", profile="pi-bedrock", region="us-east-1",
+            config_path="/home/pi-demo/.pi/agent/clawrium-aws-config",
+            credentials_path="/home/pi-demo/.pi/agent/clawrium-aws-credentials",
+            account_id="123456789012", role_name="BedrockPiRole",
+        )
+    assert f"{candidate} sso login --profile pi-bedrock" in str(exc_info.value)
+
+
 def test_pi_bedrock_sts_validator_requires_exact_account_and_reserved_sso_role():
     class Client:
         def __init__(self):
@@ -367,23 +426,72 @@ def test_pi_bedrock_sts_validator_requires_exact_account_and_reserved_sso_role()
         assert validate(validator, "{not-json") != 0
 
 
-def test_pi_bedrock_readiness_is_actionable_when_identity_is_unavailable():
+@pytest.mark.parametrize("aws_cli", ["/usr/bin/aws", "/usr/local/bin/aws", "/opt/homebrew/bin/aws"])
+def test_pi_bedrock_readiness_is_actionable_when_identity_is_unavailable(aws_cli):
     client = _Client()
     client.exec_command = lambda command, timeout: (
         None,
-        type("O", (), {"channel": type("C", (), {"recv_exit_status": lambda self: 1})()})(),
+        type(
+            "O",
+            (),
+            {
+                "channel": type("C", (), {"recv_exit_status": lambda self: 1})(),
+                "read": lambda self: f"{aws_cli}\n".encode(),
+            },
+        )(),
         None,
     )
-    with pytest.raises(CanonicalSyncError, match="aws sso login"):
+    with pytest.raises(SSOAuthRequiredError, match="SSO_AUTH_REQUIRED") as exc_info:
         _verify_pi_bedrock_sso_readiness(
             client,
             agent_name="pi-demo",
             profile="pi-bedrock",
             region="us-east-1",
             config_path="/home/pi-demo/.pi/agent/clawrium-aws-config",
+            credentials_path="/home/pi-demo/.pi/agent/clawrium-aws-credentials",
             account_id="123456789012",
             role_name="BedrockPiRole",
         )
+    message = str(exc_info.value)
+    assert "sudo -n -u pi-demo -- env -i" in message
+    assert "HOME=/home/pi-demo" in message
+    assert "AWS_CONFIG_FILE=/home/pi-demo/.pi/agent/clawrium-aws-config" in message
+    assert "AWS_SHARED_CREDENTIALS_FILE=/home/pi-demo/.pi/agent/clawrium-aws-credentials" in message
+    assert f"{aws_cli} sso login --profile pi-bedrock" in message
+    assert "clawctl agent sync pi-demo" in message
+
+
+def test_pi_bedrock_readiness_sanitizes_recovery_display_values():
+    client = _Client()
+    client.exec_command = lambda command, timeout: (
+        None,
+        type(
+            "O",
+            (),
+            {
+                "channel": type("C", (), {"recv_exit_status": lambda self: 1})(),
+                "read": lambda self: b"/usr/local/bin/aws\n",
+            },
+        )(),
+        None,
+    )
+    profile = "pi\u202ebedrock"
+    agent_name = "pi\u202edemo"
+    with pytest.raises(CanonicalSyncError) as exc_info:
+        _verify_pi_bedrock_sso_readiness(
+            client,
+            agent_name=agent_name,
+            profile=profile,
+            region="us-east-1",
+            config_path="/home/pi-demo/.pi/agent/clawrium-aws-config",
+            credentials_path="/home/pi-demo/.pi/agent/clawrium-aws-credentials",
+            account_id="123456789012",
+            role_name="BedrockPiRole",
+        )
+    message = str(exc_info.value)
+    assert "\u202e" not in message
+    assert "pibedrock" in message
+    assert "pidemo" in message
 
 
 def test_canonical_pi_sync_rejects_missing_provider_before_remote_io(monkeypatch):

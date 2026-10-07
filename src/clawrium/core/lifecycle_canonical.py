@@ -176,6 +176,12 @@ class CanonicalSyncError(Exception):
     """Any failure in the canonical sync pipeline."""
 
 
+class SSOAuthRequiredError(CanonicalSyncError):
+    """The dedicated Pi account must refresh its AWS Identity Center session."""
+
+    code = "SSO_AUTH_REQUIRED"
+
+
 def _validate_agent_name(agent_name: str) -> None:
     """Raise `CanonicalSyncError` if `agent_name` fails format validation.
 
@@ -958,7 +964,7 @@ _PI_BEDROCK_STS_IDENTITY_VALIDATOR_PERL = (
 _PI_BEDROCK_AWS_PATH_VALIDATOR_PERL = (
     "my ($path,$expected_uid,$allow_final_link,$trusted_root)=@ARGV; "
     "$trusted_root =~ s{/$}{} if $trusted_root ne q{/}; "
-    "exit 1 unless $path eq $trusted_root || index($path, qq{$trusted_root/}) == 0; "
+    "exit 1 unless $trusted_root eq q{/} || $path eq $trusted_root || index($path, qq{$trusted_root/}) == 0; "
     "my @root=lstat($trusted_root); exit 1 unless @root && $root[4] == $expected_uid && !($root[2] & 0022) && !-w $trusted_root; "
     "my $suffix=substr($path,length($trusted_root)); my $current=$trusted_root eq q{/} ? q{} : $trusted_root; "
     "for my $part (grep length, split m{/+}, $suffix) { "
@@ -970,7 +976,7 @@ _PI_BEDROCK_AWS_PATH_VALIDATOR_PYTHON = """import os, stat, sys
 path, expected_uid, allow_final_link, trusted_root = sys.argv[1:]
 expected_uid = int(expected_uid)
 trusted_root = trusted_root.rstrip("/") or "/"
-if not (path == trusted_root or path.startswith(trusted_root + "/")):
+if trusted_root != "/" and not (path == trusted_root or path.startswith(trusted_root + "/")):
     raise SystemExit(1)
 def checked(path, allow_link=False):
     status = os.lstat(path)
@@ -1033,7 +1039,7 @@ def _build_pi_bedrock_sso_readiness_probe(
         f"trusted_path \"$resolved\" {expected_uid} 0 {quoted_root} || continue; "
         "\"$resolved\" --version 2>&1 | /usr/bin/grep -q '^aws-cli/2\\.' || continue; "
         "aws_cli=\"$resolved\"; break; done; "
-        "test -n \"$aws_cli\" || exit 127; set -o pipefail; "
+        "test -n \"$aws_cli\" || exit 127; printf '%s\\n' \"$aws_cli\"; set -o pipefail; "
         f"\"$aws_cli\" sts get-caller-identity --output json 2>/dev/null | {identity_check} "
         f"{shlex.quote(account_id)} {shlex.quote(role_name)}"
     )
@@ -1075,11 +1081,33 @@ def _verify_pi_bedrock_sso_readiness(
         ),
     )
     _, stdout, _ = client.exec_command(command, timeout=30)
-    if stdout.channel.recv_exit_status() != 0:
-        raise CanonicalSyncError(
-            "Pi Bedrock SSO is not ready for the dedicated account; install AWS CLI v2 "
-            "on the host, then run `aws sso login --profile <profile>` as that account "
-            "and re-run `clawctl agent sync <name>`"
+    exit_status = stdout.channel.recv_exit_status()
+    from clawrium.cli.output._sanitize import sanitize_passthrough
+
+    raw_path = getattr(stdout, "read", lambda: b"")()
+    if isinstance(raw_path, bytes):
+        raw_path = raw_path.decode("utf-8", "replace")
+    validated_cli = raw_path.strip().splitlines()[0] if raw_path.strip() else ""
+    if exit_status != 0:
+        home = str(Path(config_path).parents[2])
+        recovery = ""
+        if validated_cli:
+            login_command = "sudo -n -u {user} -- env -i HOME={home} AWS_PROFILE={profile} AWS_REGION={region} AWS_CONFIG_FILE={config} AWS_SHARED_CREDENTIALS_FILE={credentials} AWS_EC2_METADATA_DISABLED=true PATH=/usr/bin:/bin {aws_cli} sso login --profile {profile}".format(
+                user=shlex.quote(agent_name),
+                home=shlex.quote(home),
+                profile=shlex.quote(profile),
+                region=shlex.quote(region),
+                config=shlex.quote(config_path),
+                credentials=shlex.quote(credentials_path),
+                aws_cli=shlex.quote(sanitize_passthrough(validated_cli)),
+            )
+            recovery = f" Then run the validated system AWS CLI as the Pi account: `{login_command}`."
+        safe_agent_name = sanitize_passthrough(agent_name)
+        safe_profile = sanitize_passthrough(profile)
+        recovery = recovery.replace(profile, safe_profile).replace(agent_name, safe_agent_name)
+        raise SSOAuthRequiredError(
+            "SSO_AUTH_REQUIRED: Pi Bedrock SSO is not ready for the dedicated account. Install AWS CLI v2 "
+            f"on the host if necessary.{recovery} Then re-run `clawctl agent sync {safe_agent_name}`."
         )
 
 
