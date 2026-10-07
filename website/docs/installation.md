@@ -234,8 +234,15 @@ macOS user (`/Users/<agent_name>/`), and runs the upstream installer:
   `clawctl agent sync <name>`; `clawctl agent chat <name>`. Clawrium writes the
   provider credential only to that Pi account's private environment file; Pi
   consumes it on demand and never requests a grant. `agent exec` also receives
-  that isolated environment. Pi currently supports only OpenRouter and only a
-  single provider; `agent open` remains unavailable.
+  that isolated environment. Pi also supports a single `openai-codex` provider
+  with one model from its pinned 0.73.1 catalog. Create it without an API key,
+  attach and sync it, then run `clawctl agent provider login <provider> --agent
+  <name>` from an interactive terminal. That command opens Pi under only the
+  dedicated agent account; complete Pi's native `/login` → `openai-codex` flow
+  there. Pi owns the resulting private OAuth document and refreshes it locally;
+  on expiry or revocation, rerun the same command. Never export an OAuth bearer,
+  set `OPENAI_API_KEY`, or copy a controller `~/.pi` directory. Pi has exactly
+  one provider at a time; `agent open` remains unavailable.
 
 Configure, start, chat — same commands as Linux for daemon-backed Hermes and
 OpenClaw agents:

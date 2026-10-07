@@ -9,6 +9,7 @@ from clawrium.core.chat_pi import PiChatBackend
 from clawrium.core.pi import (
     PiProvisioningError,
     pi_chat_argv,
+    validate_pi_provider,
     render_openrouter_environment,
     validate_openrouter_provider,
 )
@@ -33,6 +34,14 @@ def test_pi_accepts_only_unprefixed_openrouter_model_ids():
         )
 
 
+def test_pi_codex_selection_accepts_only_pinned_catalog_models():
+    assert validate_pi_provider(
+        {"type": "openai-codex", "default_model": "gpt-5.1-codex-mini"}
+    ) == ("openai-codex", "gpt-5.1-codex-mini")
+    with pytest.raises(PiProvisioningError, match="supported by pinned Pi"):
+        validate_pi_provider({"type": "openai-codex", "default_model": "unknown"})
+
+
 def test_pi_environment_is_secret_only_and_rejects_empty_key():
     body = render_openrouter_environment("sk-secret;$(not-executed)")
     assert body == "OPENROUTER_API_KEY=sk-secret;$(not-executed)\n"
@@ -55,6 +64,15 @@ def test_pi_chat_argv_has_fixed_provider_and_session_resume():
     assert "--no-mcp" not in first
     assert first[-2:] == ["--session-dir", f".pi/agent/clawrium-sessions/{session}"]
     assert second[-1:] == ["--continue"]
+
+
+def test_pi_codex_chat_argv_never_uses_openai_api_key_mode():
+    session = "12345678-1234-1234-1234-123456789abc"
+    argv = pi_chat_argv(
+        "gpt-5.1-codex-mini", session, resume=False, provider="openai-codex"
+    )
+    assert argv[:4] == ["--provider", "openai-codex", "--model", "gpt-5.1-codex-mini"]
+    assert "--api-key" not in argv and "OPENAI_API_KEY" not in " ".join(argv)
 
 
 def test_pi_chat_backend_continues_then_resets_without_exposing_credential():

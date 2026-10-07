@@ -95,14 +95,15 @@ def _attach_provider_for_configure(
     # tolerant; downstream lifecycle code reads `agents.<n>.providers`
     # and looks up the provider by *that* exact string.
     canonical_name = record.get("name", provider_name)
-    # Pi is intentionally OpenRouter-only for #1038; reject before mutating
-    # attachment metadata so an unsupported selection cannot be synced later.
+    # Pi accepts only its bounded OpenRouter or native Codex OAuth selections;
+    # reject before mutating attachment metadata so an unsupported selection
+    # cannot be synced later.
     resolved = safe_resolve_agent(agent_name)
     if resolved[1] == "pi":
-        from clawrium.core.pi import PiProvisioningError, validate_openrouter_provider
+        from clawrium.core.pi import PiProvisioningError, validate_pi_provider
 
         try:
-            validate_openrouter_provider(record)
+            validate_pi_provider(record)
         except PiProvisioningError as exc:
             emit_error(str(exc))
 
@@ -214,8 +215,8 @@ def configure(
         if agent_type == "pi":
             if stage not in (None, Stage.providers) or provider is None:
                 emit_error(
-                    "Pi configuration requires --stage providers --provider <openrouter-provider>",
-                    hint="attach/sync an existing OpenRouter provider for the isolated Pi account",
+                    "Pi configuration requires --stage providers --provider <provider>",
+                    hint="attach/sync an existing OpenRouter provider or Pi Codex OAuth selection for the isolated Pi account",
                 )
             _attach_provider_for_configure(name, hostname, agent_key, provider)
             from clawrium.core.lifecycle_canonical import (
@@ -235,7 +236,7 @@ def configure(
                 )
             stream_action(
                 resource=f"agent/{name}",
-                message="Pi OpenRouter credential provisioned; no daemon restart",
+                message="Pi provider selection provisioned; no daemon restart",
             )
             return
         if agent_type != "claude":

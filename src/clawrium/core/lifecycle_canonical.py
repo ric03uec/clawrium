@@ -933,6 +933,28 @@ def revoke_pi_openrouter(*, agent_name: str, host: dict) -> None:
         client.close()
 
 
+def revoke_pi_codex(*, agent_name: str, host: dict) -> None:
+    """Remove native Codex OAuth only from the dedicated Pi account.
+
+    Pi owns token refresh and its auth document format; Clawrium only removes
+    that complete private document after the final provider detach, never reads
+    or serializes it.
+    """
+    from clawrium.core.pi import PI_CODEX_AUTH_PATH
+    from clawrium.core.playbook_resolver import normalize_os_family
+
+    family = normalize_os_family(host)
+    path = f"{home_root_for(family)}/{agent_name}/{PI_CODEX_AUTH_PATH}"
+    client = _open_ssh(host)
+    try:
+        _verify_pi_remote_ownership(client, agent_name=agent_name, family=family)
+        _pi_user_environment_operation(
+            client, agent_name=agent_name, path=path, body=None
+        )
+    finally:
+        client.close()
+
+
 def _sync_pi_openrouter(
     *,
     agent_name: str,
@@ -950,10 +972,11 @@ def _sync_pi_openrouter(
     as fixed Pi CLI argv by ``PiChatBackend``.
     """
     from clawrium.core.pi import (
+        PI_CODEX_PROVIDER_TYPE,
         PI_OPENROUTER_ENVIRONMENT_PATH,
         PiProvisioningError,
         render_openrouter_environment,
-        validate_openrouter_provider,
+        validate_pi_provider,
     )
     from clawrium.core.playbook_resolver import normalize_os_family
     from clawrium.core.providers.storage import get_provider
@@ -973,29 +996,48 @@ def _sync_pi_openrouter(
         )
     record = get_provider(providers[0])
     try:
-        model = validate_openrouter_provider(record)
-        body = render_openrouter_environment(get_provider_api_key(providers[0]))
+        provider_type, model = validate_pi_provider(record)
     except PiProvisioningError as exc:
         raise CanonicalSyncError(str(exc)) from exc
     if dry_run:
-        # Validate access without showing secret-bearing file contents.
         return CanonicalSyncResult(
-            True, agent_name, hostname, (), (PI_OPENROUTER_ENVIRONMENT_PATH,), ()
+            True,
+            agent_name,
+            hostname,
+            (),
+            (() if provider_type == PI_CODEX_PROVIDER_TYPE else (PI_OPENROUTER_ENVIRONMENT_PATH,)),
+            (),
         )
     family = normalize_os_family(host)
     path = f"{home_root_for(family)}/{agent_name}/{PI_OPENROUTER_ENVIRONMENT_PATH}"
     client = _open_ssh(host)
     try:
         _verify_pi_remote_ownership(client, agent_name=agent_name, family=family)
-        _pi_user_environment_operation(
-            client, agent_name=agent_name, path=path, body=body
-        )
+        if provider_type == PI_CODEX_PROVIDER_TYPE:
+            # Pi's native interactive login creates/refreshes auth.json under
+            # this account. Never accept, copy, or render an OAuth bearer.
+            _pi_user_environment_operation(
+                client, agent_name=agent_name, path=path, body=None
+            )
+        else:
+            body = render_openrouter_environment(get_provider_api_key(providers[0]))
+            _pi_user_environment_operation(
+                client, agent_name=agent_name, path=path, body=body
+            )
+    except PiProvisioningError as exc:
+        raise CanonicalSyncError(str(exc)) from exc
     finally:
         client.close()
     if on_event is not None:
-        on_event(
-            "sync", f"Pi OpenRouter model {model!r} provisioned; no daemon restart"
-        )
+        if provider_type == PI_CODEX_PROVIDER_TYPE:
+            on_event(
+                "sync",
+                "Pi Codex OAuth selected; run `clawctl agent provider login <provider> --agent <name>` on a terminal to authenticate the dedicated account",
+            )
+        else:
+            on_event(
+                "sync", f"Pi OpenRouter model {model!r} provisioned; no daemon restart"
+            )
     return CanonicalSyncResult(
         True, agent_name, hostname, (PI_OPENROUTER_ENVIRONMENT_PATH,), (), ()
     )

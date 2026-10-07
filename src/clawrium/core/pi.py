@@ -1,9 +1,10 @@
-"""Bounded OpenRouter selection and private activation for Pi agents.
+"""Bounded provider selection and private activation for Pi agents.
 
-Pi 0.73.1 accepts a provider/model pair directly on its CLI.  Clawrium owns
-that selection: this module accepts only the Pi-supported OpenRouter provider
-and a conservative OpenRouter model ID grammar; credentials never enter the
-agent record or a rendered diff.
+Pi 0.73.1 accepts a provider/model pair directly on its CLI. Clawrium owns
+that selection. OpenRouter credentials are private agent-home artifacts;
+Codex OAuth is created and refreshed only by Pi's native interactive login in
+the dedicated account's ``.pi/agent/auth.json``. Neither mode stores a secret
+in the agent record or a rendered diff.
 """
 
 from __future__ import annotations
@@ -12,13 +13,37 @@ import re
 
 __all__ = [
     "PI_OPENROUTER_ENVIRONMENT_PATH",
+    "PI_CODEX_PROVIDER_TYPE",
+    "PI_CODEX_MODEL",
+    "PI_CODEX_MODELS",
     "PiProvisioningError",
     "pi_chat_argv",
+    "validate_pi_provider",
     "render_openrouter_environment",
     "validate_openrouter_provider",
 ]
 
 PI_OPENROUTER_ENVIRONMENT_PATH = ".pi/agent/clawrium-openrouter.env"
+PI_CODEX_AUTH_PATH = ".pi/agent/auth.json"
+PI_CODEX_PROVIDER_TYPE = "openai-codex"
+# Pi 0.73.1's bundled pi-ai openai-codex catalog. Keep this bounded list in
+# lockstep with its `dist/models.generated.js`; do not pass arbitrary model
+# IDs through to a privileged agent account.
+PI_CODEX_MODEL = "gpt-5.5"
+PI_CODEX_MODELS = frozenset(
+    {
+        "gpt-5.1",
+        "gpt-5.1-codex-max",
+        "gpt-5.1-codex-mini",
+        "gpt-5.2",
+        "gpt-5.2-codex",
+        "gpt-5.3-codex",
+        "gpt-5.3-codex-spark",
+        "gpt-5.4",
+        "gpt-5.4-mini",
+        "gpt-5.5",
+    }
+)
 # Provider/model IDs accepted by OpenRouter and Pi's 0.73.1 custom-model
 # fallback.  Reject whitespace, option-like values, provider prefixes, and
 # shell/control characters rather than passing arbitrary model syntax through.
@@ -51,6 +76,23 @@ def validate_openrouter_provider(provider: object) -> str:
     return model
 
 
+def validate_pi_provider(provider: object) -> tuple[str, str]:
+    """Return a fixed Pi provider/model pair or a secret-free error.
+
+    Codex intentionally has no credential argument: Pi owns its native OAuth
+    document in the dedicated account and refreshes it under its own lock.
+    """
+    if isinstance(provider, dict) and provider.get("type") == PI_CODEX_PROVIDER_TYPE:
+        model = provider.get("default_model")
+        if model not in PI_CODEX_MODELS:
+            raise PiProvisioningError(
+                "Pi Codex OAuth requires a model supported by pinned Pi 0.73.1; "
+                f"choose one of: {', '.join(sorted(PI_CODEX_MODELS))}"
+            )
+        return PI_CODEX_PROVIDER_TYPE, model
+    return "openrouter", validate_openrouter_provider(provider)
+
+
 def render_openrouter_environment(api_key: str | None) -> str:
     """Render the only secret-bearing Pi artifact for the dedicated account."""
     if not isinstance(api_key, str) or any(
@@ -69,16 +111,18 @@ def render_openrouter_environment(api_key: str | None) -> str:
     return f"OPENROUTER_API_KEY={key}\n"
 
 
-def pi_chat_argv(model: str, session_id: str, *, resume: bool) -> list[str]:
+def pi_chat_argv(
+    model: str, session_id: str, *, resume: bool, provider: str = "openrouter"
+) -> list[str]:
     """Build fixed Pi print-mode argv; all caller values are validated first."""
-    validated_model = validate_openrouter_provider(
-        {"type": "openrouter", "default_model": model}
+    validated_provider, validated_model = validate_pi_provider(
+        {"type": provider, "default_model": model}
     )
     if not re.fullmatch(r"[0-9a-f]{8}-[0-9a-f-]{27,35}", session_id):
         raise PiProvisioningError("Pi chat session is invalid")
     argv = [
         "--provider",
-        "openrouter",
+        validated_provider,
         "--model",
         validated_model,
         "--print",

@@ -22,6 +22,8 @@ non-secret attachment and its OAuth token stays in per-instance secrets.
 from __future__ import annotations
 
 from typing import Optional
+import shlex
+import subprocess
 
 import typer
 
@@ -37,6 +39,7 @@ from clawrium.cli.output import (
     stream_action,
 )
 from clawrium.core.hosts import update_host
+from clawrium.core.keys import get_host_private_key
 from clawrium.core.claude_credentials import (
     ClaudeCredentialError,
     import_claude_oauth_from_local_reader,
@@ -55,7 +58,11 @@ from clawrium.core.providers.storage import (
     ProvidersFileCorruptedError,
     get_provider,
 )
-from clawrium.core.pi import PiProvisioningError, validate_openrouter_provider
+from clawrium.core.pi import (
+    PI_CODEX_PROVIDER_TYPE,
+    PiProvisioningError,
+    validate_pi_provider,
+)
 
 __all__ = ["provider_app"]
 
@@ -326,11 +333,11 @@ def attach(
     agent_type = _agent_type(claw)
     if agent_type == "pi":
         try:
-            validate_openrouter_provider(provider_record)
+            validate_pi_provider(provider_record)
         except PiProvisioningError as exc:
             emit_error(
                 str(exc),
-                hint="select an OpenRouter provider with a supported default model",
+                hint="select an OpenRouter provider or a Pi Codex OAuth provider with its supported default model",
             )
     if (
         provider_record.get("type") == CLAUDE_OAUTH_PROVIDER_TYPE
@@ -443,6 +450,79 @@ def attach(
         typer.echo(f"agent/{sanitize(agent)}: attached provider {sanitize(name)!r}")
 
 
+@provider_app.command("login")
+def login(
+    name: str = typer.Argument(..., help="Attached provider name."),
+    agent: str = typer.Option(..., "--agent", help="Pi agent instance name."),
+) -> None:
+    """Open Pi's native OAuth login inside the dedicated agent account.
+
+    This deliberately replaces the current process with an interactive SSH TTY.
+    Pi alone displays and completes the OAuth flow, writes its private native
+    auth document, and refreshes it later. No OAuth value crosses Clawrium.
+    """
+    provider_record = _safe_get_provider(name)
+    host, _agent_key_unused, claw = safe_resolve_agent(agent)
+    agent_key = resolve_agent_key(host, agent)
+    agent_unix = claw.get("agent_name") or agent
+    if not isinstance(agent_unix, str) or not agent_unix:
+        emit_error("Pi agent record is missing its dedicated account name")
+    if _agent_type(claw) != "pi":
+        emit_error("Pi native OAuth login is only available for Pi agents")
+    if provider_record.get("type") != PI_CODEX_PROVIDER_TYPE:
+        emit_error(
+            "Pi native login currently supports only an openai-codex provider",
+            hint="create and attach an openai-codex provider with model gpt-5.5",
+        )
+    if name not in _get_attachments(host, agent_key, "pi"):
+        emit_error(
+            f"provider {name!r} is not attached to agent {agent!r}",
+            hint=f"clawctl agent provider attach {name} --agent {agent}",
+        )
+    try:
+        provider_type, model = validate_pi_provider(provider_record)
+    except PiProvisioningError as exc:
+        emit_error(str(exc))
+    if provider_type != PI_CODEX_PROVIDER_TYPE:
+        emit_error("invalid Pi Codex OAuth selection")
+    key_id = host.get("key_id") or host.get("hostname")
+    ssh_key = get_host_private_key(key_id)
+    if not ssh_key:
+        emit_error(f"SSH key for host {key_id!r} not found")
+    hostname = host.get("hostname")
+    if not isinstance(hostname, str) or not hostname:
+        emit_error("Pi host is missing a hostname")
+    remote_user = host.get("user", "xclm")
+    if not isinstance(remote_user, str) or not remote_user:
+        emit_error("Pi host is missing an SSH user")
+    home_root = "/Users" if str(host.get("os_family", "")).lower() in {"darwin", "macos", "osx"} else "/home"
+    agent_shell = shlex.quote(agent_unix)
+    home = shlex.quote(f"{home_root}/{agent_unix}")
+    remote = (
+        "unset OPENAI_API_KEY OPENROUTER_API_KEY AWS_ACCESS_KEY_ID "
+        "AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN AWS_BEARER_TOKEN_BEDROCK; "
+        f"exec sudo -n -H -u {agent_shell} env HOME={home} "
+        f"PATH={home}/.local/pi/bin:/usr/local/bin:/usr/bin:/bin "
+        f"PI_DISABLE_AUTOUPDATE=1 pi --provider {shlex.quote(provider_type)} --model {shlex.quote(model)}"
+    )
+    typer.echo("Opening Pi native login in the dedicated account. At the Pi prompt, enter /login and select openai-codex; complete the browser/device flow, then exit Pi.")
+    result = subprocess.run(
+        [
+            "ssh",
+            "-tt",
+            "-i",
+            str(ssh_key),
+            "-p",
+            str(host.get("port", 22)),
+            f"{remote_user}@{hostname}",
+            remote,
+        ],
+        check=False,
+    )
+    if result.returncode:
+        raise typer.Exit(code=result.returncode)
+
+
 @provider_app.command("detach")
 def detach(
     name: str = typer.Argument(..., help="Provider name to detach."),
@@ -494,11 +574,19 @@ def detach(
     if agent_type == "pi" and not remaining:
         from clawrium.core.lifecycle_canonical import (
             CanonicalSyncError,
+            revoke_pi_codex,
             revoke_pi_openrouter,
         )
 
         try:
-            revoke_pi_openrouter(agent_name=agent, host=host)
+            # Pi is singleton-only. Remove exactly the selected private
+            # artifact; never inspect either credential and never erase a
+            # future independent provider mode just because a detach failed.
+            detached_provider = _safe_get_provider(name)
+            if detached_provider.get("type") == PI_CODEX_PROVIDER_TYPE:
+                revoke_pi_codex(agent_name=agent, host=host)
+            else:
+                revoke_pi_openrouter(agent_name=agent, host=host)
         except CanonicalSyncError as exc:
             emit_error(f"failed to revoke Pi provider credential: {exc}")
     if not _set_attachments(hostname, agent_key, agent_type, remaining):

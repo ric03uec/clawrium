@@ -342,6 +342,7 @@ def test_provider_types_returns_rich_model_metadata():
         "ollama",
         "litellm",
         "claude-oauth",
+        "openai-codex",
     }
 
     # Cloud providers carry catalog-shaped models

@@ -19,6 +19,7 @@ __all__ = [
     "PROVIDERS_FILE",
     "PROVIDER_MODELS",
     "CLAUDE_OAUTH_PROVIDER_TYPE",
+    "PI_CODEX_OAUTH_PROVIDER_TYPE",
     "load_providers",
     "save_providers",
     "add_provider",
@@ -51,6 +52,9 @@ __all__ = [
 
 PROVIDERS_FILE = "providers.json"
 CLAUDE_OAUTH_PROVIDER_TYPE = "claude-oauth"
+# Selection-only: Pi writes and refreshes OAuth only inside its dedicated
+# account through native interactive login. There is no provider-scoped secret.
+PI_CODEX_OAUTH_PROVIDER_TYPE = "openai-codex"
 
 # Provider name pattern: starts with letter, alphanumeric/underscore/hyphen, 1-64 chars
 PROVIDER_NAME_PATTERN = re.compile(r"^[a-zA-Z][a-zA-Z0-9_-]{0,63}$")
@@ -113,6 +117,11 @@ PROVIDER_MODELS: dict[str, dict] = {
     # credential is imported into the selected agent's per-instance secret
     # scope, never into provider metadata or provider-scoped secrets.
     CLAUDE_OAUTH_PROVIDER_TYPE: {
+        "endpoint": None,
+        "requires_api_key": False,
+        "requires_endpoint": False,
+    },
+    PI_CODEX_OAUTH_PROVIDER_TYPE: {
         "endpoint": None,
         "requires_api_key": False,
         "requires_endpoint": False,

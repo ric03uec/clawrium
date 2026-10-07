@@ -50,8 +50,13 @@ def _install_fake(monkeypatch, *, failure: Exception | None = None):
     class FakePiBackend:
         instances = []
 
-        def __init__(self, hostname, agent_name, model):
-            self.hostname, self.agent_name, self.model = hostname, agent_name, model
+        def __init__(self, hostname, agent_name, model, provider="openrouter"):
+            self.hostname, self.agent_name, self.model, self.provider = (
+                hostname,
+                agent_name,
+                model,
+                provider,
+            )
             self.calls = []
             self.instances.append(self)
 
@@ -102,6 +107,23 @@ def test_pi_gui_chat_reuses_then_resets_native_cli_session(
         ("second", "gui:one", 120.0),
     ]
     assert backend_cls.instances[1].calls == [("fresh", "gui:two", 120.0)]
+
+
+def test_pi_gui_chat_preserves_selected_codex_provider(monkeypatch):
+    backend_cls = _install_fake(monkeypatch)
+    session = agents_module._get_pi_browser_session(
+        agent_key="pi-demo",
+        session_key="gui:one",
+        hostname="host",
+        agent_name="pi-demo",
+        model="gpt-5.1-codex-mini",
+        provider_name="codex",
+        installation_id="install",
+        provider_type="openai-codex",
+    )
+    assert session.backend.provider == "openai-codex"
+    assert session.backend.model == "gpt-5.1-codex-mini"
+    assert len(backend_cls.instances) == 1
 
 
 def test_pi_gui_chat_replaces_stale_agent_identity(monkeypatch):

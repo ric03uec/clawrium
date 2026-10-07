@@ -43,6 +43,7 @@ from clawrium.cli.output import (
     emit_error,
     render_table,
 )
+from clawrium.core.pi import PI_CODEX_MODELS
 from clawrium.core.providers.storage import (
     DuplicateProviderError,
     InvalidLiteLLMUrlError,
@@ -53,6 +54,7 @@ from clawrium.core.providers.storage import (
     OllamaConnectionError,
     ProvidersFileCorruptedError,
     CLAUDE_OAUTH_PROVIDER_TYPE,
+    PI_CODEX_OAUTH_PROVIDER_TYPE,
     PROVIDER_MODELS,
     add_provider,
     fetch_litellm_models,
@@ -208,7 +210,10 @@ def create(
         ...,
         "--type",
         "-t",
-        help="Provider type (anthropic, claude-oauth, openai, bedrock, opencode, opencode-go, ollama, ...).",
+        help=(
+            "Provider type (anthropic, claude-oauth, openai-codex, openai, bedrock, "
+            "opencode, opencode-go, ollama, ...)."
+        ),
     ),
     model: Optional[str] = typer.Option(
         None, "--model", "-m", help="Default model id."
@@ -298,17 +303,27 @@ def create(
         ):
             emit_error(
                 "claude-oauth providers do not accept provider-scoped credentials or settings",
-                hint=(
-                    "attach the provider to a Claude agent to import its OAuth "
-                    "credential into that agent's private secret scope"
-                ),
+                hint="attach the provider to a Claude agent to import its OAuth credential into that agent's private secret scope",
             )
-        record = {
-            "name": name,
-            "type": provider_type,
-            "created_at": now,
-            "updated_at": now,
-        }
+        record = {"name": name, "type": provider_type, "created_at": now, "updated_at": now}
+    elif provider_type == PI_CODEX_OAUTH_PROVIDER_TYPE:
+        # This exact mapping is defined by Pi 0.73.1's
+        # dist/core/model-resolver.js. Do not accept an API key or a secret
+        # import: native Pi OAuth owns its dedicated account's auth.json.
+        if model not in PI_CODEX_MODELS:
+            emit_error(
+                "openai-codex providers require a model supported by pinned Pi 0.73.1",
+                hint="choose a model listed by `clawctl provider registry get --types`",
+            )
+        if any((api_key is not None, api_key_stdin, access_key is not None, secret_key is not None, region is not None, ollama_url is not None, litellm_url is not None, context_window is not None)):
+            emit_error(
+                "openai-codex providers do not accept provider-scoped credentials or settings",
+                hint="attach to Pi, then run `clawctl agent provider login <provider> --agent <name>`",
+            )
+        record = {"name": name, "type": provider_type, "default_model": model, "created_at": now, "updated_at": now}
+    else:
+        record = None
+    if record is not None:
         try:
             add_provider(record)
         except DuplicateProviderError as exc:

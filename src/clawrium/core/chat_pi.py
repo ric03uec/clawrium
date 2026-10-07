@@ -187,11 +187,17 @@ class PiChatBackend:
         hostname: str,
         agent_name: str,
         model: str,
+        provider: str = "openrouter",
         timeout_seconds: float = 120.0,
         command_runner: PiChatRunner = run_pi_chat,
         session_id_factory: Callable[[], uuid.UUID] = uuid.uuid4,
     ) -> None:
-        self.hostname, self.agent_name, self.model = hostname, agent_name, model
+        self.hostname, self.agent_name, self.model, self.provider = (
+            hostname,
+            agent_name,
+            model,
+            provider,
+        )
         self.timeout_seconds, self._runner, self._factory = (
             timeout_seconds,
             command_runner,
@@ -232,7 +238,12 @@ class PiChatBackend:
             self.clear_history()
         self._session_key = session_key
         try:
-            argv = pi_chat_argv(self.model, self._session_id, resume=self._started)
+            argv = pi_chat_argv(
+                self.model,
+                self._session_id,
+                resume=self._started,
+                provider=self.provider,
+            )
         except PiProvisioningError as exc:
             raise ChatProtocolError(str(exc)) from exc
 
@@ -272,7 +283,7 @@ class PiChatBackend:
         if rc != 0:
             if _AUTH_RE.search(stdout) or _AUTH_RE.search(stderr):
                 raise ChatAuthenticationError(
-                    "Pi rejected the configured OpenRouter credential"
+                    "Pi authentication failed; run `clawctl agent provider login <provider> --agent <name>` to authenticate or re-authenticate the dedicated Pi account"
                 )
             if rc == 255:
                 raise ChatConnectionError("Could not run Pi chat remotely")

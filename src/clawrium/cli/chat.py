@@ -36,7 +36,7 @@ from clawrium.core.chat import (
 )
 from clawrium.core.chat_claude import ClaudeCodeChatBackend
 from clawrium.core.chat_pi import PiChatBackend
-from clawrium.core.pi import PiProvisioningError, validate_openrouter_provider
+from clawrium.core.pi import PiProvisioningError, validate_pi_provider
 from clawrium.core.providers.storage import get_provider
 from clawrium.core.chat_hermes import HermesOpenAIBackend
 from clawrium.core.chat_zeroclaw import (
@@ -920,16 +920,17 @@ def _build_pi_backend(
         or not isinstance(providers[0], str)
     ):
         raise ValueError(
-            "Pi requires exactly one attached OpenRouter provider. Re-run agent sync."
+            "Pi requires exactly one attached provider. Re-run agent sync."
         )
     try:
-        model = validate_openrouter_provider(get_provider(providers[0]))
+        provider_type, model = validate_pi_provider(get_provider(providers[0]))
     except PiProvisioningError as exc:
         raise ValueError(str(exc)) from exc
     return PiChatBackend(
         hostname=hostname,
         agent_name=str(unix_name),
         model=model,
+        provider=provider_type,
         timeout_seconds=response_timeout_seconds,
     )
 
