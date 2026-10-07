@@ -30,6 +30,7 @@ cut. The `itx-release` skill archives this section into a new
 
 ### Fixed
 
+- Fixed Pi Codex OAuth provider switches to revoke dedicated-account OAuth state, require marker-bound managed-account login, and start Pi with a clean environment (#1040).
 - Fixed Pi Bedrock provider replacement during `clawctl agent configure --stage providers` so the prior dedicated-account SSO and CLI caches are cleared before a different Identity Center profile activates, while failed cleanup retains the prior provider and same-identity updates retain warm caches (#1039).
 - Fixed a process-wide umask race during config-directory initialization that could cause intermittent Ubuntu 3.12 permission failures (#1046).
 

@@ -133,7 +133,7 @@ def test_pi_chat_backend_continues_then_resets_without_exposing_credential():
         ]
     )
 
-    def runner(host, user, argv, prompt, timeout, cancelled):
+    def runner(host, user, argv, prompt, timeout, cancelled, codex_recovery):
         calls.append((argv, prompt))
         return "answer", "", 0
 

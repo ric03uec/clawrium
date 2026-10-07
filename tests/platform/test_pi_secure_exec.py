@@ -87,6 +87,16 @@ def test_pi_exec_actual_transport_encrypts_sentinel_output(
     credential = home / ".pi" / "agent" / "clawrium-provider.env"
     credential.parent.mkdir(parents=True)
     credential.write_text("OPENROUTER_API_KEY=not-a-shell-command;$(ignored)\n")
+    pi_binary = home / ".local" / "pi" / "bin" / "pi"
+    pi_binary.parent.mkdir(parents=True)
+    pi_binary.write_text(
+        "#!/bin/sh\n"
+        "test \"$1\" = --version || exit 126\n"
+        f"printf '%s:%s:%s:%s:%s:%s:%s:%s:%s:%s' {sentinel!r} \"${{OPENROUTER_API_KEY-unset}}\" \"${{AWS_ACCESS_KEY_ID-unset}}\" \"${{AWS_SECRET_ACCESS_KEY-unset}}\" \"${{AWS_SESSION_TOKEN-unset}}\" \"${{AWS_SHARED_CREDENTIALS_FILE-unset}}\" \"${{AWS_BEARER_TOKEN_BEDROCK-unset}}\" \"${{AWS_CONTAINER_CREDENTIALS_RELATIVE_URI-unset}}\" \"${{AWS_CONTAINER_CREDENTIALS_FULL_URI-unset}}\" \"${{AWS_WEB_IDENTITY_TOKEN_FILE-unset}}\"\n"
+        f"printf '%s' {sentinel!r} >&2\n"
+        "exit 17\n"
+    )
+    pi_binary.chmod(0o700)
     shim_dir = tmp_path / "agent-writable-bin"
     shim_dir.mkdir()
     shim_marker = tmp_path / "path-shim-ran"
@@ -104,10 +114,10 @@ def test_pi_exec_actual_transport_encrypts_sentinel_output(
             "clawrium-pi-exec",
             playbook["vars"]["pi_exec_capture_program"],
             public_key.read_text(),
+            "false",
             "diagnostic",
-            "/bin/sh",
-            "-c",
-            f'printf "%s:%s:%s:%s:%s:%s:%s:%s:%s:%s" "{sentinel}" "${{OPENROUTER_API_KEY-unset}}" "${{AWS_ACCESS_KEY_ID-unset}}" "${{AWS_SECRET_ACCESS_KEY-unset}}" "${{AWS_SESSION_TOKEN-unset}}" "${{AWS_SHARED_CREDENTIALS_FILE-unset}}" "${{AWS_BEARER_TOKEN_BEDROCK-unset}}" "${{AWS_CONTAINER_CREDENTIALS_RELATIVE_URI-unset}}" "${{AWS_CONTAINER_CREDENTIALS_FULL_URI-unset}}" "${{AWS_WEB_IDENTITY_TOKEN_FILE-unset}}"; printf "%s" "{sentinel}" >&2; exit 17',
+            str(pi_binary),
+            "--version",
         ],
         check=True,
         capture_output=True,

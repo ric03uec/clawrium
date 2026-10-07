@@ -1298,8 +1298,6 @@ def _sync_pi_openrouter(
     from clawrium.core.providers import get_provider_api_key
 
     hostname = host.get("hostname", "")
-    if workspace_only:
-        return CanonicalSyncResult(True, agent_name, hostname, (), (), ())
     providers = claw_record.get("providers")
     if (
         not isinstance(providers, list)
@@ -1326,6 +1324,16 @@ def _sync_pi_openrouter(
             aws_config = render_bedrock_sso_config(record)
     except PiProvisioningError as exc:
         raise CanonicalSyncError(str(exc)) from exc
+    if (
+        selection.provider == "openai-codex"
+        and claw_record.get("pi_codex_auth_recovery") is True
+    ):
+        raise CanonicalSyncError(
+            "Pi Codex credential recovery is pending; run `clawctl agent provider "
+            "login <provider> --agent <name>` to complete native OAuth before syncing"
+        )
+    if workspace_only:
+        return CanonicalSyncResult(True, agent_name, hostname, (), (), ())
     if dry_run:
         # Validate access without showing secret-bearing file contents.
         return CanonicalSyncResult(
@@ -3003,7 +3011,14 @@ def sync_agent_canonical(
                     fresh = get_agent_by_name(agent_name)
                     if fresh is None:
                         raise CanonicalSyncError(f"agent {agent_name!r} not found")
-                    fresh_host, _fresh_type, fresh_record = fresh
+                    fresh_host, fresh_type, fresh_record = fresh
+                    if (
+                        fresh_type != "pi"
+                        or fresh_host.get("hostname") != host.get("hostname")
+                    ):
+                        raise CanonicalSyncError(
+                            "Pi agent ownership changed; retry the sync command"
+                        )
                     return _sync_pi_openrouter(
                         agent_name=agent_name,
                         host=fresh_host,

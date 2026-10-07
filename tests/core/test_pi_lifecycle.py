@@ -105,6 +105,87 @@ def test_canonical_pi_sync_writes_only_account_private_environment(monkeypatch):
     assert "private-key" not in client.commands[0][0]
 
 
+def test_bedrock_to_codex_sync_clears_aws_state_before_codex_activation(monkeypatch):
+    client = _Client()
+    events = []
+    operations = []
+    monkeypatch.setattr("clawrium.core.lifecycle_canonical._open_ssh", lambda _: client)
+    monkeypatch.setattr(
+        "clawrium.core.providers.storage.get_provider",
+        lambda _: {"type": "openai-codex", "default_model": "gpt-5.1-codex-mini"},
+    )
+    monkeypatch.setattr(
+        "clawrium.core.providers.get_provider_api_key",
+        lambda _: pytest.fail("Codex OAuth must never read a controller credential"),
+    )
+    monkeypatch.setattr(
+        "clawrium.core.lifecycle_canonical._verify_pi_remote_ownership",
+        lambda *_args, **_kwargs: events.append("ownership"),
+    )
+    monkeypatch.setattr(
+        "clawrium.core.lifecycle_canonical._clear_pi_bedrock_aws_caches",
+        lambda *_args, **_kwargs: events.append("cache-cleanup"),
+    )
+    monkeypatch.setattr(
+        "clawrium.core.lifecycle_canonical._pi_user_environment_operation",
+        lambda _client, **kwargs: operations.append(kwargs),
+    )
+
+    result = _sync_pi_openrouter(
+        agent_name="pi-demo",
+        host={"hostname": "wolf-i", "os_family": "linux"},
+        claw_record={"providers": ["codex"]},
+        workspace_only=False,
+        dry_run=False,
+        on_event=lambda phase, message: events.append((phase, message)),
+    )
+
+    assert result.files_written == ()
+    assert events[:2] == ["ownership", "cache-cleanup"]
+    assert [entry["path"].rsplit("/", 1)[-1] for entry in operations] == [
+        "clawrium-aws-config",
+        "clawrium-aws-credentials",
+        "clawrium-provider.env",
+    ]
+    assert all(entry["body"] is None for entry in operations)
+    assert all(not entry["path"].endswith("auth.json") for entry in operations)
+    assert events[-1][0] == "sync"
+    assert client.closed is True
+
+
+def test_bedrock_to_codex_cache_cleanup_failure_prevents_activation(monkeypatch):
+    client = _Client()
+    operations = []
+    monkeypatch.setattr("clawrium.core.lifecycle_canonical._open_ssh", lambda _: client)
+    monkeypatch.setattr(
+        "clawrium.core.providers.storage.get_provider",
+        lambda _: {"type": "openai-codex", "default_model": "gpt-5.1-codex-mini"},
+    )
+    monkeypatch.setattr(
+        "clawrium.core.lifecycle_canonical._clear_pi_bedrock_aws_caches",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            CanonicalSyncError("could not remove Pi provider activation")
+        ),
+    )
+    monkeypatch.setattr(
+        "clawrium.core.lifecycle_canonical._pi_user_environment_operation",
+        lambda _client, **kwargs: operations.append(kwargs),
+    )
+
+    with pytest.raises(CanonicalSyncError, match="could not remove Pi provider activation"):
+        _sync_pi_openrouter(
+            agent_name="pi-demo",
+            host={"hostname": "wolf-i", "os_family": "linux"},
+            claw_record={"providers": ["codex"]},
+            workspace_only=False,
+            dry_run=False,
+            on_event=None,
+        )
+
+    assert operations == []
+    assert client.closed is True
+
+
 def test_canonical_pi_sync_stops_before_activation_when_aws_removal_fails(monkeypatch):
     client = _Client()
     operations = []

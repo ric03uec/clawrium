@@ -24,3 +24,13 @@ Per user priority override, committed and pushed `25d3436f0e05ee8de034e1af7d0f22
 ## Integration plan — 2026-10-07T01:36:00Z
 
 Read-only comparison with the currently published #1039 commit identifies deliberate overlap in `core/pi.py`, canonical sync, chat/exec playbooks, CLI selection, and GUI routing. Once #1039 publishes its predecessor-integrated branch, merge it into this branch (no force-push). Retain #1039's strict `clawrium-provider.env` parser and Bedrock SSO readiness behavior; extend the selection type and chat argv for the bounded native Codex model set; make Codex use Pi-native `auth.json` with explicit credential-environment clearing rather than requiring a provider env file; preserve the #1038 bounded native exec protocol; and retain the separate SSH TTY login command. Then run full tests, lint, stateless ATX, update PR #1048, and keep real wolf-i OAuth UAT pending until authorized.
+
+## Resume update — 2026-10-07T22:57:00Z
+
+Integrated the current `origin/main` (including merged #1038 and #1039) with a normal merge, preserving the existing staged Codex work and local commits. The secure Pi lock now keeps immutable `key_id` identities for resolved Pi agents while allowing the commands' normal safe validation errors before resolution; the transport tests were aligned to the new controller-derived Codex recovery assertion. `make test` passed (**5,628 passed, 2 skipped**) and `make lint` passed.
+
+Created a dedicated live UAT provider `pi-codex-1040-uat` and Pi agent `pi-codex-1040-uat` on `wolf-i`; the pinned Pi 0.73.1 installation completed successfully and the provider is attached. Native OAuth is open and waiting in tmux session `clawrium-pi-codex-1040-uat-login`. No token, provider environment, or controller OAuth material was read or printed.
+
+**Operator handoff blocker:** attach with `tmux attach -t clawrium-pi-codex-1040-uat-login`, enter `/login` in Pi, select `openai-codex`, and complete the browser/device authorization. Then exit Pi. This is the required account-owner action; it cannot be automated without interacting with OAuth. Once complete, resume the UAT with real native exec, CLI chat/session/reset, GUI chat/session/reset, re-login/refresh, revoke failure, and agent/provider cleanup checks.
+
+ATX CLI is installed and its server is running, but `atx project status` reports this worktree is not initialized; scoped stateless ATX could not be started without an initialized project. This is recorded as an environment limitation, not a successful review.

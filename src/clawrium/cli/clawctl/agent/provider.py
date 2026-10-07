@@ -25,6 +25,7 @@ import json
 import shlex
 import subprocess
 import uuid
+from pathlib import Path
 from typing import Optional
 
 import paramiko
@@ -41,8 +42,10 @@ from clawrium.cli.output import (
     render_table,
     stream_action,
 )
-from clawrium.core.hosts import update_host
+from clawrium.core.hosts import HostsFileCorruptedError, update_host
+from clawrium.core.lifecycle import LifecycleError
 from clawrium.core.keys import get_host_private_key
+from clawrium.core.reset import USERNAME_PATTERN
 from clawrium.core import codex_credentials
 from clawrium.core.claude_credentials import (
     ClaudeCredentialError,
@@ -81,6 +84,7 @@ from clawrium.core.providers.storage import (
 from clawrium.core.pi import (
     PI_CODEX_PROVIDER_TYPE,
     PiProvisioningError,
+    pi_credential_lock,
     validate_pi_provider,
 )
 
@@ -783,41 +787,221 @@ def _detach_codex_oauth_provider(*, agent: str, name: str) -> None:
         )
 
 
+def _pi_login_ssh_argv(*, key: object, port: object, target: str, remote: str, tty: bool) -> list[str]:
+    """Build a native-login SSH call without consuming ambient SSH config."""
+    known_hosts = Path.home() / ".ssh" / "known_hosts"
+    return [
+        "ssh", "-F", "/dev/null",
+        "-o", "StrictHostKeyChecking=yes",
+        "-o", f"UserKnownHostsFile={known_hosts}",
+        "-o", "IdentitiesOnly=yes",
+        "-o", "ClearAllForwardings=yes",
+        "-o", "PermitLocalCommand=no",
+        "-o", "ForwardAgent=no",
+        "-o", "ForwardX11=no",
+        "-tt" if tty else "-T",
+        "-i", str(key), "-p", str(port), "--", target, remote,
+    ]
+
+
+def _pi_login_remote_command(
+    *, agent_name: str, home: str, marker: str, provider: str, model: str,
+    clear_existing_auth: bool = False,
+) -> str:
+    """Validate the root-owned Pi binding and exec native OAuth in one SSH command."""
+    # This is deliberately one privileged shell invocation: the marker/passwd
+    # validation and the account switch cannot be separated by an SSH-level
+    # time-of-check/time-of-use window.
+    probe = r'''use strict; use warnings; use Fcntl qw(O_RDONLY O_NOFOLLOW); use JSON::PP qw(decode_json);
+my ($name,$home,$marker)=@ARGV; exit 1 unless @ARGV == 3;
+my @before=lstat($marker); exit 1 unless @before && ($before[2]&0170000)==0100000 && $before[4]==0 && ($before[2]&07777)==0600;
+sysopen(my $fh,$marker,O_RDONLY|O_NOFOLLOW) or exit 1; my @opened=stat($fh); exit 1 unless @opened && $opened[0]==$before[0] && $opened[1]==$before[1] && $opened[4]==0 && ($opened[2]&07777)==0600;
+my $raw=do { local $/; <$fh> }; close($fh) or exit 1; my $data=eval { decode_json($raw) }; exit 1 if $@ || ref($data) ne 'HASH';
+my @account=getpwnam($name); exit 1 unless @account; my $transaction=$data->{transaction_id};
+exit 1 unless $data->{schema}==2 && defined($data->{agent_name}) && $data->{agent_name} eq $name && defined($data->{home}) && $data->{home} eq $home && defined($data->{uid}) && $data->{uid}==$account[2] && $account[7] eq $home && defined($transaction) && !ref($transaction) && $transaction =~ /\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z/ && $account[6] eq "clawrium-pi-$transaction";'''
+    # Recovery must not accept an OAuth document left over from an ambiguous
+    # prior revoke. The dedicated account unlinks only its own regular 0600
+    # document after the root-owned marker has bound that account and home.
+    cleanup = r'''use strict; use warnings; my ($name,$auth)=@ARGV; my @account=getpwnam($name); exit 1 unless @account; exit 0 unless -e $auth || -l $auth; my @st=lstat($auth); exit 1 unless @st && ($st[2]&0170000)==0100000 && $st[4]==$account[2] && ($st[2]&07777)==0600; unlink($auth) or exit 1;'''
+    script = (
+        "set -eu; /usr/bin/perl -e \"$1\" -- \"$2\" \"$3\" \"$4\"; "
+        "if test \"$7\" = 1; then /usr/bin/sudo -n -H -u \"$2\" -- /usr/bin/perl -e \"$8\" -- \"$2\" \"$3/.pi/agent/auth.json\"; fi; "
+        # `env -i` is after the privileged account switch, so no SSH-user or
+        # controller environment (including Node/Pi/provider overrides) reaches
+        # the dedicated account. TERM alone preserves the interactive TTY UX.
+        "exec /usr/bin/sudo -n -H -u \"$2\" -- /usr/bin/env -i HOME=\"$3\" "
+        "PATH=\"$3/.local/pi/bin:/usr/local/bin:/usr/bin:/bin\" PI_DISABLE_AUTOUPDATE=1 "
+        "TERM=\"${TERM:-dumb}\" pi --provider \"$5\" --model \"$6\""
+    )
+    return "exec sudo -n /bin/sh -c {} -- {} {} {} {} {} {} {} {}".format(
+        shlex.quote(script),
+        shlex.quote(probe),
+        shlex.quote(agent_name),
+        shlex.quote(home),
+        shlex.quote(marker),
+        shlex.quote(provider),
+        shlex.quote(model),
+        shlex.quote("1" if clear_existing_auth else "0"),
+        shlex.quote(cleanup),
+    )
+
+
+def _pi_login_auth_validation_command(*, agent_name: str, home: str, marker: str) -> str:
+    """Return a silent privileged probe for Pi's dedicated Codex OAuth file."""
+    auth = f"{home}/.pi/agent/auth.json"
+    probe = r'''use strict; use warnings; use Fcntl qw(O_RDONLY O_NOFOLLOW); use JSON::PP qw(decode_json);
+my ($name,$home,$marker,$auth)=@ARGV; exit 1 unless @ARGV == 4;
+my @marker_before=lstat($marker); exit 1 unless @marker_before && ($marker_before[2]&0170000)==0100000 && $marker_before[4]==0 && ($marker_before[2]&07777)==0600;
+sysopen(my $marker_fh,$marker,O_RDONLY|O_NOFOLLOW) or exit 1; my @marker_opened=stat($marker_fh); exit 1 unless @marker_opened && $marker_opened[0]==$marker_before[0] && $marker_opened[1]==$marker_before[1] && $marker_opened[4]==0 && ($marker_opened[2]&07777)==0600;
+my $marker_raw=do { local $/; <$marker_fh> }; close($marker_fh) or exit 1; my $marker_data=eval { decode_json($marker_raw) }; exit 1 if $@ || ref($marker_data) ne 'HASH';
+my @account=getpwnam($name); exit 1 unless @account; my $transaction=$marker_data->{transaction_id};
+exit 1 unless $marker_data->{schema}==2 && defined($marker_data->{agent_name}) && $marker_data->{agent_name} eq $name && defined($marker_data->{home}) && $marker_data->{home} eq $home && defined($marker_data->{uid}) && $marker_data->{uid}==$account[2] && $account[7] eq $home && defined($transaction) && !ref($transaction) && $transaction =~ /\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z/ && $account[6] eq "clawrium-pi-$transaction";
+my @auth_before=lstat($auth); exit 1 unless @auth_before && ($auth_before[2]&0170000)==0100000 && $auth_before[4]==$account[2] && ($auth_before[2]&07777)==0600;
+sysopen(my $auth_fh,$auth,O_RDONLY|O_NOFOLLOW) or exit 1; my @auth_opened=stat($auth_fh); exit 1 unless @auth_opened && $auth_opened[0]==$auth_before[0] && $auth_opened[1]==$auth_before[1] && $auth_opened[4]==$account[2] && ($auth_opened[2]&07777)==0600;
+my $auth_raw=do { local $/; <$auth_fh> }; close($auth_fh) or exit 1; my $auth_data=eval { decode_json($auth_raw) }; exit 1 if $@ || ref($auth_data) ne 'HASH'; my $oauth=$auth_data->{'openai-codex'}; exit 1 unless ref($oauth) eq 'HASH' && $oauth->{type} eq 'oauth' && defined($oauth->{access}) && !ref($oauth->{access}) && length($oauth->{access});'''
+    script = "set -eu; exec /usr/bin/perl -e \"$1\" -- \"$2\" \"$3\" \"$4\" \"$5\""
+    return "exec sudo -n /bin/sh -c {} -- {} {} {} {} {}".format(
+        shlex.quote(script),
+        shlex.quote(probe),
+        shlex.quote(agent_name),
+        shlex.quote(home),
+        shlex.quote(marker),
+        shlex.quote(auth),
+    )
+
+
+def _clear_pi_codex_auth_recovery_after_login(
+    *, agent: str, hostname: str, agent_key: str, provider_name: str
+) -> bool:
+    """Clear recovery only if the same Pi agent is still selected locally."""
+    try:
+        host, _unused, claw = safe_resolve_agent(agent)
+        if host.get("hostname") != hostname or _agent_type(claw) != "pi":
+            return False
+        current_key = resolve_agent_key(host, agent)
+        if current_key != agent_key:
+            return False
+        if _get_attachments(host, agent_key, "pi") != [provider_name]:
+            return False
+        if _safe_get_provider(provider_name).get("type") != PI_CODEX_PROVIDER_TYPE:
+            return False
+        if claw.get("pi_codex_auth_recovery") is not True:
+            return True
+
+        def updater(current_host: dict) -> dict:
+            record = (current_host.get("agents", {}) or {}).get(agent_key)
+            if (
+                not isinstance(record, dict)
+                or _agent_type(record) != "pi"
+                or record.get("providers") != [provider_name]
+            ):
+                raise LifecycleError("Pi provider attachment changed during native login")
+            record.pop("pi_codex_auth_recovery", None)
+            return current_host
+
+        return bool(update_host(hostname, updater))
+    except (LifecycleError, HostsFileCorruptedError, OSError, KeyError, TypeError):
+        return False
+
+
 @provider_app.command("login")
 def login(
     name: str = typer.Argument(..., help="Attached provider name."),
     agent: str = typer.Option(..., "--agent", help="Pi agent instance name."),
 ) -> None:
     """Open Pi-native OAuth in the dedicated account; no credential crosses Clawrium."""
-    record = _safe_get_provider(name)
-    host, _unused, claw = safe_resolve_agent(agent)
+    # Normalize before either lookup: their public error paths interpolate the
+    # requested identifier when the provider or agent does not exist.
+    safe_name = sanitize(name)
+    safe_agent = sanitize(agent)
+    # Hold the same lock used by configure/detach from the fresh metadata
+    # resolution through interactive OAuth and durable recovery update.
+    with pi_credential_lock(safe_agent):
+        _login_pi_codex_locked(safe_name=safe_name, safe_agent=safe_agent)
+
+
+def _login_pi_codex_locked(*, safe_name: str, safe_agent: str) -> None:
+    """Run the complete native-login transaction while its Pi lock is held."""
+    record = _safe_get_provider(safe_name)
+    host, _unused, claw = safe_resolve_agent(safe_agent)
     if _agent_type(claw) != "pi" or record.get("type") != PI_CODEX_PROVIDER_TYPE:
         emit_error("Pi native login is available only for an attached openai-codex provider")
-    agent_key = resolve_agent_key(host, agent)
-    if name not in _get_attachments(host, agent_key, "pi"):
-        emit_error(f"provider {name!r} is not attached to agent {agent!r}")
+    agent_key = resolve_agent_key(host, safe_agent)
+    if safe_name not in _get_attachments(host, agent_key, "pi"):
+        emit_error(f"provider {safe_name!r} is not attached to agent {safe_agent!r}")
     try:
         selection = validate_pi_provider(record)
     except PiProvisioningError as exc:
         emit_error(str(exc))
-    agent_unix = claw.get("agent_name") or agent
+    agent_unix = claw.get("agent_name") or safe_agent
+    if not isinstance(agent_unix, str) or not USERNAME_PATTERN.fullmatch(agent_unix):
+        emit_error("Pi agent has an invalid managed account name")
     key_id = host.get("key_id") or host.get("hostname")
     key = get_host_private_key(key_id)
     hostname, user = host.get("hostname"), host.get("user", "xclm")
     if not key or not isinstance(hostname, str) or not isinstance(user, str):
         emit_error("Pi host is missing its managed SSH identity")
+    if not USERNAME_PATTERN.fullmatch(user):
+        emit_error("Pi host has an invalid managed SSH user")
     root = "/Users" if str(host.get("os_family", "")).lower() in {"darwin", "macos", "osx"} else "/home"
     home = f"{root}/{agent_unix}"
-    remote = (
-        "unset OPENAI_API_KEY OPENROUTER_API_KEY AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN AWS_BEARER_TOKEN_BEDROCK; "
-        f"exec sudo -n -H -u {shlex.quote(str(agent_unix))} env HOME={shlex.quote(home)} "
-        f"PATH={shlex.quote(home + '/.local/pi/bin')}:/usr/local/bin:/usr/bin:/bin PI_DISABLE_AUTOUPDATE=1 "
-        f"pi --provider {shlex.quote(selection.provider)} --model {shlex.quote(selection.model)}"
+    marker = (
+        f"/Library/Application Support/clawrium/pi/{agent_unix}.json"
+        if root == "/Users"
+        else f"/var/lib/clawrium/pi/{agent_unix}.json"
+    )
+    remote = _pi_login_remote_command(
+        agent_name=agent_unix,
+        home=home,
+        marker=marker,
+        provider=selection.provider,
+        model=selection.model,
+        clear_existing_auth=claw.get("pi_codex_auth_recovery") is True,
     )
     typer.echo("Opening Pi native login in the dedicated account. Enter /login, select openai-codex, complete the browser/device flow, then exit Pi.")
-    result = subprocess.run(["ssh", "-tt", "-i", str(key), "-p", str(host.get("port", 22)), f"{user}@{hostname}", remote], check=False)
+    try:
+        result = subprocess.run(
+            _pi_login_ssh_argv(
+                key=key, port=host.get("port", 22), target=f"{user}@{hostname}",
+                remote=remote, tty=True,
+            ),
+            check=False,
+        )
+    except OSError:
+        emit_error(
+            f"could not start SSH for Pi native login on host {sanitize_passthrough(hostname)!r}",
+            hint="verify that SSH is installed and retry the login command",
+        )
     if result.returncode:
         raise typer.Exit(code=result.returncode)
+
+    # A zero exit only says Pi closed cleanly: `/exit` before OAuth completion
+    # is also zero. Verify a non-symlink dedicated-account OAuth record before
+    # removing the durable fail-closed transition marker.
+    verification = _pi_login_auth_validation_command(
+        agent_name=agent_unix, home=home, marker=marker
+    )
+    try:
+        verified = subprocess.run(
+            _pi_login_ssh_argv(
+                key=key, port=host.get("port", 22), target=f"{user}@{hostname}",
+                remote=verification, tty=False,
+            ),
+            check=False,
+        )
+        if not verified.returncode and _clear_pi_codex_auth_recovery_after_login(
+            agent=safe_agent,
+            hostname=hostname,
+            agent_key=agent_key,
+            provider_name=safe_name,
+        ):
+            return
+    except OSError:
+        pass
+    emit_error(
+        "Pi native login did not complete credential recovery",
+        hint="complete the openai-codex login in Pi and retry; if it completed, repair local storage before configuring Codex",
+    )
 
 
 @provider_app.command("detach")
@@ -926,7 +1110,10 @@ def detach(
                 except (CanonicalSyncError, paramiko.SSHException, OSError, EOFError):
                     emit_error(
                         "failed to revoke Pi provider credential; detach did not finish",
-                        hint=f"retry: clawctl agent provider detach {name} --agent {agent}",
+                        hint=(
+                            "retry: clawctl agent provider detach "
+                            f"{sanitize(name)} --agent {sanitize(agent)}"
+                        ),
                     )
             try:
                 metadata_persisted = _set_attachments(
@@ -940,7 +1127,10 @@ def detach(
                 # detach can be retried; remote rm -f remains safe.
                 emit_error(
                     f"failed to persist Pi provider detach for {name!r}; detach did not finish",
-                    hint=f"retry: clawctl agent provider detach {name} --agent {agent}",
+                    hint=(
+                        "retry: clawctl agent provider detach "
+                        f"{sanitize(name)} --agent {sanitize(agent)}"
+                    ),
                 )
         typer.echo(f"agent/{sanitize(agent)}: detached provider {sanitize(name)!r}")
         return
