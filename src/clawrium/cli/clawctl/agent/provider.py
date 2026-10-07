@@ -584,6 +584,11 @@ def attach(
     hostname = host["hostname"]
     agent_key = resolve_agent_key(host, agent)
     agent_type = _agent_type(claw)
+    if agent_type == "pi":
+        emit_error(
+            "provider attachment is not supported for pi yet",
+            hint="Pi provider provisioning is planned for #1038.",
+        )
     if (
         provider_record.get("type") == CLAUDE_OAUTH_PROVIDER_TYPE
         and agent_type != "claude"

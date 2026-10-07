@@ -262,6 +262,8 @@ def add(
 ) -> None:
     """Add a local, agent-native skill without syncing the host."""
     _host, agent_type, _claw = safe_resolve_agent(agent)
+    if agent_type == "pi":
+        emit_error("Pi skills are unavailable in the install-only foundation.", exit_code=2)
     try:
         local_name, skill = _resolve_add_input(
             agent_type=agent_type, path=path, from_template=from_template, name=name
@@ -284,6 +286,8 @@ def edit(
 ) -> None:
     """Edit a local skill and validate the native result."""
     _host, agent_type, _claw = safe_resolve_agent(agent)
+    if agent_type == "pi":
+        emit_error("Pi skills are unavailable in the install-only foundation.", exit_code=2)
     try:
         local_name = _validate_local_name(name)
         skill_dir = agent_skills_dir(agent) / local_name
@@ -312,7 +316,9 @@ def remove(
     name: str = typer.Argument(..., help="Local skill name."),
 ) -> None:
     """Remove a local skill from desired state and disk."""
-    safe_resolve_agent(agent)
+    _host, agent_type, _claw = safe_resolve_agent(agent)
+    if agent_type == "pi":
+        emit_error("Pi skills are unavailable in the install-only foundation.", exit_code=2)
     try:
         local_name = _validate_local_name(name)
         _new_state, removed = remove_skill(agent, local_name)

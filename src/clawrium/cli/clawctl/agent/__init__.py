@@ -57,7 +57,7 @@ agent_app = typer.Typer(
 
 # Verb registration. Order matches plan §4.
 agent_app.command(
-    name="create", help="Install agent (Claude Code/Codex are CLI-only)."
+    name="create", help="Install agent (Claude Code, Codex, and Pi are CLI-only)."
 )(_create.create)
 agent_app.command(name="get", help="List agents.")(_get.get)
 agent_app.command(name="describe", help="Describe an agent.")(_describe.describe)
@@ -65,7 +65,10 @@ agent_app.command(name="delete", help="Delete an agent.")(_delete.delete)
 agent_app.command(name="edit", help="Edit an agent record in $EDITOR.")(_edit.edit)
 agent_app.command(
     name="configure",
-    help="Configure an agent (daemonless CLIs manage no runtime service).",
+    help=(
+        "Configure an agent (Pi provider configuration is unavailable; "
+        "daemonless CLIs manage no runtime service)."
+    ),
 )(_configure.configure)
 agent_app.command(name="start", help="Start daemon agent (not CLI-only agents).")(
     _start.start
@@ -81,7 +84,10 @@ agent_app.command(
 )(_restart.restart)
 agent_app.command(
     name="sync",
-    help="Sync local state (daemonless CLIs do not restart).",
+    help=(
+        "Sync local state (Pi provider provisioning and sync are unsupported; "
+        "daemonless CLIs do not restart)."
+    ),
 )(_sync.sync)
 agent_app.command(
     name="upgrade",
@@ -94,9 +100,7 @@ agent_app.command(
 agent_app.command(
     name="logs", help="Stream agent logs (not CLI-only agents)."
 )(_logs.logs)
-agent_app.command(
-    name="chat", help="Chat with a chat-enabled agent."
-)(_chat.chat)
+agent_app.command(name="chat", help="Chat with a chat-enabled agent.")(_chat.chat)
 agent_app.command(
     name="open", help="Open native UI (not available for CLI-only agents)."
 )(_open.open)

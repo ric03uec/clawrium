@@ -197,9 +197,7 @@ def _emit_diff(
             typer.echo(sanitize_passthrough(line), nl=False)
 
 
-def _emit_diff_error(
-    message: str, *, resource: str, use_json: bool, streamer
-) -> None:
+def _emit_diff_error(message: str, *, resource: str, use_json: bool, streamer) -> None:
     if use_json and streamer is not None:
         streamer.emit(
             resource=resource,
@@ -323,6 +321,11 @@ def sync(
     if not has_daemon_lifecycle(agent_type):
         if not has_completed_install(claw_record):
             emit_error(incomplete_install_message(agent_type, "sync"))
+        if agent_type == "pi":
+            emit_error(
+                "Pi provider synchronization is not supported yet",
+                hint="Pi provider provisioning is planned for #1038.",
+            )
         if agent_type not in {"claude", "codex"}:
             stream_action(
                 resource=f"agent/{name}",

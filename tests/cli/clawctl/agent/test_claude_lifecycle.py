@@ -63,9 +63,7 @@ def test_claude_help_and_exec_use_the_native_dedicated_binary(
         calls.append(kwargs)
         return "2.1.100\n", "", 0
 
-    monkeypatch.setattr(
-        "clawrium.cli.clawctl.agent.exec.run_agent_exec", _native_exec
-    )
+    monkeypatch.setattr("clawrium.cli.clawctl.agent.exec.run_agent_exec", _native_exec)
 
     help_result = runner.invoke(app, ["agent", "--help"])
     create_help_result = runner.invoke(app, ["agent", "create", "--help"])
@@ -78,7 +76,7 @@ def test_claude_help_and_exec_use_the_native_dedicated_binary(
     assert help_result.exit_code == 0
     normalized_help = " ".join(help_result.output.split())
     for text in (
-        "create Install agent (Claude Code/Codex are CLI-only).",
+        "create Install agent (Claude Code, Codex, and Pi are CLI-only).",
         "start Start daemon agent (not CLI-only agents).",
         "stop Stop daemon agent (not CLI-only agents).",
         "restart Restart daemon agent (not CLI-only agents).",
@@ -91,12 +89,11 @@ def test_claude_help_and_exec_use_the_native_dedicated_binary(
     assert shell_help_result.exit_code == 0
     assert exec_help_result.exit_code == 0
     assert (
-        "Agent type (e.g., openclaw, zeroclaw, hermes, claude, codex; Claude and Codex are install-only)."
+        "Agent type (e.g., openclaw, zeroclaw, hermes, claude, codex, pi; Claude, Codex, and Pi are install-only)."
         in " ".join(create_help_result.output.split())
     )
-    assert (
-        "Execute a native CLI command on the agent host."
-        in " ".join(exec_help_result.output.split())
+    assert "Execute a native CLI command on the agent host." in " ".join(
+        exec_help_result.output.split()
     )
     assert (
         "For daemonless Claude Code agents, structured native arguments use"
@@ -303,7 +300,9 @@ def test_claude_dry_run_and_diff_errors_do_not_report_success(
 
 
 @pytest.mark.parametrize("failure", ["returned error", "raised error"])
-def test_claude_sync_errors_do_not_report_success(fleet_dir, monkeypatch, failure: str) -> None:
+def test_claude_sync_errors_do_not_report_success(
+    fleet_dir, monkeypatch, failure: str
+) -> None:
     _add_claude_agent(fleet_dir)
 
     class _FailedResult:
@@ -380,9 +379,7 @@ def test_incomplete_claude_install_rejects_cli_reconcile(
     _add_claude_agent(fleet_dir)
     hosts_path = fleet_dir / "hosts.json"
     hosts = json.loads(hosts_path.read_text())
-    hosts[0]["agents"]["claude-code"].update(
-        {"status": "failed", "installed_at": None}
-    )
+    hosts[0]["agents"]["claude-code"].update({"status": "failed", "installed_at": None})
     hosts_path.write_text(json.dumps(hosts, indent=2))
 
     monkeypatch.setattr(

@@ -3,10 +3,11 @@
 `run_agent_exec(hostname, agent_name, claw_type, cmd_argv)` invokes the
 per-type `exec.yaml` playbook against the host that owns the agent.
 The playbook runs the agent's native CLI binary (path baked into the
-playbook for each claw type), captures stdout/stderr/rc, and emits them
-as three base64-tagged debug events (`EXEC_STDOUT=`, `EXEC_STDERR=`,
-`EXEC_RC=`). This module parses those events and returns
-`(stdout, stderr, rc)`.
+playbook for each claw type), captures stdout/stderr/rc, and returns them
+through a type-specific transport. Pi encrypts its complete result to an
+ephemeral controller public key before it enters an Ansible event; legacy
+agent types emit base64-tagged debug events. This module parses the
+transport and returns `(stdout, stderr, rc)`.
 
 Failure modes:
     - Unknown claw type → AgentExecError (caller turns into exit 2).
@@ -27,6 +28,7 @@ import logging
 import os
 import re
 import shutil
+import subprocess
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -43,7 +45,7 @@ logger = logging.getLogger(__name__)
 __all__ = ["AgentExecError", "SUPPORTED_CLAW_TYPES", "run_agent_exec"]
 
 SUPPORTED_CLAW_TYPES: frozenset[str] = frozenset(
-    {"claude", "codex", "ethos", "hermes", "zeroclaw", "openclaw"}
+    {"claude", "codex", "ethos", "hermes", "openclaw", "pi", "zeroclaw"}
 )
 
 _REGISTRY_DIR = Path(__file__).parent.parent / "platform" / "registry"
@@ -125,7 +127,9 @@ def _claude_secret_values(agent_name: str) -> tuple[str, ...]:
     # A three-character value is not a plausible Claude credential and would
     # over-redact ordinary version/help text. Valid API/OAuth values are much
     # longer; preserve output usability while still failing safe for secrets.
-    return tuple(sorted((value for value in values if len(value) >= 4), key=len, reverse=True))
+    return tuple(
+        sorted((value for value in values if len(value) >= 4), key=len, reverse=True)
+    )
 
 
 def _redact_claude_command_output(
@@ -149,6 +153,11 @@ def _logs_dir() -> Path:
 
 
 def _cleanup_artifacts(log_dir: Path) -> None:
+    for filename in ("pi-exec-private.pem",):
+        try:
+            (log_dir / filename).unlink(missing_ok=True)
+        except OSError as e:
+            logger.warning("Failed to remove ephemeral exec key %s: %s", filename, e)
     for sub in ("artifacts", "env", "inventory"):
         target = log_dir / sub
         if target.exists():
@@ -176,6 +185,117 @@ def _build_inventory(host: dict, ssh_key: Path, extra_vars: dict) -> dict:
             "vars": extra_vars,
         }
     }
+
+
+def _create_pi_exec_keypair(log_dir: Path) -> tuple[Path, str]:
+    """Create a one-run CMS recipient certificate and private key.
+
+    The self-signed recipient certificate is safe to include in Ansible
+    extravars. The private half stays mode 0600 in the runner workdir and is
+    removed by ``_cleanup_artifacts`` on every exit path.
+    """
+    openssl = shutil.which("openssl")
+    if not openssl:
+        raise OSError("openssl is required for secure Pi exec transport")
+    private_key = log_dir / "pi-exec-private.pem"
+    certificate = log_dir / "pi-exec-recipient.pem"
+    try:
+        subprocess.run(
+            [
+                openssl,
+                "genpkey",
+                "-algorithm",
+                "RSA",
+                "-pkeyopt",
+                "rsa_keygen_bits:2048",
+                "-out",
+                str(private_key),
+            ],
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        private_key.chmod(0o600)
+        subprocess.run(
+            [
+                openssl,
+                "req",
+                "-new",
+                "-x509",
+                "-key",
+                str(private_key),
+                "-subj",
+                "/CN=clawrium-pi-exec",
+                "-days",
+                "1",
+                "-out",
+                str(certificate),
+            ],
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        return private_key, certificate.read_text(encoding="ascii")
+    except (OSError, subprocess.CalledProcessError) as e:
+        private_key.unlink(missing_ok=True)
+        certificate.unlink(missing_ok=True)
+        raise OSError("failed to initialize secure Pi exec transport") from e
+    finally:
+        certificate.unlink(missing_ok=True)
+
+
+def _parse_pi_secure_result(result, private_key: Path) -> tuple[str, str, int | None]:
+    """Decrypt Pi's opaque result event without writing native output to disk."""
+    encrypted_result: str | None = None
+    for event in result.events:
+        if event.get("event") != "runner_on_ok":
+            continue
+        msg = event.get("event_data", {}).get("res", {}).get("msg")
+        if isinstance(msg, str) and msg.startswith("PI_EXEC_RESULT="):
+            encrypted_result = msg[len("PI_EXEC_RESULT=") :]
+    if not encrypted_result:
+        return "", "", None
+
+    openssl = shutil.which("openssl")
+    if not openssl:
+        return "", "", None
+    try:
+        encrypted = base64.b64decode(encrypted_result, validate=True)
+        decrypted = subprocess.run(
+            [
+                openssl,
+                "cms",
+                "-decrypt",
+                "-binary",
+                "-inform",
+                "DER",
+                "-inkey",
+                str(private_key),
+            ],
+            input=encrypted,
+            capture_output=True,
+            check=True,
+        ).stdout
+        payload = json.loads(decrypted.decode("utf-8", errors="replace"))
+        if not isinstance(payload, dict):
+            raise ValueError("Pi exec result must be an object")
+        stdout = payload.get("stdout", "")
+        stderr = payload.get("stderr", "")
+        rc = payload.get("rc")
+        if not isinstance(stdout, str) or not isinstance(stderr, str):
+            raise ValueError("Pi exec result output must be text")
+        if isinstance(rc, bool) or not isinstance(rc, int):
+            raise ValueError("Pi exec result rc must be an integer")
+        return stdout, stderr, rc
+    except (
+        ValueError,
+        TypeError,
+        binascii.Error,
+        json.JSONDecodeError,
+        OSError,
+        subprocess.CalledProcessError,
+    ):
+        return "", "", None
 
 
 def _parse_events(result) -> tuple[str, str, int | None]:
@@ -212,7 +332,9 @@ def _parse_events(result) -> tuple[str, str, int | None]:
                 stdout_value = payload.get("stdout", "")
                 stderr_value = payload.get("stderr", "")
                 rc_value = payload.get("rc")
-                if not isinstance(stdout_value, str) or not isinstance(stderr_value, str):
+                if not isinstance(stdout_value, str) or not isinstance(
+                    stderr_value, str
+                ):
                     raise ValueError("Claude exec result output must be text")
                 if isinstance(rc_value, bool) or not isinstance(rc_value, int):
                     raise ValueError("Claude exec result rc must be an integer")
@@ -287,8 +409,7 @@ def run_agent_exec(
         not isinstance(cmd_argv, list)
         or not cmd_argv
         or any(
-            not isinstance(item, str) or not item or "\x00" in item
-            for item in cmd_argv
+            not isinstance(item, str) or not item or "\x00" in item for item in cmd_argv
         )
     ):
         raise AgentExecError(
@@ -334,6 +455,10 @@ def run_agent_exec(
         # credential contents: native auth is private agent-home state on the
         # host.
         extra_vars[f"{claw_type}_exec_timeout"] = effective_timeout
+    elif claw_type == "pi":
+        # Keep the playbook contract explicit: both Pi OS variants validate
+        # this exact extra var before their process-group timeout wrapper runs.
+        extra_vars["pi_exec_timeout"] = effective_timeout
 
     try:
         inventory = _build_inventory(host, ssh_key, extra_vars)
@@ -348,9 +473,7 @@ def run_agent_exec(
         # calls would otherwise share private_data_dir and `rmtree`
         # nukes both (ATX iter-1 W1).
         suffix = uuid.uuid4().hex[:8]
-        log_dir = (
-            _logs_dir() / f"exec-{claw_type}-{host_display}-{timestamp}-{suffix}"
-        )
+        log_dir = _logs_dir() / f"exec-{claw_type}-{host_display}-{timestamp}-{suffix}"
         log_dir.mkdir(parents=True, exist_ok=True)
         try:
             os.chmod(log_dir, 0o700)
@@ -362,8 +485,19 @@ def run_agent_exec(
             except OSError:
                 pass
             raise
+        pi_private_key: Path | None = None
+        if claw_type == "pi":
+            pi_private_key, extra_vars["pi_exec_recipient_certificate"] = (
+                _create_pi_exec_keypair(log_dir)
+            )
     except OSError as e:
+        if "log_dir" in locals():
+            _cleanup_artifacts(log_dir)
         return "", f"Failed to set up runner workdir: {e}", 255
+    except BaseException:
+        if "log_dir" in locals():
+            _cleanup_artifacts(log_dir)
+        raise
 
     try:
         result = ansible_runner.run(
@@ -373,7 +507,7 @@ def run_agent_exec(
             quiet=True,
             timeout=(
                 effective_timeout + _NATIVE_CLI_RUNNER_GRACE_SECONDS
-                if claw_type in {"claude", "codex"}
+                if claw_type in {"claude", "codex", "pi"}
                 else effective_timeout
             ),
         )
@@ -383,6 +517,11 @@ def run_agent_exec(
         if claw_type == "claude":
             _, stderr = _redact_claude_command_output("", stderr, agent_name)
         return "", stderr, 255
+    except BaseException:
+        # SIGINT/SystemExit can interrupt runner before the result-processing
+        # finally below; never retain the ephemeral recipient key or artifacts.
+        _cleanup_artifacts(log_dir)
+        raise
 
     try:
         if result.status == "timeout":
@@ -393,7 +532,14 @@ def run_agent_exec(
                 _, err = _redact_claude_command_output("", err, agent_name)
             return "", err, 255
 
-        stdout, stderr, rc = _parse_events(result)
+        if claw_type == "pi":
+            # The private key exists only for this in-memory decrypt and is
+            # wiped in the finally block below. Raw Pi output never reaches
+            # Ansible's persistent event or artifact streams.
+            assert pi_private_key is not None
+            stdout, stderr, rc = _parse_pi_secure_result(result, pi_private_key)
+        else:
+            stdout, stderr, rc = _parse_events(result)
         if claw_type == "claude":
             stdout, stderr = _redact_claude_command_output(stdout, stderr, agent_name)
         if rc is None:
