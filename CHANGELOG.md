@@ -17,6 +17,7 @@ cut. The `itx-release` skill archives this section into a new
 ### Added
 
 - Added the install-only `pi` fleet agent. Pi installs in its own account and runs native commands on demand without a service, port, or dashboard (#1032).
+- Added scoped OpenRouter provisioning and finite CLI/GUI chat for Pi agents, including continued and reset conversations without a Pi service or dashboard (#1038).
 
 ### Changed
 

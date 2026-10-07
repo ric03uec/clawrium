@@ -22,6 +22,9 @@ from typing import Literal
 from pydantic import BaseModel
 
 from clawrium.core.chat_claude import ClaudeCodeChatBackend
+from clawrium.core.chat_pi import PiChatBackend
+from clawrium.core.pi import PiProvisioningError, validate_openrouter_provider
+from clawrium.core.providers.storage import get_provider
 from clawrium.core.keys import get_host_private_key
 from clawrium.gui.routes._common import resolve_agent as _resolve_agent
 from clawrium.core.memory import (
@@ -93,11 +96,20 @@ _CLAUDE_BROWSER_SESSION_MAX = 128
 _CLAUDE_RESPONSE_TIMEOUT_SECONDS = 120.0
 _CLAUDE_SESSION_KEY_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 _CLAUDE_MAX_PROMPT_CHARS = 100_000
+_PI_BROWSER_SESSIONS: dict[tuple[str, str], "_PiBrowserSession"] = {}
 
 
 @dataclass
 class _ClaudeBrowserSession:
     backend: ClaudeCodeChatBackend
+    lock: asyncio.Lock
+    last_used: float
+
+
+@dataclass
+class _PiBrowserSession:
+    backend: PiChatBackend
+    identity: tuple[str, str, str, str, str]
     lock: asyncio.Lock
     last_used: float
 
@@ -158,6 +170,68 @@ def _get_claude_browser_session(
         last_used=now,
     )
     _CLAUDE_BROWSER_SESSIONS[cache_key] = session
+    return session
+
+
+def _get_pi_browser_session(
+    *,
+    agent_key: str,
+    session_key: str,
+    hostname: str,
+    agent_name: str,
+    model: str,
+    provider_name: str,
+    installation_id: str,
+) -> _PiBrowserSession:
+    """Return a bounded Pi session, discarding stale agent identities."""
+    now = time.monotonic()
+    cache_key = (agent_key, session_key)
+    identity = (hostname, agent_name, model, provider_name, installation_id)
+    cached = _PI_BROWSER_SESSIONS.get(cache_key)
+    # Legacy records predate installed_at. They have no durable generation
+    # marker, so retaining a browser session could route a same-key recreated
+    # agent to its predecessor. Prefer a fresh finite Pi turn over continuity
+    # until the record is migrated by a normal install.
+    if not installation_id:
+        cached = None
+        _PI_BROWSER_SESSIONS.pop(cache_key, None)
+    if (
+        cached is not None
+        and cached.identity == identity
+        and (
+            cached.lock.locked()
+            or now - cached.last_used <= _CLAUDE_BROWSER_SESSION_TTL_SECONDS
+        )
+    ):
+        cached.last_used = now
+        return cached
+    if cached is not None and not cached.lock.locked():
+        _PI_BROWSER_SESSIONS.pop(cache_key, None)
+
+    for key, value in tuple(_PI_BROWSER_SESSIONS.items()):
+        if (
+            not value.lock.locked()
+            and now - value.last_used > _CLAUDE_BROWSER_SESSION_TTL_SECONDS
+        ):
+            _PI_BROWSER_SESSIONS.pop(key, None)
+    while len(_PI_BROWSER_SESSIONS) >= _CLAUDE_BROWSER_SESSION_MAX:
+        evictable = [
+            (value.last_used, key)
+            for key, value in _PI_BROWSER_SESSIONS.items()
+            if not value.lock.locked()
+        ]
+        if not evictable:
+            break
+        _, oldest_key = min(evictable)
+        _PI_BROWSER_SESSIONS.pop(oldest_key, None)
+
+    session = _PiBrowserSession(
+        backend=PiChatBackend(hostname, agent_name, model),
+        identity=identity,
+        lock=asyncio.Lock(),
+        last_used=now,
+    )
+    _PI_BROWSER_SESSIONS[cache_key] = session
     return session
 
 
@@ -297,6 +371,8 @@ async def chat_send(agent_key: str, body: ChatRequest):
         return await _chat_openclaw(host_record, agent_type, agent_record, body)
     if chat_type == "claude":
         return await _chat_claude(host_record, agent_record, agent_key, body)
+    if chat_type == "pi":
+        return await _chat_pi(host_record, agent_record, agent_key, body)
     raise HTTPException(status_code=400, detail=f"Unknown chat type: {chat_type}")
 
 
@@ -764,7 +840,9 @@ async def add_agent_skill(agent_key: str, payload: AddSkillBody):
     def _add() -> dict[str, object]:
         resolved = _resolve_agent(agent_key)
         if not resolved:
-            raise HTTPException(status_code=404, detail=f"Agent '{agent_key}' not found")
+            raise HTTPException(
+                status_code=404, detail=f"Agent '{agent_key}' not found"
+            )
         _host_record, agent_type, agent_record = resolved
         agent_name = agent_record.get("agent_name") or agent_key
 
@@ -883,7 +961,9 @@ async def get_local_agent_skill(agent_key: str, name: str):
 
         resolved = _resolve_agent(agent_key)
         if not resolved:
-            raise HTTPException(status_code=404, detail=f"Agent '{agent_key}' not found")
+            raise HTTPException(
+                status_code=404, detail=f"Agent '{agent_key}' not found"
+            )
         _host_record, _agent_type, agent_record = resolved
         agent_name = agent_record.get("agent_name") or agent_key
 
@@ -920,7 +1000,9 @@ async def edit_agent_skill(agent_key: str, name: str, payload: EditSkillBody):
 
         resolved = _resolve_agent(agent_key)
         if not resolved:
-            raise HTTPException(status_code=404, detail=f"Agent '{agent_key}' not found")
+            raise HTTPException(
+                status_code=404, detail=f"Agent '{agent_key}' not found"
+            )
         _host_record, agent_type, agent_record = resolved
         agent_name = agent_record.get("agent_name") or agent_key
 
@@ -980,7 +1062,9 @@ async def delete_local_agent_skill(agent_key: str, name: str):
 
         resolved = _resolve_agent(agent_key)
         if not resolved:
-            raise HTTPException(status_code=404, detail=f"Agent '{agent_key}' not found")
+            raise HTTPException(
+                status_code=404, detail=f"Agent '{agent_key}' not found"
+            )
         _host_record, _agent_type, agent_record = resolved
         agent_name = agent_record.get("agent_name") or agent_key
 
@@ -1146,9 +1230,7 @@ async def _chat_claude(
                     # credentials, or remote stderr through GUI logs or SSE.
                     events = [
                         "data: "
-                        + json.dumps(
-                            {"type": "error", "message": _CHAT_GENERIC_ERROR}
-                        )
+                        + json.dumps({"type": "error", "message": _CHAT_GENERIC_ERROR})
                         + "\n\n",
                         "data: [DONE]\n\n",
                     ]
@@ -1160,6 +1242,69 @@ async def _chat_claude(
                     yield event
         except asyncio.CancelledError:
             raise
+
+    return StreamingResponse(generate(), media_type="text/event-stream")
+
+
+async def _chat_pi(
+    host_record: dict, agent_record: dict, agent_key: str, body: ChatRequest
+):
+    """Run a finite Pi turn while preserving the browser conversation UUID."""
+    if not body.message.strip() or len(body.message) > _CLAUDE_MAX_PROMPT_CHARS:
+        raise HTTPException(
+            status_code=422, detail="Chat message must not be blank or too long"
+        )
+    if not _CLAUDE_SESSION_KEY_RE.fullmatch(body.session):
+        raise HTTPException(status_code=422, detail="Invalid chat session")
+    hostname = host_record.get("hostname")
+    agent_name = agent_record.get("agent_name") or agent_key
+    providers = agent_record.get("providers")
+    if (
+        not isinstance(hostname, str)
+        or not isinstance(agent_name, str)
+        or not isinstance(providers, list)
+        or len(providers) != 1
+        or not isinstance(providers[0], str)
+    ):
+        raise HTTPException(status_code=500, detail=_CHAT_GENERIC_ERROR)
+    try:
+        model = validate_openrouter_provider(get_provider(providers[0]))
+    except PiProvisioningError:
+        raise HTTPException(status_code=500, detail=_CHAT_GENERIC_ERROR) from None
+    session = _get_pi_browser_session(
+        agent_key=agent_key,
+        session_key=body.session,
+        hostname=hostname,
+        agent_name=agent_name,
+        model=model,
+        provider_name=providers[0],
+        installation_id=agent_record.get("installed_at")
+        if isinstance(agent_record.get("installed_at"), str)
+        else "",
+    )
+
+    # Pi print mode returns one finite response rather than incremental deltas.
+    # Complete the bounded operation before creating an SSE response so backend
+    # failures retain a meaningful non-2xx HTTP status.
+    async with session.lock:
+        try:
+            await session.backend.connect()
+            text = await session.backend.send_message(
+                body.message,
+                body.session,
+                response_timeout_seconds=_CLAUDE_RESPONSE_TIMEOUT_SECONDS,
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            raise HTTPException(status_code=502, detail=_CHAT_GENERIC_ERROR) from None
+        finally:
+            session.last_used = time.monotonic()
+            await session.backend.close()
+
+    async def generate():
+        yield "data: " + json.dumps({"type": "content", "text": text}) + "\n\n"
+        yield "data: [DONE]\n\n"
 
     return StreamingResponse(generate(), media_type="text/event-stream")
 

@@ -73,6 +73,11 @@ def test_pi_exec_actual_transport_encrypts_sentinel_output(
         capture_output=True,
     )
     sentinel = "pi-sensitive-sentinel-never-in-ansible-event"
+    # The bootstrap reads the private artifact as data, never shell source.
+    home = tmp_path / "pi-home"
+    credential = home / ".pi" / "agent" / "clawrium-openrouter.env"
+    credential.parent.mkdir(parents=True)
+    credential.write_text("OPENROUTER_API_KEY=not-a-shell-command;$(ignored)\n")
     shim_dir = tmp_path / "agent-writable-bin"
     shim_dir.mkdir()
     shim_marker = tmp_path / "path-shim-ran"
@@ -97,7 +102,7 @@ def test_pi_exec_actual_transport_encrypts_sentinel_output(
         check=True,
         capture_output=True,
         text=True,
-        env={**os.environ, "PATH": f"{shim_dir}:{os.environ['PATH']}"},
+        env={**os.environ, "HOME": str(home), "PATH": f"{shim_dir}:{os.environ['PATH']}"},
     )
 
     # The account-writable PATH is ignored before capture begins, so a planted

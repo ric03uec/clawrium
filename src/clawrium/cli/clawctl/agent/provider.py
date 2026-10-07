@@ -27,6 +27,7 @@ import typer
 
 from clawrium.cli.clawctl._common import OutputFormat
 from clawrium.cli.clawctl.agent._shared import resolve_agent_key, safe_resolve_agent
+from clawrium.cli.output._sanitize import sanitize
 from clawrium.cli.output import (
     dump_json,
     dump_name,
@@ -54,6 +55,7 @@ from clawrium.core.providers.storage import (
     ProvidersFileCorruptedError,
     get_provider,
 )
+from clawrium.core.pi import PiProvisioningError, validate_openrouter_provider
 
 __all__ = ["provider_app"]
 
@@ -323,10 +325,13 @@ def attach(
     agent_key = resolve_agent_key(host, agent)
     agent_type = _agent_type(claw)
     if agent_type == "pi":
-        emit_error(
-            "provider attachment is not supported for pi yet",
-            hint="Pi provider provisioning is planned for #1038.",
-        )
+        try:
+            validate_openrouter_provider(provider_record)
+        except PiProvisioningError as exc:
+            emit_error(
+                str(exc),
+                hint="select an OpenRouter provider with a supported default model",
+            )
     if (
         provider_record.get("type") == CLAUDE_OAUTH_PROVIDER_TYPE
         and agent_type != "claude"
@@ -431,9 +436,11 @@ def attach(
         emit_error(f"failed to attach provider {name!r} to agent {agent!r}")
 
     if multi:
-        typer.echo(f"agent/{agent}: attached provider {name!r} with role {role!r}")
+        typer.echo(
+            f"agent/{sanitize(agent)}: attached provider {sanitize(name)!r} with role {sanitize(role)!r}"
+        )
     else:
-        typer.echo(f"agent/{agent}: attached provider {name!r}")
+        typer.echo(f"agent/{sanitize(agent)}: attached provider {sanitize(name)!r}")
 
 
 @provider_app.command("detach")
@@ -484,9 +491,19 @@ def detach(
             )
 
     remaining = [e for e in current if e is not target]
+    if agent_type == "pi" and not remaining:
+        from clawrium.core.lifecycle_canonical import (
+            CanonicalSyncError,
+            revoke_pi_openrouter,
+        )
+
+        try:
+            revoke_pi_openrouter(agent_name=agent, host=host)
+        except CanonicalSyncError as exc:
+            emit_error(f"failed to revoke Pi provider credential: {exc}")
     if not _set_attachments(hostname, agent_key, agent_type, remaining):
         emit_error(f"failed to detach provider {name!r} from agent {agent!r}")
-    typer.echo(f"agent/{agent}: detached provider {name!r}")
+    typer.echo(f"agent/{sanitize(agent)}: detached provider {sanitize(name)!r}")
 
 
 @provider_app.command("get")

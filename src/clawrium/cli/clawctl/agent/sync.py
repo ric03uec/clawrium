@@ -322,10 +322,29 @@ def sync(
         if not has_completed_install(claw_record):
             emit_error(incomplete_install_message(agent_type, "sync"))
         if agent_type == "pi":
-            emit_error(
-                "Pi provider synchronization is not supported yet",
-                hint="Pi provider provisioning is planned for #1038.",
+            from clawrium.core.lifecycle_canonical import (
+                CanonicalSyncError,
+                sync_agent_canonical,
             )
+
+            try:
+                result = sync_agent_canonical(
+                    claw_record.get("agent_name") or agent_key,
+                    restart=False,
+                    verify=False,
+                    push_workspace=False,
+                    workspace_only=workspace_only,
+                    dry_run=dry_run,
+                )
+            except CanonicalSyncError as exc:
+                emit_error(f"Pi sync failed: {exc}")
+            if not result.success:
+                emit_error(f"Pi sync failed: {result.error or 'unknown error'}")
+            stream_action(
+                resource=f"agent/{name}",
+                message="Pi OpenRouter credential synchronized; no daemon restart",
+            )
+            return
         if agent_type != "claude":
             stream_action(
                 resource=f"agent/{name}",

@@ -95,6 +95,16 @@ def _attach_provider_for_configure(
     # tolerant; downstream lifecycle code reads `agents.<n>.providers`
     # and looks up the provider by *that* exact string.
     canonical_name = record.get("name", provider_name)
+    # Pi is intentionally OpenRouter-only for #1038; reject before mutating
+    # attachment metadata so an unsupported selection cannot be synced later.
+    resolved = safe_resolve_agent(agent_name)
+    if resolved[1] == "pi":
+        from clawrium.core.pi import PiProvisioningError, validate_openrouter_provider
+
+        try:
+            validate_openrouter_provider(record)
+        except PiProvisioningError as exc:
+            emit_error(str(exc))
 
     def updater(h: dict) -> dict:
         agents = h.get("agents", {})
@@ -202,10 +212,32 @@ def configure(
         if not has_completed_install(claw_record):
             emit_error(incomplete_install_message(agent_type, "configure"))
         if agent_type == "pi":
-            emit_error(
-                "Pi provider configuration is not supported yet",
-                hint="Pi provider provisioning is planned for #1038.",
+            if stage not in (None, Stage.providers) or provider is None:
+                emit_error(
+                    "Pi configuration requires --stage providers --provider <openrouter-provider>",
+                    hint="attach/sync an existing OpenRouter provider for the isolated Pi account",
+                )
+            _attach_provider_for_configure(name, hostname, agent_key, provider)
+            from clawrium.core.lifecycle_canonical import (
+                CanonicalSyncError,
+                sync_agent_canonical,
             )
+
+            try:
+                result = sync_agent_canonical(
+                    agent_key, restart=False, verify=False, push_workspace=False
+                )
+            except CanonicalSyncError as exc:
+                emit_error(f"Pi provider configuration failed: {exc}")
+            if not result.success:
+                emit_error(
+                    f"Pi provider configuration failed: {result.error or 'unknown error'}"
+                )
+            stream_action(
+                resource=f"agent/{name}",
+                message="Pi OpenRouter credential provisioned; no daemon restart",
+            )
+            return
         if agent_type != "claude":
             stream_action(
                 resource=f"agent/{name}",

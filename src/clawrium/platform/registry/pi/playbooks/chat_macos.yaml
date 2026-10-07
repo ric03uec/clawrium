@@ -1,0 +1,83 @@
+---
+- hosts: all
+  gather_facts: false
+  become: yes
+  vars:
+    pi_home: "/Users/{{ agent_name }}"
+    pi_binary: "{{ pi_home }}/.local/pi/bin/pi"
+    pi_marker: "/Library/Application Support/clawrium/pi/{{ agent_name }}.json"
+    pi_chat_capture_bootstrap: >-
+      PATH=/usr/bin:/bin; export PATH; umask 077; tmpdir="$(/usr/bin/mktemp -d "${TMPDIR:-/tmp}/clawrium-pi-chat.XXXXXX")" || exit 125; trap '/bin/rm -rf "$tmpdir"' EXIT HUP INT TERM; program=$1; recipient_certificate=$2; shift 2; printf '%s\n' "$recipient_certificate" > "$tmpdir/recipient.pem" || exit 125; line=$(/usr/bin/cat "$HOME/.pi/agent/clawrium-openrouter.env") || exit 126; case "$line" in OPENROUTER_API_KEY=*) OPENROUTER_API_KEY=${line#OPENROUTER_API_KEY=} ;; *) exit 126 ;; esac; export OPENROUTER_API_KEY; "$@" >"$tmpdir/stdout" 2>"$tmpdir/stderr"; rc=$?; set -o pipefail; /usr/bin/perl -e "$program" "$tmpdir/stdout" "$tmpdir/stderr" "$rc" | /usr/bin/openssl cms -encrypt -binary -outform DER -aes-256-cbc -recip "$tmpdir/recipient.pem" | /usr/bin/base64 | /usr/bin/tr -d '\n'
+    pi_chat_capture_program: >-
+      use strict; use warnings; use Encode qw(decode FB_DEFAULT); use JSON::PP qw(encode_json); sub read_text { my ($path) = @_; return '' unless -r $path; open my $fh, '<:raw', $path or return ''; local $/; my $raw = <$fh>; return decode('UTF-8', $raw // '', FB_DEFAULT); } my ($stdout_path, $stderr_path, $rc_raw) = @ARGV; my $rc = $rc_raw =~ /\A\d+\z/ ? int($rc_raw) : 255; print encode_json({ stdout => read_text($stdout_path), stderr => read_text($stderr_path), rc => $rc });
+    # macOS has no GNU timeout. Perl creates a process group and terminates it
+    # on expiry, matching the Linux playbook's finite-command boundary.
+    pi_chat_timeout_wrapper: >-
+      use POSIX qw(setsid); my $timeout = shift @ARGV; my $pid = fork();
+      die "could not fork Pi" unless defined $pid;
+      if ($pid == 0) { setsid() or die "could not create Pi session";
+      exec @ARGV; die "could not exec Pi"; }
+      $SIG{ALRM} = sub { kill 'KILL', -$pid; waitpid($pid, 0); exit 124; };
+      alarm($timeout); waitpid($pid, 0); alarm(0); my $status = $?;
+      exit($status & 127 ? 128 + ($status & 127) : $status >> 8);
+  tasks:
+    - name: Refuse non-Darwin dispatcher target
+      ansible.builtin.fail: { msg: "chat_macos.yaml requires Darwin" }
+      when: ansible_os_family is defined and ansible_os_family != "Darwin"
+    - name: Validate Pi chat inputs
+      ansible.builtin.fail:
+        msg: "Pi chat requires a valid agent, argv, prompt, and positive timeout"
+      when: >-
+        agent_name is not match('^[a-z][a-z0-9_-]{0,31}$') or
+        (pi_chat_argv is not defined) or (pi_chat_argv | length == 0) or
+        (pi_chat_prompt_b64 is not defined) or (pi_chat_prompt_b64 | length == 0) or
+        (pi_chat_timeout is not defined) or (pi_chat_timeout | int < 1)
+    - name: Read dedicated Pi account
+      ansible.builtin.command: { argv: [/usr/bin/dscl, ., -read, "/Users/{{ agent_name }}", UniqueID] }
+      register: pi_account_uid
+      changed_when: false
+      failed_when: false
+    - name: Read dedicated Pi account home
+      ansible.builtin.command: { argv: [/usr/bin/dscl, ., -read, "/Users/{{ agent_name }}", NFSHomeDirectory] }
+      register: pi_account_home
+      changed_when: false
+      failed_when: false
+    - name: Read dedicated Pi account comment
+      ansible.builtin.command: { argv: [/usr/bin/dscl, ., -read, "/Users/{{ agent_name }}", Comment] }
+      register: pi_account_comment
+      changed_when: false
+      failed_when: false
+    - name: Check Pi ownership marker
+      ansible.builtin.stat: { path: "{{ pi_marker }}" }
+      register: pi_marker_stat
+    - name: Reject untrusted Pi chat target
+      ansible.builtin.assert:
+        that: ["(pi_account_uid.stdout | trim) != ''", "pi_marker_stat.stat.exists | bool", "not (pi_marker_stat.stat.islnk | default(false) | bool)", "pi_marker_stat.stat.pw_name == 'root'", "pi_marker_stat.stat.gr_name == 'wheel'", "pi_marker_stat.stat.mode == '0600'"]
+        fail_msg: "Refusing Pi chat: ownership marker does not prove the dedicated account."
+    - name: Read Pi ownership marker
+      ansible.builtin.slurp: { src: "{{ pi_marker }}" }
+      register: pi_marker_content
+    - name: Parse Pi ownership marker
+      ansible.builtin.set_fact: { pi_marker_data: "{{ pi_marker_content.content | b64decode | from_json }}" }
+    - name: Verify Pi chat ownership binding
+      ansible.builtin.assert:
+        that: ["pi_marker_data.schema == 2", "pi_marker_data.agent_name == agent_name", "pi_marker_data.home == pi_home", "pi_marker_data.uid == (pi_account_uid.stdout | regex_replace('^UniqueID:\\s*', '') | trim | int)", "(pi_account_home.stdout | regex_replace('^NFSHomeDirectory:\\s*', '') | trim) == pi_home", "pi_marker_data.transaction_id is match('^[0-9a-f-]{36}$')", "(pi_account_comment.stdout | regex_replace('^Comment:\\s*', '') | trim) == ('clawrium-pi-' ~ pi_marker_data.transaction_id)"]
+        fail_msg: "Refusing Pi chat: ownership marker does not bind the dedicated account."
+    - name: Run finite Pi chat command as dedicated agent user
+      ansible.builtin.command:
+        argv: "{{ ['/usr/bin/perl', '-e', pi_chat_timeout_wrapper, pi_chat_timeout | string, '/bin/bash', '-c', pi_chat_capture_bootstrap, 'clawrium-pi-chat', pi_chat_capture_program, pi_chat_recipient_certificate, pi_binary] + pi_chat_argv }}"
+        chdir: "{{ pi_home }}"
+        stdin: "{{ pi_chat_prompt_b64 | b64decode }}"
+        stdin_add_newline: false
+      environment:
+        HOME: "{{ pi_home }}"
+        PATH: "{{ pi_home }}/.local/pi/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
+        PI_DISABLE_AUTOUPDATE: "1"
+      become: true
+      become_user: "{{ agent_name }}"
+      register: pi_chat_result
+      failed_when: pi_chat_result.rc != 0
+      changed_when: false
+      no_log: true
+    - name: Emit encrypted Pi chat result
+      ansible.builtin.debug: { msg: "PI_CHAT_RESULT={{ pi_chat_result.stdout | default('') }}" }

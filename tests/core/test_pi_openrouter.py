@@ -1,0 +1,92 @@
+"""Pi #1038 OpenRouter mapping and finite chat contracts."""
+
+import asyncio
+import uuid
+
+import pytest
+
+from clawrium.core.chat_pi import PiChatBackend
+from clawrium.core.pi import (
+    PiProvisioningError,
+    pi_chat_argv,
+    render_openrouter_environment,
+    validate_openrouter_provider,
+)
+
+
+def test_pi_accepts_only_unprefixed_openrouter_model_ids():
+    assert (
+        validate_openrouter_provider(
+            {"type": "openrouter", "default_model": "moonshotai/kimi-k2.6"}
+        )
+        == "moonshotai/kimi-k2.6"
+    )
+    with pytest.raises(PiProvisioningError, match="only an OpenRouter"):
+        validate_openrouter_provider({"type": "openai", "default_model": "gpt-4o"})
+    with pytest.raises(PiProvisioningError, match="must not include"):
+        validate_openrouter_provider(
+            {"type": "openrouter", "default_model": "openrouter/openai/gpt-4o"}
+        )
+    with pytest.raises(PiProvisioningError, match="supported OpenRouter"):
+        validate_openrouter_provider(
+            {"type": "openrouter", "default_model": "bad model"}
+        )
+
+
+def test_pi_environment_is_secret_only_and_rejects_empty_key():
+    body = render_openrouter_environment("sk-secret;$(not-executed)")
+    assert body == "OPENROUTER_API_KEY=sk-secret;$(not-executed)\n"
+    with pytest.raises(PiProvisioningError, match="control characters"):
+        render_openrouter_environment("key\nnext")
+
+
+def test_pi_chat_argv_has_fixed_provider_and_session_resume():
+    session = "12345678-1234-1234-1234-123456789abc"
+    first = pi_chat_argv("moonshotai/kimi-k2.6", session, resume=False)
+    second = pi_chat_argv("moonshotai/kimi-k2.6", session, resume=True)
+    assert first[:6] == [
+        "--provider",
+        "openrouter",
+        "--model",
+        "moonshotai/kimi-k2.6",
+        "--print",
+        "--no-tools",
+    ]
+    assert "--no-mcp" not in first
+    assert first[-2:] == ["--session-dir", f".pi/agent/clawrium-sessions/{session}"]
+    assert second[-1:] == ["--continue"]
+
+
+def test_pi_chat_backend_continues_then_resets_without_exposing_credential():
+    calls = []
+    ids = iter(
+        [
+            uuid.UUID("12345678-1234-1234-1234-123456789abc"),
+            uuid.UUID("87654321-1234-1234-1234-123456789abc"),
+        ]
+    )
+
+    def runner(host, user, argv, prompt, timeout, cancelled):
+        calls.append((argv, prompt))
+        return "answer", "", 0
+
+    backend = PiChatBackend(
+        "wolf-i",
+        "pi-test",
+        "moonshotai/kimi-k2.6",
+        command_runner=runner,
+        session_id_factory=lambda: next(ids),
+    )
+
+    async def run():
+        await backend.connect()
+        assert await backend.send_message("one", "main") == "answer"
+        assert await backend.send_message("two", "main") == "answer"
+        backend.clear_history()
+        assert await backend.send_message("three", "main") == "answer"
+
+    asyncio.run(run())
+    assert calls[0][0][-2] == "--session-dir"
+    assert calls[1][0][-1] == "--continue"
+    assert calls[2][0][-2] == "--session-dir"
+    assert all("OPENROUTER_API_KEY" not in str(call) for call in calls)
