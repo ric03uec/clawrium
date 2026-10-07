@@ -310,8 +310,9 @@ def test_pi_configure_failed_revoke_retains_attachment(fleet_dir, monkeypatch):
     assert (
         result.exit_code != 0
         and "post-write failed" in result.output
-        and "revoke failed" in result.output
-        and "manually detach" in result.output.lower()
+        and "revoke failed" not in result.output
+        and "retry: clawctl agent provider detach router --agent pi-test"
+        in result.output
     )
     assert json.loads((fleet_dir / "hosts.json").read_text())[0]["agents"]["pi-test"][
         "providers"

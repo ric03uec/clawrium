@@ -14,6 +14,8 @@ cut. The `itx-release` skill archives this section into a new
 
 ### BREAKING
 
+- Config-directory initialization now refuses symlinked path components, config directories owned by another user, and group/world-writable config leaves or non-sticky ancestors to prevent path-redirection attacks. `sudo XDG_CONFIG_HOME=/home/user/.config clawctl` now fails: run as the intended non-root operator, or set `XDG_CONFIG_HOME` to a root-owned private real path; no automated migration is available (#1046).
+
 ### Added
 
 - Added the install-only `pi` fleet agent. Pi installs in its own account and runs native commands on demand without a service, port, or dashboard (#1032).
@@ -26,6 +28,8 @@ cut. The `itx-release` skill archives this section into a new
 ### Changed
 
 ### Fixed
+
+- Fixed a process-wide umask race during config-directory initialization that could cause intermittent Ubuntu 3.12 permission failures (#1046).
 
 ### Documentation
 
