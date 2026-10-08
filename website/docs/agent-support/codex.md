@@ -89,5 +89,14 @@ so the operation can be retried safely.
 
 Automated tests cover OAuth activation, refresh-safe sync, finite CLI/GUI chat,
 JSONL parsing, continuation/reset, timeout, cancellation, and redaction. A
-native real-host mac-test OAuth/chat UAT is intentionally deferred by operator
-direction; it must be completed before claiming macOS real-host validation.
+real-host Ubuntu installation of Codex 0.160.1 on wolf-i passed native
+`--version` and removal checks. This is a no-credential lifecycle check, not
+OAuth or chat validation.
+
+End-to-end OAuth activation, refresh-preserving repeat sync, and CLI/GUI
+inference still require a file-backed controller Codex login (see
+`codex login status`) before they can be verified. The mac-test host was
+unreachable over SSH during the latest attempt, so macOS real-host validation
+also remains outstanding. A failed local `codex-1031-uat` install record is
+retained for safe retry and cleanup when that host is reachable; no remote
+install tasks ran during the failed attempt.

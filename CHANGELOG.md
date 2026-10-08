@@ -39,6 +39,7 @@ cut. The `itx-release` skill archives this section into a new
 
 ### Documentation
 
+- Document the Codex real-host lifecycle smoke check and the remaining OAuth and macOS UAT prerequisites (#1031).
 - Document Pi Bedrock detach and provider-switch cache-cleanup boundaries, including the separate upstream AWS session-revocation step (#1039).
 - Document fail-closed recovery steps for an interrupted Codex OAuth activation without exposing native auth credentials (#1036).
 
