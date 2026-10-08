@@ -31,6 +31,7 @@ cut. The `itx-release` skill archives this section into a new
 
 ### Fixed
 
+- Reject incomplete or failed native Codex JSONL turns instead of presenting truncated output as a successful chat response (#1037).
 - Bound Codex and Pi browser chat sessions to the current agent installation and host, return explicit HTTP errors for failed turns, and refuse new Pi sessions when every cache slot is active (#1037).
 - Fixed Pi Codex OAuth provider switches to revoke dedicated-account OAuth state, require marker-bound managed-account login, and start Pi with a clean environment (#1040).
 - Fixed Pi Bedrock provider replacement during `clawctl agent configure --stage providers` so the prior dedicated-account SSO and CLI caches are cleared before a different Identity Center profile activates, while failed cleanup retains the prior provider and same-identity updates retain warm caches (#1039).

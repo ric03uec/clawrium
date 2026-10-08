@@ -68,6 +68,23 @@ def test_jsonl_session_continuation_and_reset() -> None:
         json.dumps(
             {"type": "item.completed", "item": {"type": "agent_message", "text": "x"}}
         ),
+        "\n".join(
+            [
+                json.dumps({"type": "thread.started", "thread_id": "x"}),
+                json.dumps(
+                    {"type": "item.completed", "item": {"type": "agent_message", "text": "x"}}
+                ),
+            ]
+        ),
+        _events() + "\n" + json.dumps({"type": "turn.failed"}),
+        _events()
+        + "\n"
+        + json.dumps(
+            {"type": "item.completed", "item": {"type": "agent_message", "text": "later"}}
+        ),
+        _events().replace('"turn.completed"', '"turn.failed"'),
+        _events().replace('"turn.completed"', '"error"'),
+        _events().replace('"thread.started"', '"item.completed"'),
         _events(text="x") + "\n" + "{}",
     ],
 )
@@ -92,6 +109,7 @@ def test_jsonl_multiple_messages_are_sanitized_and_joined() -> None:
                     "item": {"type": "agent_message", "text": "two\x1b"},
                 }
             ),
+            json.dumps({"type": "turn.completed"}),
         ]
     )
     assert chat_codex._parse_result(stdout) == ("one\ntwo", "thread")

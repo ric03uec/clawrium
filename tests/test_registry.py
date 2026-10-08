@@ -217,28 +217,17 @@ def test_load_manifest_rejects_unknown_chat_type(monkeypatch):
         load_manifest("openclaw")
 
 
-def test_load_manifest_accepts_chat_type_openai(monkeypatch):
-    """`features.chat.type: openai` is a valid value and survives normalization."""
+@pytest.mark.parametrize("chat_type", ["openai", "websocket", "codex", "pi"])
+def test_load_manifest_accepts_supported_chat_type(monkeypatch, chat_type):
+    """Every supported chat type survives manifest validation."""
     from clawrium.core import registry
 
     manifest = deepcopy(_valid_manifest())
-    manifest["features"] = {"chat": {"type": "openai"}}
+    manifest["features"] = {"chat": {"type": chat_type}}
     monkeypatch.setattr(registry.yaml, "safe_load", lambda _: manifest)
 
     loaded = load_manifest("openclaw")
-    assert loaded.get("features", {}).get("chat", {}).get("type") == "openai"
-
-
-def test_load_manifest_accepts_chat_type_websocket(monkeypatch):
-    """`features.chat.type: websocket` is a valid value and survives normalization."""
-    from clawrium.core import registry
-
-    manifest = deepcopy(_valid_manifest())
-    manifest["features"] = {"chat": {"type": "websocket"}}
-    monkeypatch.setattr(registry.yaml, "safe_load", lambda _: manifest)
-
-    loaded = load_manifest("openclaw")
-    assert loaded.get("features", {}).get("chat", {}).get("type") == "websocket"
+    assert loaded.get("features", {}).get("chat", {}).get("type") == chat_type
 
 
 def test_load_manifest_chat_block_must_be_object(monkeypatch):

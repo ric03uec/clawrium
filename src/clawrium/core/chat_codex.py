@@ -268,6 +268,7 @@ def _parse_result(stdout: str) -> tuple[str, str]:
         raise ChatProtocolError("Codex returned an empty JSONL response")
     thread_id: str | None = None
     messages: list[str] = []
+    turn_completed = False
     lines = stdout.splitlines()
     if len(lines) > 2048:
         raise ChatProtocolError("Codex returned too many JSONL events")
@@ -278,20 +279,30 @@ def _parse_result(stdout: str) -> tuple[str, str]:
             raise ChatProtocolError("Codex returned malformed JSONL") from exc
         if not isinstance(event, dict) or not isinstance(event.get("type"), str):
             raise ChatProtocolError("Codex returned an invalid JSONL event")
+        if turn_completed:
+            raise ChatProtocolError("Codex returned events after turn completion")
+        if event["type"] in {"turn.failed", "error"}:
+            raise ChatProtocolError("Codex turn failed")
         if event["type"] == "thread.started":
+            if thread_id is not None:
+                raise ChatProtocolError("Codex returned multiple thread IDs")
             value = event.get("thread_id")
             if not isinstance(value, str) or not value.strip() or len(value) > 256:
                 raise ChatProtocolError("Codex returned an invalid thread ID")
             thread_id = value
         elif event["type"] == "item.completed":
+            if thread_id is None:
+                raise ChatProtocolError("Codex returned an item before its thread ID")
             item = event.get("item")
             if isinstance(item, dict) and item.get("type") == "agent_message":
                 text = item.get("text")
                 if not isinstance(text, str):
                     raise ChatProtocolError("Codex agent message is invalid")
                 messages.append(text)
-    if thread_id is None or not messages:
-        raise ChatProtocolError("Codex response is missing text or thread ID")
+        elif event["type"] == "turn.completed":
+            turn_completed = True
+    if thread_id is None or not messages or not turn_completed:
+        raise ChatProtocolError("Codex response is missing text, thread ID, or completion")
     return _sanitize_codex_text("\n".join(messages)), thread_id
 
 
