@@ -5,11 +5,16 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import os
+import shutil
+import subprocess
 import threading
+import time
 from pathlib import Path
 from typing import Any
 
 import pytest
+import yaml
 
 from clawrium.core import chat_codex
 from clawrium.core.chat import (
@@ -212,5 +217,49 @@ def test_macos_chat_timeout_waits_for_process_group_before_arming_alarm() -> Non
     text = Path("src/clawrium/platform/registry/codex/playbooks/chat_macos.yaml").read_text()
     assert "pipe(my $ready_r, my $ready_w)" in text
     assert 'print {$ready_w} "1"' in text
-    assert "my $ready = read($ready_r" in text
+    assert "IO::Select->new($ready_r)->can_read($timeout)" in text
+    assert "if (!$ready)" in text
     assert "kill 'KILL', -$pid; kill 'KILL', $pid" in text
+
+
+def test_macos_chat_timeout_wrapper_executes_and_bounds_readiness(tmp_path: Path) -> None:
+    if not shutil.which("perl"):
+        pytest.skip("Perl is required to exercise the macOS timeout wrapper")
+
+    playbook = yaml.safe_load(
+        Path("src/clawrium/platform/registry/codex/playbooks/chat_macos.yaml").read_text()
+    )
+    wrapper = playbook[0]["vars"]["codex_chat_timeout_wrapper"]
+    ready = subprocess.run(
+        ["perl", "-e", wrapper, "2", "/bin/sh", "-c", "exit 23"],
+        capture_output=True,
+        text=True,
+        timeout=5,
+        check=False,
+    )
+    assert ready.returncode == 23, ready.stderr
+
+    # Simulate a child blocked before signalling readiness. Running the actual
+    # wrapper catches Perl syntax and scalar-context IO::Select regressions.
+    stalled = wrapper.replace(
+        "setsid() or die",
+        "open(my $pid_out, '>', $ENV{CLAWRIUM_TEST_CHILD_PID}) or die; "
+        "print {$pid_out} $$; close $pid_out; sleep 5; setsid() or die",
+        1,
+    )
+    assert stalled != wrapper
+    started = time.monotonic()
+    child_pid_file = tmp_path / "stalled-child.pid"
+    timed_out = subprocess.run(
+        ["perl", "-e", stalled, "1", "/bin/sh", "-c", "exit 0"],
+        capture_output=True,
+        text=True,
+        timeout=4,
+        check=False,
+        env={**os.environ, "CLAWRIUM_TEST_CHILD_PID": str(child_pid_file)},
+    )
+    assert timed_out.returncode == 124, timed_out.stderr
+    assert time.monotonic() - started < 3
+    child_pid = int(child_pid_file.read_text())
+    with pytest.raises(ProcessLookupError):
+        os.kill(child_pid, 0)
