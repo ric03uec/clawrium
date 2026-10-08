@@ -48,9 +48,7 @@ def _reject_negative_timeout(value: int) -> int:
 
 def shell(
     ctx: typer.Context,
-    name: str = typer.Argument(
-        ..., help="Agent name (from `clawctl agent get`)."
-    ),
+    name: str = typer.Argument(..., help="Agent name (from `clawctl agent get`)."),
     timeout: int = typer.Option(
         120,
         "--timeout",
@@ -104,6 +102,12 @@ def shell(
 
     host, agent_type, claw_record = safe_resolve_agent(name)
     unix_name = claw_record.get("agent_name") or claw_record.get("name") or name
+    if agent_type == "pi":
+        emit_error(
+            "Pi shell access is unavailable in the install-only foundation",
+            hint="use `clawctl agent exec <name> -- <pi arguments>`; chat arrives in #1038",
+            exit_code=2,
+        )
 
     if not cmd:
         if agent_type == "claude":
@@ -138,9 +142,7 @@ def shell(
             agent_type=agent_type,
         )
     except AgentShellError as exc:
-        emit_error(
-            str(exc), hint="clawctl agent shell --help", exit_code=2
-        )
+        emit_error(str(exc), hint="clawctl agent shell --help", exit_code=2)
 
     # Infrastructure failures (host unreachable, missing SSH key,
     # missing playbook, runner exception) come back with rc=255 and

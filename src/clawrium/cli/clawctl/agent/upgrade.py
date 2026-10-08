@@ -139,9 +139,7 @@ def _get_live_openclaw_version(host: dict, agent_name: str) -> str | None:
 
 def upgrade(
     name: str = typer.Argument(..., help="Agent name."),
-    yes: bool = typer.Option(
-        False, "--yes", "-y", help="Skip confirmation prompt."
-    ),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation prompt."),
     skip_drift_check: bool = typer.Option(
         False,
         "--skip-drift-check",
@@ -166,6 +164,12 @@ def upgrade(
     host, agent_type, claw_record = safe_resolve_agent(name)
     agent_key = resolve_agent_key(host, name)
     agent_type = claw_record.get("type", agent_type)
+    if agent_type == "pi":
+        emit_error(
+            "Pi upgrades are unavailable in the install-only foundation",
+            hint="Pi supports create, inspect, native exec, and remove; provider support arrives in #1038.",
+            exit_code=2,
+        )
 
     installed = str(claw_record.get("version") or "")
     if not installed:

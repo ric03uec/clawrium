@@ -18,11 +18,13 @@ from __future__ import annotations
 from enum import Enum
 from typing import Optional
 
+import paramiko
 import typer
 
 from clawrium.cli.clawctl._common import stdin_is_tty
 from clawrium.cli.clawctl.agent._shared import resolve_agent_key, safe_resolve_agent
 from clawrium.cli.output import emit_error, stream_action
+from clawrium.cli.output._sanitize import sanitize_passthrough
 from clawrium.core.agent_lifecycle import (
     has_completed_install,
     has_daemon_lifecycle,
@@ -46,7 +48,12 @@ from clawrium.core.providers.storage import (
 
 
 def _attach_provider_for_configure(
-    agent_name: str, hostname: str, agent_key: str, provider_name: str
+    agent_name: str,
+    hostname: str,
+    agent_key: str,
+    provider_name: str,
+    *,
+    clear_pi_codex_auth_recovery: bool = False,
 ) -> None:
     """Write `agents.<key>.providers = [provider_name]` for issue #541.
 
@@ -95,6 +102,16 @@ def _attach_provider_for_configure(
     # tolerant; downstream lifecycle code reads `agents.<n>.providers`
     # and looks up the provider by *that* exact string.
     canonical_name = record.get("name", provider_name)
+    # Pi supports only its bounded OpenRouter and AWS SSO Bedrock mappings; reject
+    # before mutating attachment metadata so an unsupported selection cannot sync.
+    resolved = safe_resolve_agent(agent_name)
+    if resolved[1] == "pi":
+        from clawrium.core.pi import PiProvisioningError, validate_pi_provider
+
+        try:
+            validate_pi_provider(record)
+        except PiProvisioningError as exc:
+            emit_error(str(exc))
 
     def updater(h: dict) -> dict:
         agents = h.get("agents", {})
@@ -103,6 +120,8 @@ def _attach_provider_for_configure(
                 f"agent record for {agent_name!r} missing from host {hostname!r}"
             )
         agents[agent_key]["providers"] = [canonical_name]
+        if clear_pi_codex_auth_recovery:
+            agents[agent_key].pop("pi_codex_auth_recovery", None)
         return h
 
     # ATX iter-3 W1: `update_host` can raise `HostsFileCorruptedError`
@@ -129,6 +148,95 @@ def _attach_provider_for_configure(
             f"could not write hosts.json: {type(exc).__name__}",
             hint="inspect ~/.config/clawrium/hosts.json before retrying",
         )
+
+
+def _pi_provider_selection(provider_name: str):
+    """Return a validated Pi provider selection for a transition check."""
+    from clawrium.core.pi import PiProvisioningError, validate_pi_provider
+
+    try:
+        return validate_pi_provider(get_provider(provider_name))
+    except (
+        ProvidersFileCorruptedError,
+        FileNotFoundError,
+        PermissionError,
+        OSError,
+        KeyError,
+        TypeError,
+        ValueError,
+        PiProvisioningError,
+    ) as exc:
+        raise LifecycleError("Pi provider transition validation failed") from exc
+
+
+def _pi_bedrock_sso_identity(provider_name: str) -> tuple[str, ...] | None:
+    """Validate a Pi provider and return its non-secret SSO identity tuple."""
+    from clawrium.core.pi import PiProvisioningError, validate_pi_provider
+
+    try:
+        record = get_provider(provider_name)
+        selection = validate_pi_provider(record)
+    except (
+        ProvidersFileCorruptedError,
+        FileNotFoundError,
+        PermissionError,
+        OSError,
+        KeyError,
+        TypeError,
+        ValueError,
+        PiProvisioningError,
+    ) as exc:
+        raise LifecycleError("Pi provider transition validation failed") from exc
+    if selection.provider != "amazon-bedrock":
+        return None
+    assert isinstance(record, dict)
+    return tuple(
+        record[key]
+        for key in (
+            "aws_profile",
+            "sso_start_url",
+            "sso_region",
+            "sso_account_id",
+            "sso_role_name",
+        )
+    )
+
+
+def _mark_pi_codex_auth_recovery(hostname: str, agent_key: str) -> None:
+    """Durably require native re-login before deleting Pi Codex OAuth."""
+
+    def updater(host: dict) -> dict:
+        record = (host.get("agents", {}) or {}).get(agent_key)
+        if not isinstance(record, dict):
+            raise LifecycleError("Pi agent record disappeared before credential cleanup")
+        record["pi_codex_auth_recovery"] = True
+        return host
+
+    update_host(hostname, updater)
+
+
+def _restore_pi_provider_attachment(
+    hostname: str,
+    agent_key: str,
+    previous: object,
+    *,
+    require_pi_codex_relogin: bool = False,
+) -> str | None:
+    """Atomically compensate Pi metadata and preserve any Codex recovery gate."""
+
+    def updater(host: dict) -> dict:
+        record = (host.get("agents", {}) or {}).get(agent_key)
+        if isinstance(record, dict):
+            record["providers"] = previous
+            if require_pi_codex_relogin:
+                record["pi_codex_auth_recovery"] = True
+        return host
+
+    try:
+        update_host(hostname, updater)
+    except (LifecycleError, HostsFileCorruptedError, OSError) as exc:
+        return type(exc).__name__
+    return None
 
 
 class Stage(str, Enum):
@@ -201,6 +309,261 @@ def configure(
     if not has_daemon_lifecycle(agent_type):
         if not has_completed_install(claw_record):
             emit_error(incomplete_install_message(agent_type, "configure"))
+        if agent_type == "pi":
+            if stage not in (None, Stage.providers) or provider is None:
+                emit_error(
+                    "Pi configuration requires --stage providers --provider <provider>",
+                    hint="attach/sync an existing Pi OpenRouter or AWS SSO Bedrock provider",
+                )
+            from clawrium.core.pi import pi_credential_lock
+            from clawrium.core.lifecycle_canonical import (
+                CanonicalSyncError,
+                revoke_pi_codex,
+                revoke_pi_openrouter,
+                sync_agent_canonical,
+            )
+            # One reentrant lock spans local attachment stage, remote sync,
+            # and compensation so detach cannot interleave a partial configure.
+            with pi_credential_lock(name):
+                fresh_host, _fresh_type, fresh_record = safe_resolve_agent(name)
+                if (
+                    fresh_host.get("hostname") != hostname
+                    or fresh_record.get("type") != "pi"
+                ):
+                    emit_error(
+                        "Pi agent changed while configuring provider; retry the command"
+                    )
+                previous_providers = fresh_record.get("providers", [])
+                if (
+                    previous_providers
+                    and (
+                        not isinstance(previous_providers, list)
+                        or len(previous_providers) != 1
+                        or not isinstance(previous_providers[0], str)
+                    )
+                ):
+                    emit_error(
+                        "Pi provider transition validation failed",
+                        hint="repair the Pi provider attachment before retrying",
+                    )
+                try:
+                    selected = _pi_provider_selection(provider)
+                    previous = (
+                        _pi_provider_selection(previous_providers[0])
+                        if previous_providers
+                        else None
+                    )
+                    selected_identity = _pi_bedrock_sso_identity(provider)
+                    previous_identity = (
+                        _pi_bedrock_sso_identity(previous_providers[0])
+                        if previous_providers
+                        else None
+                    )
+                except LifecycleError:
+                    emit_error(
+                        "Pi provider transition validation failed",
+                        hint="verify the selected and currently attached providers before retrying",
+                    )
+                codex_auth_recovery_required = (
+                    fresh_record.get("pi_codex_auth_recovery") is True
+                )
+                if codex_auth_recovery_required and selected.provider == "openai-codex":
+                    previous_provider_for_display = sanitize_passthrough(
+                        previous_providers[0]
+                    )
+                    agent_for_display = sanitize_passthrough(name)
+                    emit_error(
+                        "Pi Codex selection requires native re-login before it can be configured.",
+                        hint=(
+                            "run 'clawctl agent provider login "
+                            f"{previous_provider_for_display} --agent {agent_for_display}' "
+                            "to recover this selection, or configure a replacement provider"
+                        ),
+                    )
+                codex_auth_transition = (
+                    previous is not None
+                    and previous.provider == "openai-codex"
+                    and selected.provider != "openai-codex"
+                )
+                # Clear stale activation/cache files whenever the Bedrock SSO
+                # identity is changing *to or from* a selection. This also
+                # gives a Codex -> Bedrock replacement a clean provider root.
+                bedrock_cache_transition = (
+                    previous_identity != selected_identity
+                    and (previous_identity is not None or selected_identity is not None)
+                )
+                codex_auth_purged = False
+                if codex_auth_transition:
+                    try:
+                        # Persist this fail-closed state before touching remote
+                        # OAuth. A later metadata-write failure must not leave
+                        # a locally selected Codex provider looking usable.
+                        _mark_pi_codex_auth_recovery(hostname, agent_key)
+                    except (LifecycleError, HostsFileCorruptedError, OSError):
+                        emit_error(
+                            "Pi Codex provider transition could not record recovery state; remote OAuth was not changed.",
+                            hint="repair local storage and retry the target provider configure command",
+                        )
+                    try:
+                        # `revoke_pi_codex` validates the root-owned marker,
+                        # account UID/home/transaction binding, then removes
+                        # only .pi/agent/auth.json as the dedicated Pi user.
+                        # Do this before durable selection changes or sync.
+                        revoke_pi_codex(agent_name=name, host=fresh_host)
+                        codex_auth_purged = True
+                    except (
+                        CanonicalSyncError,
+                        paramiko.SSHException,
+                        OSError,
+                        EOFError,
+                    ):
+                        emit_error(
+                            "Pi Codex provider transition cleanup did not finish; the existing attachment was retained.",
+                            hint="retry the same provider configure command after confirming remote access",
+                        )
+                if bedrock_cache_transition:
+                    try:
+                        # This marker-bound operation clears A's cache and all
+                        # A activation files before the replacement is recorded
+                        # or activated, including an OpenRouter replacement.
+                        revoke_pi_openrouter(agent_name=name, host=fresh_host)
+                    except (
+                        CanonicalSyncError,
+                        paramiko.SSHException,
+                        OSError,
+                        EOFError,
+                    ):
+                        if codex_auth_purged:
+                            previous_provider_for_display = sanitize_passthrough(
+                                previous_providers[0]
+                            )
+                            agent_for_display = sanitize_passthrough(name)
+                            emit_error(
+                                "Pi Bedrock provider transition cleanup did not finish; local Codex selection was retained but remote OAuth was removed.",
+                                hint=(
+                                    "to stay with Codex, run 'clawctl agent provider login "
+                                    f"{previous_provider_for_display} --agent "
+                                    f"{agent_for_display}'; otherwise repair local storage "
+                                    "and retry the target provider configure command"
+                                ),
+                            )
+                        emit_error(
+                            "Pi Bedrock provider transition cleanup did not finish; the existing attachment was retained.",
+                            hint="retry the same provider configure command after confirming remote access",
+                        )
+                try:
+                    _attach_provider_for_configure(
+                        name,
+                        hostname,
+                        agent_key,
+                        provider,
+                        clear_pi_codex_auth_recovery=codex_auth_transition,
+                    )
+                except typer.Exit:
+                    if codex_auth_transition:
+                        previous_provider_for_display = sanitize_passthrough(
+                            previous_providers[0]
+                        )
+                        agent_for_display = sanitize_passthrough(name)
+                        emit_error(
+                            "Pi Codex provider transition metadata update failed after remote Codex OAuth removal. Local Codex selection now requires native re-login.",
+                            hint=(
+                                "to stay with Codex, run 'clawctl agent provider login "
+                                f"{previous_provider_for_display} --agent {agent_for_display}'; otherwise repair "
+                                "local storage and retry the target provider configure command"
+                            ),
+                        )
+                    if bedrock_cache_transition:
+                        emit_error(
+                            "Pi Bedrock provider transition metadata update failed after credential cleanup.",
+                            hint="retry the provider configure command or run agent sync after repairing local storage",
+                        )
+                    raise
+                try:
+                    result = sync_agent_canonical(
+                        name, restart=False, verify=False, push_workspace=False
+                    )
+                except CanonicalSyncError as exc:
+                    result = None
+                    failure_detail = str(exc)
+                except (paramiko.SSHException, OSError, EOFError):
+                    result = None
+                    failure_detail = "remote synchronization did not finish"
+                else:
+                    failure_detail = (
+                        None if result.success else (result.error or "unknown error")
+                    )
+                if failure_detail is not None:
+                    if codex_auth_transition:
+                        # The old Codex auth was intentionally deleted. Roll
+                        # back provider selection and its recovery gate in one
+                        # hosts.json write so it cannot look usable again.
+                        rollback_error = _restore_pi_provider_attachment(
+                            hostname,
+                            agent_key,
+                            previous_providers,
+                            require_pi_codex_relogin=True,
+                        )
+                        if rollback_error:
+                            emit_error(
+                                "Pi provider configuration failed after remote Codex OAuth removal; local recovery state could not be restored.",
+                                hint=(
+                                    "repair local storage, then retry the target provider configure "
+                                    "command; do not rely on the current provider selection"
+                                ),
+                            )
+                        previous_provider_for_display = sanitize_passthrough(
+                            previous_providers[0]
+                        )
+                        agent_for_display = sanitize_passthrough(name)
+                        emit_error(
+                            "Pi provider configuration failed after remote Codex OAuth removal; local Codex selection requires native re-login.",
+                            hint=(
+                                "run 'clawctl agent provider login "
+                                f"{previous_provider_for_display} --agent {agent_for_display}' "
+                                "to recover Codex, or retry the target provider configure command"
+                            ),
+                        )
+                    # Reconfiguration may already have replaced the old
+                    # remote credential. Retain non-Codex replacement metadata
+                    # rather than claiming restoration to a credential that
+                    # may no longer exist.
+                    if previous_providers:
+                        emit_error(
+                            f"Pi provider configuration failed: {failure_detail}; the previous provider may have been replaced remotely. The new attachment was retained for recovery; run agent sync or detach before retrying."
+                        )
+                    # First-time provisioning can safely compensate by
+                    # removing any partially written credential before local
+                    # rollback, so detached state never masks a live bearer.
+                    try:
+                        revoke_pi_openrouter(agent_name=name, host=fresh_host)
+                    except (
+                        CanonicalSyncError,
+                        paramiko.SSHException,
+                        OSError,
+                        EOFError,
+                    ):
+                        emit_error(
+                            "Pi provider configuration failed: "
+                            f"{failure_detail}; remote credential cleanup did not finish. "
+                            "Provider attachment was retained for recovery.",
+                            hint=(
+                                "retry: clawctl agent provider detach "
+                                f"{provider} --agent {name}"
+                            ),
+                        )
+                    rollback_error = _restore_pi_provider_attachment(
+                        hostname, agent_key, previous_providers
+                    )
+                    detail = f"Pi provider configuration failed: {failure_detail}"
+                    if rollback_error:
+                        detail += f"; rollback also failed ({rollback_error}). Manually detach the provider before retrying."
+                    emit_error(detail)
+            stream_action(
+                resource=f"agent/{name}",
+                message="Pi provider access provisioned; no daemon restart",
+            )
+            return
         if agent_type not in {"claude", "codex"}:
             stream_action(
                 resource=f"agent/{name}",
@@ -404,9 +767,7 @@ def configure(
                 hint=f"clawctl agent describe {name}",
             )
 
-        stream_action(
-            resource=f"agent/{name}", message=f"stage {stage.value} complete"
-        )
+        stream_action(resource=f"agent/{name}", message=f"stage {stage.value} complete")
         return
 
     # ATX iter-1 B4: `get_onboarding_state` raises `OnboardingNotFoundError`

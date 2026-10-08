@@ -23,6 +23,9 @@ from pydantic import BaseModel
 
 from clawrium.core.chat_claude import ClaudeCodeChatBackend
 from clawrium.core.chat_codex import CodexChatBackend
+from clawrium.core.chat_pi import PiChatBackend
+from clawrium.core.pi import PiProvisioningError, validate_pi_provider
+from clawrium.core.providers.storage import get_provider
 from clawrium.core.keys import get_host_private_key
 from clawrium.gui.routes._common import resolve_agent as _resolve_agent
 from clawrium.core.memory import (
@@ -102,6 +105,12 @@ _CODEX_BROWSER_SESSION_MAX = 128
 _CODEX_RESPONSE_TIMEOUT_SECONDS = 120.0
 _CODEX_SESSION_KEY_RE = _CLAUDE_SESSION_KEY_RE
 _CODEX_MAX_PROMPT_CHARS = 100_000
+_PI_BROWSER_SESSIONS: dict[tuple[str, str], "_PiBrowserSession"] = {}
+_PI_BROWSER_SESSION_GENERATION = 0
+
+
+class _PiSessionCapacityError(Exception):
+    """Raised when all bounded Pi browser sessions have active turns."""
 
 
 @dataclass
@@ -111,38 +120,116 @@ class _ClaudeBrowserSession:
     last_used: float
 
 
+@dataclass
+class _PiBrowserSession:
+    backend: PiChatBackend
+    identity: tuple[str, str, str, str, str, str, str]
+    generation: int
+    lock: asyncio.Lock
+    last_used: float
+    invalidated: bool = False
+
+
 _CLAUDE_BROWSER_SESSIONS: dict[tuple[str, str], _ClaudeBrowserSession] = {}
 
 
 @dataclass
 class _CodexBrowserSession:
     backend: CodexChatBackend
+    identity: tuple[str, str, str, str]
+    generation: int
     lock: asyncio.Lock
     last_used: float
+    invalidated: bool = False
 
 
 _CODEX_BROWSER_SESSIONS: dict[tuple[str, str], _CodexBrowserSession] = {}
+_CODEX_BROWSER_SESSION_GENERATION = 0
 
 
 class _CodexSessionCapacityError(Exception):
     """Raised before streaming when every bounded browser session is active."""
 
 
+def _invalidate_codex_browser_session(
+    cache_key: tuple[str, str], session: _CodexBrowserSession
+) -> None:
+    session.invalidated = True
+    if _CODEX_BROWSER_SESSIONS.get(cache_key) is session:
+        _CODEX_BROWSER_SESSIONS.pop(cache_key)
+
+
+def _codex_browser_session_is_current(
+    cache_key: tuple[str, str], session: _CodexBrowserSession
+) -> bool:
+    current = _CODEX_BROWSER_SESSIONS.get(cache_key)
+    return (
+        not session.invalidated
+        and current is session
+        and current.generation == session.generation
+    )
+
+
+async def _codex_browser_session_matches_registry(
+    agent_key: str, session: _CodexBrowserSession
+) -> bool:
+    """Fail closed if an in-flight turn outlives its installed agent identity."""
+    resolved = await asyncio.to_thread(_resolve_agent, agent_key)
+    if not resolved:
+        return False
+    host_record, agent_type, agent_record = resolved
+    hostname = host_record.get("hostname")
+    agent_name = agent_record.get("agent_name") or agent_record.get("name") or agent_key
+    installed_at = agent_record.get("installed_at")
+    return (
+        agent_type == "codex"
+        and agent_record.get("status") in (None, "installed")
+        and (
+            host_record.get("key_id") or hostname,
+            hostname,
+            agent_name,
+            installed_at if isinstance(installed_at, str) else "",
+        )
+        == session.identity
+    )
+
+
 def _get_codex_browser_session(
-    *, agent_key: str, session_key: str, hostname: str, agent_name: str
+    *,
+    agent_key: str,
+    session_key: str,
+    hostname: str,
+    host_key: str,
+    agent_name: str,
+    installation_id: str,
 ) -> _CodexBrowserSession:
     now = time.monotonic()
     cache_key = (agent_key, session_key)
+    identity = (host_key, hostname, agent_name, installation_id)
     cached = _CODEX_BROWSER_SESSIONS.get(cache_key)
-    if cached is not None:
+    # Legacy records have no immutable install marker: never resume an old
+    # native thread across a possible same-key reinstall.
+    if cached is not None and not installation_id:
+        _invalidate_codex_browser_session(cache_key, cached)
+        cached = None
+    if (
+        cached is not None
+        and cached.identity == identity
+        and (
+            cached.lock.locked()
+            or now - cached.last_used <= _CODEX_BROWSER_SESSION_TTL_SECONDS
+        )
+    ):
         cached.last_used = now
         return cached
+    if cached is not None:
+        _invalidate_codex_browser_session(cache_key, cached)
     for key, value in tuple(_CODEX_BROWSER_SESSIONS.items()):
         if (
             not value.lock.locked()
             and now - value.last_used > _CODEX_BROWSER_SESSION_TTL_SECONDS
         ):
-            _CODEX_BROWSER_SESSIONS.pop(key, None)
+            _invalidate_codex_browser_session(key, value)
     while len(_CODEX_BROWSER_SESSIONS) >= _CODEX_BROWSER_SESSION_MAX:
         evictable = [
             (value.last_used, key)
@@ -155,13 +242,19 @@ def _get_codex_browser_session(
             # receive a normal bounded HTTP failure rather than a late SSE frame.
             raise _CodexSessionCapacityError
         _, oldest_key = min(evictable)
-        _CODEX_BROWSER_SESSIONS.pop(oldest_key, None)
+        _invalidate_codex_browser_session(
+            oldest_key, _CODEX_BROWSER_SESSIONS[oldest_key]
+        )
+    global _CODEX_BROWSER_SESSION_GENERATION
+    _CODEX_BROWSER_SESSION_GENERATION += 1
     session = _CodexBrowserSession(
         backend=CodexChatBackend(
             hostname=hostname,
             agent_name=agent_name,
             timeout_seconds=_CODEX_RESPONSE_TIMEOUT_SECONDS,
         ),
+        identity=identity,
+        generation=_CODEX_BROWSER_SESSION_GENERATION,
         lock=asyncio.Lock(),
         last_used=now,
     )
@@ -222,6 +315,106 @@ def _get_claude_browser_session(
         last_used=now,
     )
     _CLAUDE_BROWSER_SESSIONS[cache_key] = session
+    return session
+
+
+def _invalidate_pi_browser_session(
+    cache_key: tuple[str, str], session: _PiBrowserSession
+) -> None:
+    """Retire one generation without closing a backend under an active turn."""
+    session.invalidated = True
+    if _PI_BROWSER_SESSIONS.get(cache_key) is session:
+        _PI_BROWSER_SESSIONS.pop(cache_key)
+
+
+def _pi_browser_session_is_current(
+    cache_key: tuple[str, str], session: _PiBrowserSession
+) -> bool:
+    """Whether a turn still belongs to the currently resolved Pi identity."""
+    current = _PI_BROWSER_SESSIONS.get(cache_key)
+    return (
+        not session.invalidated
+        and current is session
+        and current.generation == session.generation
+    )
+
+
+def _get_pi_browser_session(
+    *,
+    agent_key: str,
+    session_key: str,
+    hostname: str,
+    agent_name: str,
+    model: str,
+    provider_name: str,
+    installation_id: str,
+    pi_provider: str = "openrouter",
+    host_key: str = "",
+) -> _PiBrowserSession:
+    """Return a bounded Pi session, discarding stale agent identities."""
+    now = time.monotonic()
+    cache_key = (agent_key, session_key)
+    identity = (
+        host_key or hostname,
+        hostname,
+        agent_name,
+        model,
+        provider_name,
+        installation_id,
+        pi_provider,
+    )
+    cached = _PI_BROWSER_SESSIONS.get(cache_key)
+    # Legacy records predate installed_at. They have no durable generation
+    # marker, so retaining a browser session could route a same-key recreated
+    # agent to its predecessor. Prefer a fresh finite Pi turn over continuity
+    # until the record is migrated by a normal install.
+    if not installation_id:
+        if cached is not None:
+            _invalidate_pi_browser_session(cache_key, cached)
+        cached = None
+    if (
+        cached is not None
+        and cached.identity == identity
+        and (
+            cached.lock.locked()
+            or now - cached.last_used <= _CLAUDE_BROWSER_SESSION_TTL_SECONDS
+        )
+    ):
+        cached.last_used = now
+        return cached
+    if cached is not None:
+        # A replaced identity can have an active turn. It retains its own
+        # backend until its finally block closes it, but loses authority to
+        # start (or return) a turn after the replacement generation exists.
+        _invalidate_pi_browser_session(cache_key, cached)
+
+    for key, value in tuple(_PI_BROWSER_SESSIONS.items()):
+        if (
+            not value.lock.locked()
+            and now - value.last_used > _CLAUDE_BROWSER_SESSION_TTL_SECONDS
+        ):
+            _invalidate_pi_browser_session(key, value)
+    while len(_PI_BROWSER_SESSIONS) >= _CLAUDE_BROWSER_SESSION_MAX:
+        evictable = [
+            (value.last_used, key)
+            for key, value in _PI_BROWSER_SESSIONS.items()
+            if not value.lock.locked()
+        ]
+        if not evictable:
+            raise _PiSessionCapacityError
+        _, oldest_key = min(evictable)
+        _invalidate_pi_browser_session(oldest_key, _PI_BROWSER_SESSIONS[oldest_key])
+
+    global _PI_BROWSER_SESSION_GENERATION
+    _PI_BROWSER_SESSION_GENERATION += 1
+    session = _PiBrowserSession(
+        backend=PiChatBackend(hostname, agent_name, model, provider=pi_provider),
+        identity=identity,
+        generation=_PI_BROWSER_SESSION_GENERATION,
+        lock=asyncio.Lock(),
+        last_used=now,
+    )
+    _PI_BROWSER_SESSIONS[cache_key] = session
     return session
 
 
@@ -363,6 +556,8 @@ async def chat_send(agent_key: str, body: ChatRequest):
         return await _chat_claude(host_record, agent_record, agent_key, body)
     if chat_type == "codex":
         return await _chat_codex(host_record, agent_record, agent_key, body)
+    if chat_type == "pi":
+        return await _chat_pi(host_record, agent_record, agent_key, body)
     raise HTTPException(status_code=400, detail=f"Unknown chat type: {chat_type}")
 
 
@@ -1261,43 +1456,127 @@ async def _chat_codex(
             agent_key=agent_key,
             session_key=body.session,
             hostname=hostname,
+            host_key=host_record.get("key_id") or hostname,
             agent_name=agent_name,
+            installation_id=agent_record.get("installed_at")
+            if isinstance(agent_record.get("installed_at"), str)
+            else "",
         )
     except _CodexSessionCapacityError as exc:
         raise HTTPException(status_code=503, detail="Chat is busy; try again") from exc
 
-    async def generate():
+    cache_key = (agent_key, body.session)
+    async with session.lock:
         try:
-            async with session.lock:
-                try:
-                    await session.backend.connect()
-                    response_text = await session.backend.send_message(
-                        message=body.message,
-                        session_key=body.session,
-                        response_timeout_seconds=_CODEX_RESPONSE_TIMEOUT_SECONDS,
-                    )
-                    events = [
-                        "data: "
-                        + json.dumps({"type": "content", "text": response_text})
-                        + "\n\n",
-                        "data: [DONE]\n\n",
-                    ]
-                except asyncio.CancelledError:
-                    raise
-                except Exception:
-                    events = [
-                        "data: "
-                        + json.dumps({"type": "error", "message": _CHAT_GENERIC_ERROR})
-                        + "\n\n",
-                        "data: [DONE]\n\n",
-                    ]
-                finally:
-                    session.last_used = time.monotonic()
-                    await session.backend.close()
-                for event in events:
-                    yield event
+            if not _codex_browser_session_is_current(
+                cache_key, session
+            ) or not await _codex_browser_session_matches_registry(agent_key, session):
+                _invalidate_codex_browser_session(cache_key, session)
+                raise HTTPException(status_code=409, detail="Codex agent identity changed")
+            await session.backend.connect()
+            response_text = await session.backend.send_message(
+                message=body.message,
+                session_key=body.session,
+                response_timeout_seconds=_CODEX_RESPONSE_TIMEOUT_SECONDS,
+            )
+            if not _codex_browser_session_is_current(
+                cache_key, session
+            ) or not await _codex_browser_session_matches_registry(agent_key, session):
+                _invalidate_codex_browser_session(cache_key, session)
+                raise HTTPException(status_code=409, detail="Codex agent identity changed")
         except asyncio.CancelledError:
             raise
+        except HTTPException:
+            raise
+        except Exception:
+            raise HTTPException(status_code=502, detail=_CHAT_GENERIC_ERROR) from None
+        finally:
+            session.last_used = time.monotonic()
+            await session.backend.close()
+
+    async def generate():
+        yield "data: " + json.dumps({"type": "content", "text": response_text}) + "\n\n"
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(generate(), media_type="text/event-stream")
+
+
+async def _chat_pi(
+    host_record: dict, agent_record: dict, agent_key: str, body: ChatRequest
+):
+    """Run a finite Pi turn while preserving the browser conversation UUID."""
+    if not body.message.strip() or len(body.message) > _CLAUDE_MAX_PROMPT_CHARS:
+        raise HTTPException(
+            status_code=422, detail="Chat message must not be blank or too long"
+        )
+    if not _CLAUDE_SESSION_KEY_RE.fullmatch(body.session):
+        raise HTTPException(status_code=422, detail="Invalid chat session")
+    hostname = host_record.get("hostname")
+    agent_name = agent_record.get("agent_name") or agent_key
+    providers = agent_record.get("providers")
+    if (
+        not isinstance(hostname, str)
+        or not isinstance(agent_name, str)
+        or not isinstance(providers, list)
+        or len(providers) != 1
+        or not isinstance(providers[0], str)
+    ):
+        raise HTTPException(status_code=500, detail=_CHAT_GENERIC_ERROR)
+    try:
+        selection = validate_pi_provider(get_provider(providers[0]))
+    except PiProvisioningError:
+        raise HTTPException(status_code=500, detail=_CHAT_GENERIC_ERROR) from None
+    try:
+        session = _get_pi_browser_session(
+            agent_key=agent_key,
+            session_key=body.session,
+            hostname=hostname,
+            host_key=host_record.get("key_id") or hostname,
+            agent_name=agent_name,
+            model=selection.model,
+            provider_name=providers[0],
+            pi_provider=selection.provider,
+            installation_id=agent_record.get("installed_at")
+            if isinstance(agent_record.get("installed_at"), str)
+            else "",
+        )
+    except _PiSessionCapacityError:
+        raise HTTPException(status_code=503, detail=_CHAT_GENERIC_ERROR) from None
+
+    # Pi print mode returns one finite response rather than incremental deltas.
+    # Complete the bounded operation before creating an SSE response so backend
+    # failures retain a meaningful non-2xx HTTP status.
+    cache_key = (agent_key, body.session)
+    async with session.lock:
+        try:
+            # A same-key reinstall/reassignment can replace the cache while a
+            # prior request waits for this lock. Never let that queued request
+            # connect to its predecessor after the new identity is current.
+            if not _pi_browser_session_is_current(cache_key, session):
+                raise HTTPException(status_code=409, detail="Pi agent identity changed")
+            await session.backend.connect()
+            text = await session.backend.send_message(
+                body.message,
+                body.session,
+                response_timeout_seconds=_CLAUDE_RESPONSE_TIMEOUT_SECONDS,
+            )
+            # An in-flight old-host request cannot be interrupted safely, but
+            # its completed response must not be served as the replacement.
+            if not _pi_browser_session_is_current(cache_key, session):
+                raise HTTPException(status_code=409, detail="Pi agent identity changed")
+        except asyncio.CancelledError:
+            raise
+        except HTTPException:
+            raise
+        except Exception:
+            raise HTTPException(status_code=502, detail=_CHAT_GENERIC_ERROR) from None
+        finally:
+            session.last_used = time.monotonic()
+            await session.backend.close()
+
+    async def generate():
+        yield "data: " + json.dumps({"type": "content", "text": text}) + "\n\n"
+        yield "data: [DONE]\n\n"
 
     return StreamingResponse(generate(), media_type="text/event-stream")
 

@@ -331,9 +331,17 @@ def _prerender_openclaw_install_stub(
         # OPENCLAW_DEFAULT_MODEL string per openclaw's model dispatch
         # convention. Mirrors the .env.j2 legacy template's rule so a
         # cross-check against a configured bare openclaw matches.
-        if p_type == "openrouter" and default_model and not default_model.startswith("openrouter/"):
+        if (
+            p_type == "openrouter"
+            and default_model
+            and not default_model.startswith("openrouter/")
+        ):
             model_id = f"openrouter/{default_model}"
-        elif p_type == "bedrock" and default_model and not default_model.startswith("amazon-bedrock/"):
+        elif (
+            p_type == "bedrock"
+            and default_model
+            and not default_model.startswith("amazon-bedrock/")
+        ):
             model_id = f"amazon-bedrock/{default_model}"
         else:
             model_id = default_model
@@ -1081,7 +1089,9 @@ def run_installation(
         # the provider bearer + model already wired — no post-install
         # configure step required for chat to work.
         _stub_provider_record = provider_record if openclaw_provider_canonical else None
-        _stub_provider_api_key = provider_api_key if openclaw_provider_canonical else None
+        _stub_provider_api_key = (
+            provider_api_key if openclaw_provider_canonical else None
+        )
         try:
             prerendered_openclaw_config_json, prerendered_openclaw_env = (
                 _prerender_openclaw_install_stub(
@@ -1324,7 +1334,7 @@ def run_installation(
         # Herdr is a host-shared runtime deliberately scoped to these two
         # agent types. Keep it between base setup and the agent installer so
         # Hermes can add its native integration only after the binary exists.
-        if claw_name in ("hermes", "claude"):
+        if claw_name in ("hermes", "claude"):  # Pi has no Herdr dependency.
             try:
                 herdr_playbook = _get_herdr_playbook_path(host_os_family)
             except FileNotFoundError as exc:
@@ -1676,10 +1686,7 @@ def run_installation(
         # (concurrent registry mutation, hosts.json contention), log and
         # continue — the sandbox is up on the host, and the operator can
         # recover with `clawctl agent configure --stage providers`.
-        if (
-            claw_name == "openclaw"
-            and openclaw_provider_canonical is not None
-        ):
+        if claw_name == "openclaw" and openclaw_provider_canonical is not None:
             try:
 
                 def _attach_openclaw_provider(h: dict) -> dict:

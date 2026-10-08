@@ -1,8 +1,8 @@
 """Lifecycle capabilities that differ by installed agent type.
 
 Most Clawrium agent types expose a long-running gateway managed by systemd
-or launchd. Claude Code and Codex are intentionally different: they are installed,
-interactive CLIs with no daemon to start, stop, restart, inspect, or
+or launchd. Claude Code, Codex, and Pi are intentionally different: they are
+installed, interactive CLIs with no daemon to start, stop, restart, inspect, or
 tunnel. Keep that distinction in one small, dependency-free module so every
 entry point rejects daemon operations before opening SSH or invoking an
 agent binary.
@@ -11,7 +11,7 @@ agent binary.
 from __future__ import annotations
 
 
-_DAEMONLESS_AGENT_TYPES: frozenset[str] = frozenset({"claude", "codex"})
+_DAEMONLESS_AGENT_TYPES: frozenset[str] = frozenset({"claude", "codex", "pi"})
 
 
 def has_daemon_lifecycle(agent_type: str) -> bool:

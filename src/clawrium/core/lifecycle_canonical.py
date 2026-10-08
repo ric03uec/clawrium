@@ -44,7 +44,7 @@ import re
 import shlex
 from dataclasses import dataclass, replace as _dc_replace
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 
 import paramiko
 
@@ -174,6 +174,12 @@ def _load_openclaw_brave_pin() -> dict:
 
 class CanonicalSyncError(Exception):
     """Any failure in the canonical sync pipeline."""
+
+
+class SSOAuthRequiredError(CanonicalSyncError):
+    """The dedicated Pi account must refresh its AWS Identity Center session."""
+
+    code = "SSO_AUTH_REQUIRED"
 
 
 def _validate_agent_name(agent_name: str) -> None:
@@ -859,6 +865,548 @@ def _validate_claude_credential_activation(agent_name: str) -> tuple[str, str]:
     if key not in {CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY}:
         raise CanonicalSyncError("Claude credential activation failed")
     return key, value
+
+
+def _verify_pi_remote_ownership(client: Any, *, agent_name: str, family: str) -> None:
+    """Fail closed unless the remote account is bound to Clawrium's Pi marker."""
+    root = "/Users" if family == "darwin" else "/home"
+    marker = (
+        f"/Library/Application Support/clawrium/pi/{agent_name}.json"
+        if family == "darwin"
+        else f"/var/lib/clawrium/pi/{agent_name}.json"
+    )
+    # Keep all validation on the remote privileged side before creating any path.
+    # Stock macOS does not ship /usr/bin/python3.  Its system Perl does ship
+    # JSON::PP and Fcntl, and getpwnam reads the Directory Services account.
+    if family == "darwin":
+        program = r"""use strict; use warnings; use Fcntl qw(O_RDONLY O_NOFOLLOW); use JSON::PP qw(decode_json);
+my ($name, $home, $marker) = @ARGV; exit 1 unless @ARGV == 3;
+my @before = lstat($marker); exit 1 unless @before && ($before[2] & 0170000) == 0100000 && $before[4] == 0 && ($before[2] & 07777) == 0600;
+sysopen(my $fh, $marker, O_RDONLY | O_NOFOLLOW) or exit 1;
+my @opened = stat($fh); exit 1 unless @opened && $opened[0] == $before[0] && $opened[1] == $before[1] && $opened[4] == 0 && ($opened[2] & 07777) == 0600;
+my $raw = do { local $/; <$fh> }; close($fh) or exit 1;
+my $data = eval { decode_json($raw) }; exit 1 if $@ || ref($data) ne 'HASH';
+my @account = getpwnam($name); exit 1 unless @account;
+my $transaction = $data->{transaction_id};
+exit 1 unless $data->{schema} == 2 && defined($data->{agent_name}) && $data->{agent_name} eq $name && defined($data->{home}) && $data->{home} eq $home && defined($data->{uid}) && $data->{uid} == $account[2] && $account[7] eq $home && defined($transaction) && !ref($transaction) && $transaction =~ /\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z/ && $account[6] eq "clawrium-pi-$transaction";"""
+        interpreter = "/usr/bin/perl"
+    else:
+        program = r"""import json, os, pwd, stat, sys
+name, home, marker = sys.argv[1:]
+st = os.lstat(marker)
+if stat.S_ISLNK(st.st_mode) or st.st_uid != 0 or stat.S_IMODE(st.st_mode) != 0o600: raise SystemExit(1)
+data = json.load(open(marker))
+p = pwd.getpwnam(name)
+if not (data.get("schema") == 2 and data.get("agent_name") == name and data.get("home") == home and data.get("uid") == p.pw_uid and p.pw_dir == home and isinstance(data.get("transaction_id"), str) and p.pw_gecos == "clawrium-pi-" + data["transaction_id"]): raise SystemExit(1)"""
+        interpreter = "/usr/bin/python3"
+    command = "sudo -n {} -c {} {} {} {}".format(
+        interpreter,
+        shlex.quote(program),
+        shlex.quote(agent_name),
+        shlex.quote(f"{root}/{agent_name}"),
+        shlex.quote(marker),
+    )
+    _, stdout, _ = client.exec_command(command, timeout=30)
+    if stdout.channel.recv_exit_status() != 0:
+        raise CanonicalSyncError(
+            "Pi ownership marker does not bind the dedicated account"
+        )
+
+
+def _pi_user_environment_operation(
+    client: Any, *, agent_name: str, path: str, body: str | None
+) -> None:
+    """Write or remove Pi's credential as its account, never as root.
+
+    The marker probe has already established that this is Clawrium's account.
+    Passing bytes on stdin avoids exposing the bearer in argv or runner logs.
+    A hostile Pi-owned symlink can at worst target another Pi-user-writable
+    location; it cannot make this unprivileged process alter root-owned data.
+    """
+    action = "write" if body is not None else "remove"
+    script = r"""set -eu; path=$1; dir=${path%/*}; case $2 in
+write) umask 077; mkdir -p -- "$dir"; tmp=$(mktemp "$dir/.clawrium-provider.XXXXXX"); trap 'rm -f -- "$tmp"' EXIT; cat >"$tmp"; chmod 0600 "$tmp"; mv -f -- "$tmp" "$path";;
+remove) rm -f -- "$path";; esac"""
+    command = "sudo -n -u {} -- /bin/bash -c {} clawrium-pi-env {} {}".format(
+        shlex.quote(agent_name), shlex.quote(script), shlex.quote(path), action
+    )
+    stdin, stdout, _ = client.exec_command(command, timeout=30)
+    if body is not None:
+        stdin.write(body)
+        stdin.flush()
+        stdin.channel.shutdown_write()
+    if stdout.channel.recv_exit_status() != 0:
+        raise CanonicalSyncError(f"could not {action} Pi provider activation")
+
+
+_PI_BEDROCK_STS_IDENTITY_VALIDATOR = (
+    "import json,re,sys; "
+    "expected_account,role=sys.argv[1:]; "
+    "data=json.load(sys.stdin); "
+    "arn=data.get('Arn'); "
+    "pattern=rf'arn:aws(?:-us-gov|-cn)?:sts::{re.escape(expected_account)}:assumed-role/AWSReservedSSO_{re.escape(role)}_[A-Za-z0-9]+/[^/]+\\Z'; "
+    "raise SystemExit(not (data.get('Account') == expected_account and isinstance(arn,str) and re.fullmatch(pattern,arn)))"
+)
+
+# Stock macOS does not guarantee a Python interpreter, but does ship Perl with
+# JSON::PP. Keep this independent implementation equivalent to the Linux one.
+_PI_BEDROCK_STS_IDENTITY_VALIDATOR_PERL = (
+    "use JSON::PP qw(decode_json); use strict; use warnings; "
+    "my ($expected_account,$role)=@ARGV; "
+    "my $data=eval { decode_json(join q{}, <STDIN>) }; exit 1 if $@ || ref($data) ne q{HASH}; "
+    "my $arn=$data->{Arn}; "
+    "my $pattern=qr{\\Aarn:aws(?:-us-gov|-cn)?:sts::\\Q$expected_account\\E:assumed-role/AWSReservedSSO_\\Q$role\\E_[A-Za-z0-9]+/[^/]+\\z}; "
+    "exit !($data->{Account} eq $expected_account && defined($arn) && !ref($arn) && $arn =~ $pattern);"
+)
+
+# Validates every component with lstat, rather than stat: stat would follow a
+# symlinked ancestor and allow an attacker to substitute the directory tree.
+_PI_BEDROCK_AWS_PATH_VALIDATOR_PERL = (
+    "my ($path,$expected_uid,$allow_final_link,$trusted_root)=@ARGV; "
+    "$trusted_root =~ s{/$}{} if $trusted_root ne q{/}; "
+    "exit 1 unless $trusted_root eq q{/} || $path eq $trusted_root || index($path, qq{$trusted_root/}) == 0; "
+    "my @root=lstat($trusted_root); exit 1 unless @root && $root[4] == $expected_uid && !($root[2] & 0022) && !-w $trusted_root; "
+    "my $suffix=substr($path,length($trusted_root)); my $current=$trusted_root eq q{/} ? q{} : $trusted_root; "
+    "for my $part (grep length, split m{/+}, $suffix) { "
+    "$current .= q{/} . $part; my @st=lstat($current); my $is_link=(@st && ($st[2] & 0170000) == 0120000); my $final_link=($is_link && $current eq $path); "
+    "exit 1 unless @st && $st[4] == $expected_uid && ($final_link ? $allow_final_link : !($st[2] & 0022) && !-w $current); "
+    "exit 1 if $is_link && !$final_link; }"
+)
+_PI_BEDROCK_AWS_PATH_VALIDATOR_PYTHON = """import os, stat, sys
+path, expected_uid, allow_final_link, trusted_root = sys.argv[1:]
+expected_uid = int(expected_uid)
+trusted_root = trusted_root.rstrip("/") or "/"
+if trusted_root != "/" and not (path == trusted_root or path.startswith(trusted_root + "/")):
+    raise SystemExit(1)
+def checked(path, allow_link=False):
+    status = os.lstat(path)
+    if status.st_uid != expected_uid:
+        raise SystemExit(1)
+    is_link = stat.S_ISLNK(status.st_mode)
+    if is_link and not allow_link:
+        raise SystemExit(1)
+    if not allow_link and (status.st_mode & 0o22 or os.access(path, os.W_OK)):
+        raise SystemExit(1)
+checked(trusted_root)
+current = "" if trusted_root == "/" else trusted_root
+for part in filter(None, path[len(trusted_root):].split("/")):
+    current += "/" + part
+    checked(current, allow_link=(current == path and allow_final_link == "1"))
+"""
+
+
+def _build_pi_bedrock_sso_readiness_probe(
+    *,
+    account_id: str,
+    role_name: str,
+    os_family: str,
+    candidates: tuple[str, ...] = (
+        "/usr/bin/aws",
+        "/usr/local/bin/aws",
+        "/opt/homebrew/bin/aws",
+    ),
+    expected_uid: int = 0,
+    trusted_root: str = "/",
+) -> str:
+    """Build the non-secret remote readiness probe.
+
+    The optional path parameters are test seams only; production uses the
+    root-owned system paths and UID 0 defaults.
+    """
+    if os_family == "darwin":
+        identity_check = (
+            f"/usr/bin/perl -MJSON::PP -e {shlex.quote(_PI_BEDROCK_STS_IDENTITY_VALIDATOR_PERL)}"
+        )
+        trusted_path = (
+            f"/usr/bin/perl -e {shlex.quote(_PI_BEDROCK_AWS_PATH_VALIDATOR_PERL)}"
+        )
+        resolve_path = "/usr/bin/perl -MCwd=abs_path -e 'print abs_path(shift)'"
+    else:
+        identity_check = f"/usr/bin/python3 -c {shlex.quote(_PI_BEDROCK_STS_IDENTITY_VALIDATOR)}"
+        trusted_path = (
+            f"/usr/bin/python3 -c {shlex.quote(_PI_BEDROCK_AWS_PATH_VALIDATOR_PYTHON)}"
+        )
+        resolve_path = "/usr/bin/python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))'"
+    candidate_list = " ".join(shlex.quote(candidate) for candidate in candidates)
+    quoted_root = shlex.quote(trusted_root)
+    return (
+        f"trusted_path() {{ {trusted_path} \"$1\" \"$2\" \"$3\" \"$4\"; }}; "
+        "aws_cli=''; "
+        f"for candidate in {candidate_list}; do "
+        "test -x \"$candidate\" || continue; "
+        f"resolved=$({resolve_path} \"$candidate\") || continue; "
+        f"trusted_path \"$candidate\" {expected_uid} 1 {quoted_root} || continue; "
+        f"trusted_path \"$resolved\" {expected_uid} 0 {quoted_root} || continue; "
+        "\"$resolved\" --version 2>&1 | /usr/bin/grep -q '^aws-cli/2\\.' || continue; "
+        "aws_cli=\"$resolved\"; break; done; "
+        "test -n \"$aws_cli\" || exit 127; printf '%s\\n' \"$aws_cli\"; set -o pipefail; "
+        f"\"$aws_cli\" sts get-caller-identity --output json 2>/dev/null | {identity_check} "
+        f"{shlex.quote(account_id)} {shlex.quote(role_name)}"
+    )
+
+
+def _verify_pi_bedrock_sso_readiness(
+    client: Any,
+    *,
+    agent_name: str,
+    profile: str,
+    region: str,
+    config_path: str,
+    account_id: str,
+    role_name: str,
+    os_family: str = "linux",
+    credentials_path: str = "/dev/null",
+) -> None:
+    """Prove the dedicated account has a usable, non-secret SSO session.
+
+    The rendered profile is written before this probe so an operator can run
+    the guided ``aws sso login`` recovery after a failed first sync. Neither
+    AWS output nor token material is returned to the controller.
+    """
+    command = (
+        "sudo -n -u {user} -- env -i HOME={home} AWS_PROFILE={profile} AWS_REGION={region} "
+        "AWS_CONFIG_FILE={config} AWS_SHARED_CREDENTIALS_FILE={credentials} "
+        "AWS_EC2_METADATA_DISABLED=true PATH=/usr/bin:/bin /bin/bash -c {probe}"
+    ).format(
+        user=shlex.quote(agent_name),
+        home=shlex.quote(str(Path(config_path).parents[2])),
+        profile=shlex.quote(profile),
+        region=shlex.quote(region),
+        config=shlex.quote(config_path),
+        credentials=shlex.quote(credentials_path),
+        probe=shlex.quote(
+            _build_pi_bedrock_sso_readiness_probe(
+                account_id=account_id, role_name=role_name, os_family=os_family
+            )
+        ),
+    )
+    _, stdout, _ = client.exec_command(command, timeout=30)
+    exit_status = stdout.channel.recv_exit_status()
+    from clawrium.cli.output._sanitize import sanitize_passthrough
+
+    raw_path = getattr(stdout, "read", lambda: b"")()
+    if isinstance(raw_path, bytes):
+        raw_path = raw_path.decode("utf-8", "replace")
+    validated_cli = raw_path.strip().splitlines()[0] if raw_path.strip() else ""
+    if exit_status != 0:
+        home = str(Path(config_path).parents[2])
+        recovery = ""
+        if validated_cli:
+            login_command = "sudo -n -u {user} -- env -i HOME={home} AWS_PROFILE={profile} AWS_REGION={region} AWS_CONFIG_FILE={config} AWS_SHARED_CREDENTIALS_FILE={credentials} AWS_EC2_METADATA_DISABLED=true PATH=/usr/bin:/bin {aws_cli} sso login --profile {profile}".format(
+                user=shlex.quote(agent_name),
+                home=shlex.quote(home),
+                profile=shlex.quote(profile),
+                region=shlex.quote(region),
+                config=shlex.quote(config_path),
+                credentials=shlex.quote(credentials_path),
+                aws_cli=shlex.quote(sanitize_passthrough(validated_cli)),
+            )
+            recovery = f" Then run the validated system AWS CLI as the Pi account: `{login_command}`."
+        safe_agent_name = sanitize_passthrough(agent_name)
+        safe_profile = sanitize_passthrough(profile)
+        safe_region = sanitize_passthrough(region)
+        recovery = (
+            recovery.replace(profile, safe_profile)
+            .replace(agent_name, safe_agent_name)
+            .replace(region, safe_region)
+        )
+        raise SSOAuthRequiredError(
+            "SSO_AUTH_REQUIRED: Pi Bedrock SSO is not ready for the dedicated account. Install AWS CLI v2 "
+            f"on the host if necessary.{recovery} Then re-run `clawctl agent sync {safe_agent_name}`."
+        )
+
+
+# Cache cleanup deliberately uses a separate, non-secret remote program.  The
+# AWS CLI writes usable SSO bearer and role credentials below these paths, so
+# removing just Clawrium's profile files is not a revocation.
+_PI_BEDROCK_CACHE_CLEANUP_PYTHON = r"""import os, stat, sys
+home, trusted_parent, trusted_uid = sys.argv[1:]
+uid = os.getuid()
+def opened(parent_fd, name, owner):
+    fd = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent_fd)
+    status = os.fstat(fd)
+    if not stat.S_ISDIR(status.st_mode) or status.st_uid != owner:
+        os.close(fd); raise SystemExit(1)
+    return fd
+def clear(directory_fd):
+    for name in os.listdir(directory_fd):
+        status = os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
+        if stat.S_ISLNK(status.st_mode) or status.st_uid != uid: raise SystemExit(1)
+        if stat.S_ISDIR(status.st_mode):
+            child_fd = opened(directory_fd, name, uid)
+            try: clear(child_fd)
+            finally: os.close(child_fd)
+            os.rmdir(name, dir_fd=directory_fd)
+        elif stat.S_ISREG(status.st_mode): os.unlink(name, dir_fd=directory_fd)
+        else: raise SystemExit(1)
+if os.path.dirname(home) != trusted_parent: raise SystemExit(1)
+parent_fd = os.open(trusted_parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+try:
+    parent_status = os.fstat(parent_fd)
+    if not stat.S_ISDIR(parent_status.st_mode) or parent_status.st_uid != int(trusted_uid): raise SystemExit(1)
+    home_fd = opened(parent_fd, os.path.basename(home), uid)
+    try:
+        for branch in ("sso", "cli"):
+            try: aws_fd = opened(home_fd, ".aws", uid)
+            except FileNotFoundError: continue
+            try:
+                try: branch_fd = opened(aws_fd, branch, uid)
+                except FileNotFoundError: continue
+                try:
+                    try: cache_fd = opened(branch_fd, "cache", uid)
+                    except FileNotFoundError: continue
+                    try: clear(cache_fd)
+                    finally: os.close(cache_fd)
+                finally: os.close(branch_fd)
+            finally: os.close(aws_fd)
+    finally: os.close(home_fd)
+finally: os.close(parent_fd)
+"""
+
+# Both platforms retain descriptor anchors from the root-owned home parent to
+# every cache component.  The macOS Perl variant uses chdir(FILEHANDLE), which
+# is fchdir, because stock macOS does not ship Python/openat bindings.
+_PI_BEDROCK_CACHE_CLEANUP_PERL = r"""use strict; use warnings; use Fcntl qw(O_RDONLY O_DIRECTORY O_NOFOLLOW);
+my ($home,$trusted_parent,$trusted_uid)=@ARGV; my $uid=$<;
+sub opened { my ($parent,$name,$owner)=@_; chdir($parent) or exit 1; sysopen(my $fh,$name,O_RDONLY|O_DIRECTORY|O_NOFOLLOW) or die $!{ENOENT} ? q{missing} : q{bad}; my @st=stat($fh); exit 1 unless @st && ($st[2]&0170000)==0040000 && $st[4] == $owner; return $fh; }
+sub clear { my ($dir)=@_; chdir($dir) or exit 1; opendir(my $dh,q{.}) or exit 1; while (defined(my $name=readdir($dh))) { next if $name eq q{.} || $name eq q{..}; my @st=lstat($name); exit 1 unless @st && ($st[2]&0170000)!=0120000 && $st[4] == $uid; if (($st[2]&0170000)==0040000) { my $child=opened($dir,$name,$uid); clear($child); chdir($dir) or exit 1; rmdir($name) or exit 1; } elsif (($st[2]&0170000)==0100000) { unlink($name) or exit 1; } else { exit 1; } } closedir($dh) or exit 1; }
+exit 1 unless substr($home,0,length($trusted_parent)+1) eq $trusted_parent.q{/} && index(substr($home,length($trusted_parent)+1),q{/}) < 0;
+sysopen(my $parent,$trusted_parent,O_RDONLY|O_DIRECTORY|O_NOFOLLOW) or exit 1; my @parent_st=stat($parent); exit 1 unless @parent_st && ($parent_st[2]&0170000)==0040000 && $parent_st[4] == $trusted_uid;
+my $home_fh=opened($parent,substr($home,length($trusted_parent)+1),$uid); for my $branch (q{sso},q{cli}) { my $aws=eval { opened($home_fh,q{.aws},$uid) }; exit 1 if $@ && $@ !~ /missing/; next if $@; my $branch_fh=eval { opened($aws,$branch,$uid) }; exit 1 if $@ && $@ !~ /missing/; next if $@; my $cache=eval { opened($branch_fh,q{cache},$uid) }; exit 1 if $@ && $@ !~ /missing/; next if $@; clear($cache); }
+"""
+
+
+def _pi_bedrock_cache_cleanup_program(os_family: str) -> tuple[str, str, str]:
+    """Return the stock interpreter, execution flag, and cache cleanup program."""
+    if os_family == "darwin":
+        # ``-c`` only syntax-checks Perl; revocation must execute with ``-e``.
+        return "/usr/bin/perl", "-e", _PI_BEDROCK_CACHE_CLEANUP_PERL
+    return "/usr/bin/python3", "-c", _PI_BEDROCK_CACHE_CLEANUP_PYTHON
+
+
+def _clear_pi_bedrock_aws_caches(
+    client: Any,
+    *,
+    agent_name: str,
+    home: str,
+    os_family: str,
+    trusted_parent: str | None = None,
+    trusted_parent_uid: int = 0,
+    phase: str = "revoking Bedrock credentials",
+) -> None:
+    """Empty Pi-owned AWS caches without following attacker-controlled paths.
+
+    This must follow ``_verify_pi_remote_ownership``.  It runs as the dedicated
+    Pi user and removes no files outside the two AWS cache directories.
+    """
+    interpreter, execution_flag, program = _pi_bedrock_cache_cleanup_program(os_family)
+    parent = trusted_parent or str(Path(home).parent)
+    command = "sudo -n -u {} -- {} {} {} {} {} {}".format(
+        shlex.quote(agent_name),
+        interpreter,
+        execution_flag,
+        shlex.quote(program),
+        shlex.quote(home),
+        shlex.quote(parent),
+        trusted_parent_uid,
+    )
+    _, stdout, _ = client.exec_command(command, timeout=30)
+    if stdout.channel.recv_exit_status() != 0:
+        raise CanonicalSyncError(f"could not clean Pi Bedrock AWS cache while {phase}")
+
+
+def revoke_pi_openrouter(*, agent_name: str, host: dict) -> None:
+    """Remove all Clawrium-managed Pi provider activation before final detach."""
+    from clawrium.core.pi import (
+        PI_AWS_CONFIG_PATH,
+        PI_AWS_CREDENTIALS_PATH,
+        PI_PROVIDER_ENVIRONMENT_PATH,
+    )
+    from clawrium.core.playbook_resolver import normalize_os_family
+
+    family = normalize_os_family(host)
+    root = f"{home_root_for(family)}/{agent_name}"
+    client = _open_ssh(host)
+    try:
+        _verify_pi_remote_ownership(client, agent_name=agent_name, family=family)
+        _clear_pi_bedrock_aws_caches(
+            client,
+            agent_name=agent_name,
+            home=root,
+            os_family=family,
+            phase="revoking Bedrock credentials",
+        )
+        for relative_path in (
+            PI_PROVIDER_ENVIRONMENT_PATH,
+            PI_AWS_CONFIG_PATH,
+            PI_AWS_CREDENTIALS_PATH,
+        ):
+            _pi_user_environment_operation(
+                client, agent_name=agent_name, path=f"{root}/{relative_path}", body=None
+            )
+    finally:
+        client.close()
+
+
+def revoke_pi_codex(*, agent_name: str, host: dict) -> None:
+    """Remove only Pi-owned Codex OAuth from the dedicated account."""
+    from clawrium.core.pi import PI_CODEX_AUTH_PATH
+    from clawrium.core.playbook_resolver import normalize_os_family
+
+    family = normalize_os_family(host)
+    client = _open_ssh(host)
+    try:
+        _verify_pi_remote_ownership(client, agent_name=agent_name, family=family)
+        _pi_user_environment_operation(
+            client,
+            agent_name=agent_name,
+            path=f"{home_root_for(family)}/{agent_name}/{PI_CODEX_AUTH_PATH}",
+            body=None,
+        )
+    finally:
+        client.close()
+
+
+def _sync_pi_openrouter(
+    *,
+    agent_name: str,
+    host: dict,
+    claw_record: dict,
+    workspace_only: bool,
+    dry_run: bool,
+    on_event: Callable[[str, str], None] | None,
+) -> CanonicalSyncResult:
+    """Activate the selected Pi provider in its isolated home.
+
+    This is intentionally outside the rendered-file/diff pipeline: the sole
+    body contains a bearer secret and must never reach a diff, event, or local
+    state.  The model remains non-secret control-plane metadata and is passed
+    as fixed Pi CLI argv by ``PiChatBackend``.
+    """
+    from clawrium.core.pi import (
+        PI_AWS_CONFIG_PATH,
+        PI_AWS_CREDENTIALS_PATH,
+        PI_PROVIDER_ENVIRONMENT_PATH,
+        PiProvisioningError,
+        render_bedrock_sso_config,
+        render_bedrock_sso_environment,
+        render_openrouter_environment,
+        validate_pi_provider,
+    )
+    from clawrium.core.playbook_resolver import normalize_os_family
+    from clawrium.core.providers.storage import get_provider
+    from clawrium.core.providers import get_provider_api_key
+
+    hostname = host.get("hostname", "")
+    providers = claw_record.get("providers")
+    if (
+        not isinstance(providers, list)
+        or len(providers) != 1
+        or not isinstance(providers[0], str)
+    ):
+        raise CanonicalSyncError(
+            "Pi requires exactly one attached OpenRouter or AWS SSO-backed Bedrock provider; run `clawctl agent provider attach <provider> --agent <name>`"
+        )
+    record = get_provider(providers[0])
+    try:
+        selection = validate_pi_provider(record)
+        model = selection.model
+        if selection.provider == "openrouter":
+            body = render_openrouter_environment(get_provider_api_key(providers[0]))
+            aws_config = None
+        elif selection.provider == "openai-codex":
+            # Pi owns native OAuth exclusively in this account's auth.json.
+            # Remove Clawrium-managed activation files; never read or render it.
+            body = None
+            aws_config = None
+        else:
+            body = render_bedrock_sso_environment(record["aws_profile"], record["region"])
+            aws_config = render_bedrock_sso_config(record)
+    except PiProvisioningError as exc:
+        raise CanonicalSyncError(str(exc)) from exc
+    if (
+        selection.provider == "openai-codex"
+        and claw_record.get("pi_codex_auth_recovery") is True
+    ):
+        raise CanonicalSyncError(
+            "Pi Codex credential recovery is pending; run `clawctl agent provider "
+            "login <provider> --agent <name>` to complete native OAuth before syncing"
+        )
+    if workspace_only:
+        return CanonicalSyncResult(True, agent_name, hostname, (), (), ())
+    if dry_run:
+        # Validate access without showing secret-bearing file contents.
+        return CanonicalSyncResult(
+            True,
+            agent_name,
+            hostname,
+            (),
+            (PI_PROVIDER_ENVIRONMENT_PATH, PI_AWS_CONFIG_PATH, PI_AWS_CREDENTIALS_PATH),
+            (),
+        )
+    family = normalize_os_family(host)
+    root = f"{home_root_for(family)}/{agent_name}"
+    client = _open_ssh(host)
+    try:
+        _verify_pi_remote_ownership(client, agent_name=agent_name, family=family)
+        # Pi has a singleton provider attachment.  An OpenRouter replacement
+        # must revoke AWS's independent caches and managed files before its new
+        # provider environment becomes active.
+        if aws_config is None:
+            _clear_pi_bedrock_aws_caches(
+                client,
+                agent_name=agent_name,
+                home=root,
+                os_family=family,
+                phase="switching Pi provider",
+            )
+            _pi_user_environment_operation(
+                client, agent_name=agent_name, path=f"{root}/{PI_AWS_CONFIG_PATH}", body=None
+            )
+            _pi_user_environment_operation(
+                client,
+                agent_name=agent_name,
+                path=f"{root}/{PI_AWS_CREDENTIALS_PATH}",
+                body=None,
+            )
+        _pi_user_environment_operation(
+            client, agent_name=agent_name, path=f"{root}/{PI_PROVIDER_ENVIRONMENT_PATH}", body=body
+        )
+        # The SSO profile is public configuration, not a token. Keep it in the
+        # dedicated account for Bedrock only.
+        if aws_config is not None:
+            _pi_user_environment_operation(
+                client, agent_name=agent_name, path=f"{root}/{PI_AWS_CONFIG_PATH}", body=aws_config
+            )
+            _pi_user_environment_operation(
+                client,
+                agent_name=agent_name,
+                path=f"{root}/{PI_AWS_CREDENTIALS_PATH}",
+                body="",
+            )
+        if aws_config is not None:
+            _verify_pi_bedrock_sso_readiness(
+                client,
+                agent_name=agent_name,
+                profile=record["aws_profile"],
+                region=record["region"],
+                config_path=f"{root}/{PI_AWS_CONFIG_PATH}",
+                credentials_path=f"{root}/{PI_AWS_CREDENTIALS_PATH}",
+                account_id=record["sso_account_id"],
+                role_name=record["sso_role_name"],
+                os_family=family,
+            )
+    finally:
+        client.close()
+    if on_event is not None:
+        if selection.provider == "openai-codex":
+            on_event("sync", "Pi Codex OAuth selected; run `clawctl agent provider login <provider> --agent <name>` in a terminal to authenticate the dedicated account")
+        else:
+            on_event("sync", f"Pi {selection.provider} model {model!r} provisioned; no daemon restart")
+    paths = (() if selection.provider == "openai-codex" else (PI_PROVIDER_ENVIRONMENT_PATH,)) + (
+        (PI_AWS_CONFIG_PATH, PI_AWS_CREDENTIALS_PATH) if aws_config else ()
+    )
+    return CanonicalSyncResult(True, agent_name, hostname, paths, (), ())
 
 
 def _sync_claude_settings(
@@ -1844,7 +2392,9 @@ def _hermes_reconcile_herdr(
         timeout=300,
     )
     if not success:
-        raise CanonicalSyncError(f"Herdr reconciliation failed for {agent_name!r}: {err}")
+        raise CanonicalSyncError(
+            f"Herdr reconciliation failed for {agent_name!r}: {err}"
+        )
 
 
 # #835: openclaw slack MCP subprocess installer. Sibling of the hermes
@@ -2452,6 +3002,31 @@ def sync_agent_canonical(
         if not has_daemon_lifecycle(agent_type):
             if not has_completed_install(_claw_record):
                 raise CanonicalSyncError(incomplete_install_message(agent_type, "sync"))
+            if agent_type == "pi":
+                from clawrium.core.pi import pi_credential_lock
+
+                # Re-resolve under the per-agent lock so a queued sync cannot
+                # use attachments detached by another CLI process.
+                with pi_credential_lock(agent_name):
+                    fresh = get_agent_by_name(agent_name)
+                    if fresh is None:
+                        raise CanonicalSyncError(f"agent {agent_name!r} not found")
+                    fresh_host, fresh_type, fresh_record = fresh
+                    if (
+                        fresh_type != "pi"
+                        or fresh_host.get("hostname") != host.get("hostname")
+                    ):
+                        raise CanonicalSyncError(
+                            "Pi agent ownership changed; retry the sync command"
+                        )
+                    return _sync_pi_openrouter(
+                        agent_name=agent_name,
+                        host=fresh_host,
+                        claw_record=fresh_record,
+                        workspace_only=workspace_only,
+                        dry_run=dry_run,
+                        on_event=on_event,
+                    )
             if agent_type == "codex":
                 if workspace_only:
                     return CanonicalSyncResult(

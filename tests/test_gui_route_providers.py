@@ -336,7 +336,7 @@ def test_provider_types_returns_rich_model_metadata():
     result = asyncio.run(providers_mod.provider_types())
     types = result["types"]
 
-    # All twelve provider types are present
+    # All thirteen provider types are present
     assert set(types.keys()) == {
         "openai",
         "anthropic",
@@ -349,6 +349,7 @@ def test_provider_types_returns_rich_model_metadata():
         "ollama",
         "litellm",
         "claude-oauth",
+        "openai-codex",
         "codex-oauth",
     }
 
@@ -371,6 +372,11 @@ def test_provider_types_returns_rich_model_metadata():
     # the selected Claude agent rather than the provider registry.
     assert types["claude-oauth"]["models"] == []
     assert types["claude-oauth"]["requires_api_key"] is False
+    # Pi's native Codex OAuth model selection is CLI-specific, while the
+    # separate Codex CLI OAuth provider is selection-only; neither uses this
+    # generic GUI catalog.
+    assert types["openai-codex"]["models"] == []
+    assert types["openai-codex"]["requires_api_key"] is False
     assert types["codex-oauth"]["models"] == []
     assert types["codex-oauth"]["requires_api_key"] is False
 

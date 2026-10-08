@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import time
 
+import paramiko
 import typer
 
 from clawrium.cli.clawctl._common import OutputFormat
@@ -197,9 +198,7 @@ def _emit_diff(
             typer.echo(sanitize_passthrough(line), nl=False)
 
 
-def _emit_diff_error(
-    message: str, *, resource: str, use_json: bool, streamer
-) -> None:
+def _emit_diff_error(message: str, *, resource: str, use_json: bool, streamer) -> None:
     if use_json and streamer is not None:
         streamer.emit(
             resource=resource,
@@ -323,6 +322,31 @@ def sync(
     if not has_daemon_lifecycle(agent_type):
         if not has_completed_install(claw_record):
             emit_error(incomplete_install_message(agent_type, "sync"))
+        if agent_type == "pi":
+            from clawrium.core.lifecycle_canonical import (
+                CanonicalSyncError,
+                sync_agent_canonical,
+            )
+            try:
+                result = sync_agent_canonical(
+                    claw_record.get("agent_name") or agent_key,
+                    restart=False,
+                    verify=False,
+                    push_workspace=False,
+                    workspace_only=workspace_only,
+                    dry_run=dry_run,
+                )
+            except CanonicalSyncError as exc:
+                emit_error(f"Pi sync failed: {exc}")
+            except (paramiko.SSHException, OSError, EOFError):
+                emit_error("Pi sync failed: remote synchronization did not finish")
+            if not result.success:
+                emit_error(f"Pi sync failed: {result.error or 'unknown error'}")
+            stream_action(
+                resource=f"agent/{name}",
+                message="Pi OpenRouter credential synchronized; no daemon restart",
+            )
+            return
         if agent_type not in {"claude", "codex"}:
             stream_action(
                 resource=f"agent/{name}",

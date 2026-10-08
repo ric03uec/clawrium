@@ -19,6 +19,7 @@ __all__ = [
     "PROVIDERS_FILE",
     "PROVIDER_MODELS",
     "CLAUDE_OAUTH_PROVIDER_TYPE",
+    "PI_CODEX_OAUTH_PROVIDER_TYPE",
     "CODEX_OAUTH_PROVIDER_TYPE",
     "load_providers",
     "save_providers",
@@ -52,6 +53,9 @@ __all__ = [
 
 PROVIDERS_FILE = "providers.json"
 CLAUDE_OAUTH_PROVIDER_TYPE = "claude-oauth"
+# Pi owns this OAuth only in the selected dedicated account; no provider secret.
+PI_CODEX_OAUTH_PROVIDER_TYPE = "openai-codex"
+# The separate Codex agent preserves its existing agent-scoped OAuth contract.
 CODEX_OAUTH_PROVIDER_TYPE = "codex-oauth"
 
 # Provider name pattern: starts with letter, alphanumeric/underscore/hyphen, 1-64 chars
@@ -119,8 +123,12 @@ PROVIDER_MODELS: dict[str, dict] = {
         "requires_api_key": False,
         "requires_endpoint": False,
     },
-    # Codex OAuth is likewise selected per agent. Its complete native auth
-    # document is encrypted in the chosen Codex instance, never provider state.
+    PI_CODEX_OAUTH_PROVIDER_TYPE: {
+        "endpoint": None,
+        "requires_api_key": False,
+        "requires_endpoint": False,
+    },
+    # The native Codex agent stores its complete OAuth document per instance.
     CODEX_OAUTH_PROVIDER_TYPE: {
         "endpoint": None,
         "requires_api_key": False,
