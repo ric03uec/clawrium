@@ -44,7 +44,7 @@ from clawrium.cli.output import (
     render_table,
     stream_action,
 )
-from clawrium.core.pi import PiProvisioningError, validate_bedrock_sso_provider
+from clawrium.core.pi import PI_CODEX_MODELS, PiProvisioningError, validate_bedrock_sso_provider
 from clawrium.core.providers.storage import (
     DuplicateProviderError,
     InvalidLiteLLMUrlError,
@@ -56,6 +56,7 @@ from clawrium.core.providers.storage import (
     ProvidersFileCorruptedError,
     CLAUDE_OAUTH_PROVIDER_TYPE,
     CODEX_OAUTH_PROVIDER_TYPE,
+    PI_CODEX_OAUTH_PROVIDER_TYPE,
     PROVIDER_MODELS,
     add_provider,
     fetch_litellm_models,
@@ -297,6 +298,13 @@ def create(
         emit_error(str(exc), hint="check ~/.config/clawrium/providers.json")
 
     now = _now_iso()
+
+    if provider_type == PI_CODEX_OAUTH_PROVIDER_TYPE:
+        if model not in PI_CODEX_MODELS or any((api_key is not None, api_key_stdin, access_key is not None, secret_key is not None, region is not None, ollama_url is not None, litellm_url is not None, context_window is not None)):
+            emit_error("openai-codex providers require a pinned Pi 0.73.1 model and do not accept provider-scoped credentials")
+        add_provider({"name": name, "type": provider_type, "default_model": model, "created_at": now, "updated_at": now})
+        stream_action(resource=f"provider/{name}", message=f"created (type={provider_type})")
+        return
 
     if provider_type in (CLAUDE_OAUTH_PROVIDER_TYPE, CODEX_OAUTH_PROVIDER_TYPE):
         if any(

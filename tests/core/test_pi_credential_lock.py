@@ -5,6 +5,7 @@ import threading
 from contextlib import contextmanager
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 from clawrium.cli import app
@@ -24,11 +25,13 @@ def _seed_disk_state() -> Path:
             [
                 {
                     "hostname": "wolf-i",
+                    "key_id": "wolf-i-stable-key",
                     "os_family": "linux",
                     "agents": {
                         "pi-race": {
                             "type": "pi",
                             "agent_name": "pi-race",
+                            "name": "pi-race-alias",
                             "providers": ["router"],
                             "status": "installed",
                             "installed_at": "2026-01-01T00:00:00+00:00",
@@ -110,6 +113,63 @@ def _run_detach(result):
     result["value"] = runner.invoke(
         app, ["agent", "provider", "detach", "router", "--agent", "pi-race"]
     )
+
+
+def test_pi_lock_refuses_unresolved_or_nonimmutable_identity(tmp_path):
+    """Never fall back to a lock keyed by an untrusted agent string."""
+    hosts_path = _seed_disk_state()
+    hosts = json.loads(hosts_path.read_text())
+    hosts[0].pop("key_id")
+    hosts_path.write_text(json.dumps(hosts))
+
+    from clawrium.core.pi import PiProvisioningError, pi_credential_lock
+
+    with pytest.raises(PiProvisioningError, match="could not be resolved"):
+        with pi_credential_lock("pi-race"):
+            pass
+
+
+def test_pi_aliases_share_one_stable_disk_backed_lock_and_release_on_failure(
+    tmp_path,
+):
+    """Record-name aliases cannot run credential lifecycle work concurrently."""
+    _seed_disk_state()
+    from clawrium.core.pi import pi_credential_lock
+
+    acquired = threading.Event()
+    release = threading.Event()
+    alias_waiting = threading.Event()
+    alias_entered = threading.Event()
+
+    def primary() -> None:
+        try:
+            with pi_credential_lock("pi-race"):
+                acquired.set()
+                assert release.wait(2)
+                raise RuntimeError("expected failure")
+        except RuntimeError:
+            pass
+
+    def alias() -> None:
+        assert acquired.wait(2)
+        alias_waiting.set()
+        with pi_credential_lock("pi-race-alias"):
+            alias_entered.set()
+
+    primary_thread = threading.Thread(target=primary)
+    alias_thread = threading.Thread(target=alias)
+    primary_thread.start()
+    assert acquired.wait(2)
+    alias_thread.start()
+    assert alias_waiting.wait(2)
+    assert not alias_entered.wait(0.05)
+    release.set()
+    primary_thread.join(2)
+    alias_thread.join(2)
+
+    assert not primary_thread.is_alive()
+    assert not alias_thread.is_alive()
+    assert alias_entered.is_set()
 
 
 def test_pi_sync_first_then_detach_keeps_remote_credential_absent(

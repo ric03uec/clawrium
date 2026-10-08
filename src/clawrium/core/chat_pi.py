@@ -44,8 +44,13 @@ _AUTH_RE = re.compile(
     re.I,
 )
 PiChatRunner = Callable[
-    [str, str, list[str], str, int, threading.Event], tuple[str, str, int]
+    [str, str, list[str], str, int, threading.Event, bool], tuple[str, str, int]
 ]
+
+_PI_CODEX_RECOVERY_MESSAGE = (
+    "Pi Codex credential recovery is pending; run `clawctl agent provider login "
+    "<provider> --agent <name>` to complete native OAuth before retrying"
+)
 
 
 class PiChatTransportError(Exception):
@@ -101,6 +106,7 @@ def run_pi_chat(
     prompt: str,
     timeout_seconds: int,
     cancel_event: threading.Event | None = None,
+    pi_codex_auth_recovery: bool = False,
 ) -> tuple[str, str, int]:
     """Run one Pi print-mode turn without copying its credential to controller state."""
     if not _AGENT_NAME_RE.fullmatch(agent_name) or agent_name in RESERVED_UNIX_NAMES:
@@ -129,6 +135,8 @@ def run_pi_chat(
         "pi_chat_argv": pi_argv,
         "pi_chat_prompt_b64": base64.b64encode(prompt.encode()).decode(),
         "pi_chat_timeout": timeout,
+        # Controller-derived state assertion consumed by the Pi playbook.
+        "pi_codex_auth_recovery": pi_codex_auth_recovery,
     }
     raw = host.get("alias") or host.get("key_id") or host["hostname"]
     display = raw if _LOG_DIR_SAFE_RE.fullmatch(raw or "") else "host"
@@ -251,6 +259,41 @@ class PiChatBackend:
         self._session_key = None
         self._started = False
 
+    def _codex_recovery_pending(self) -> bool:
+        """Re-resolve Codex ownership before every credentialed transport."""
+        if self.provider != "openai-codex":
+            return False
+        try:
+            from clawrium.core.hosts import get_agent_by_name
+            from clawrium.core.pi import validate_pi_provider
+            from clawrium.core.providers.storage import get_provider
+
+            resolved = get_agent_by_name(self.agent_name)
+            if resolved is None:
+                raise PiChatTransportError(_PI_CODEX_RECOVERY_MESSAGE)
+            host, agent_type, record = resolved
+            providers = record.get("providers")
+            if (
+                agent_type != "pi"
+                or host.get("hostname") != self.hostname
+                or not isinstance(providers, list)
+                or len(providers) != 1
+                or not isinstance(providers[0], str)
+            ):
+                raise PiChatTransportError(_PI_CODEX_RECOVERY_MESSAGE)
+            selection = validate_pi_provider(get_provider(providers[0]))
+            if (
+                selection.provider != "openai-codex"
+                or selection.model != self.model
+            ):
+                raise PiChatTransportError(_PI_CODEX_RECOVERY_MESSAGE)
+            return record.get("pi_codex_auth_recovery") is True
+        except PiChatTransportError:
+            raise
+        except Exception as exc:
+            # Missing/corrupt/changed local state cannot authorize native OAuth.
+            raise PiChatTransportError(_PI_CODEX_RECOVERY_MESSAGE) from exc
+
     async def send_message(
         self,
         message: str,
@@ -275,13 +318,43 @@ class PiChatBackend:
         timeout = _timeout(response_timeout_seconds or self.timeout_seconds)
         cancel, done = threading.Event(), threading.Event()
         result: tuple[str, str, int] | None = None
+        auth_error: str | None = None
 
         def run() -> None:
-            nonlocal result
+            nonlocal auth_error, result
             try:
-                result = self._runner(
-                    self.hostname, self.agent_name, argv, message, timeout, cancel
-                )
+                if self.provider == "openai-codex":
+                    # This worker owns the entire credentialed request. Holding
+                    # the canonical lock here keeps the asyncio caller
+                    # cancellable while preventing configure/detach from
+                    # revoking OAuth between fresh authorization and cleanup.
+                    from clawrium.core.pi import pi_credential_lock
+
+                    with pi_credential_lock(self.agent_name):
+                        if self._codex_recovery_pending():
+                            auth_error = _PI_CODEX_RECOVERY_MESSAGE
+                            return
+                        result = self._runner(
+                            self.hostname,
+                            self.agent_name,
+                            argv,
+                            message,
+                            timeout,
+                            cancel,
+                            False,
+                        )
+                else:
+                    result = self._runner(
+                        self.hostname,
+                        self.agent_name,
+                        argv,
+                        message,
+                        timeout,
+                        cancel,
+                        False,
+                    )
+            except PiChatTransportError as exc:
+                auth_error = str(exc)
             except Exception:
                 # Runner implementation failures must wake the coroutine; it
                 # converts the absent result to its safe transport error.
@@ -311,6 +384,8 @@ class PiChatBackend:
             self._connected = False
             raise
 
+        if auth_error is not None:
+            raise ChatAuthenticationError(auth_error)
         if result is None:
             raise ChatConnectionError("Could not run Pi chat remotely")
         stdout, stderr, rc = result

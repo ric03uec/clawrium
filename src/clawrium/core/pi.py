@@ -9,6 +9,7 @@ account; static AWS keys and a controller's AWS directory are never copied.
 from __future__ import annotations
 
 import fcntl
+import hashlib
 import os
 import re
 import threading
@@ -21,6 +22,9 @@ __all__ = [
     "PI_PROVIDER_ENVIRONMENT_PATH",
     "PI_AWS_CONFIG_PATH",
     "PI_AWS_CREDENTIALS_PATH",
+    "PI_CODEX_AUTH_PATH",
+    "PI_CODEX_PROVIDER_TYPE",
+    "PI_CODEX_MODELS",
     "PiProvisioningError",
     "PiProviderSelection",
     "pi_credential_lock",
@@ -36,6 +40,10 @@ __all__ = [
 PI_PROVIDER_ENVIRONMENT_PATH = ".pi/agent/clawrium-provider.env"
 PI_AWS_CONFIG_PATH = ".pi/agent/clawrium-aws-config"
 PI_AWS_CREDENTIALS_PATH = ".pi/agent/clawrium-aws-credentials"
+# Pi owns this OAuth document entirely in the dedicated agent account.
+PI_CODEX_AUTH_PATH = ".pi/agent/auth.json"
+PI_CODEX_PROVIDER_TYPE = "openai-codex"
+PI_CODEX_MODELS = frozenset({"gpt-5.1", "gpt-5.1-codex-max", "gpt-5.1-codex-mini", "gpt-5.2", "gpt-5.2-codex", "gpt-5.3-codex", "gpt-5.3-codex-spark", "gpt-5.4", "gpt-5.4-mini", "gpt-5.5"})
 _PI_LOCK_STATE = threading.local()
 # ``init_config_dir`` temporarily changes the process-wide umask. Serialize
 # first-time lock-directory setup so concurrent lifecycle operations cannot
@@ -51,30 +59,57 @@ _ROLE_RE = re.compile(r"^[A-Za-z0-9+=,.@_-]{1,64}$")
 _SSO_URL_RE = re.compile(r"^https://[A-Za-z0-9.-]+(?:/[A-Za-z0-9._~:/?#\[\]@!$&'()*+,;=%-]*)?$")
 
 
+def _pi_credential_lock_identity(agent_name: str) -> str:
+    """Resolve an alias to an immutable host + agents-map identity."""
+    from clawrium.core.hosts import HostsFileCorruptedError, get_agent_by_name
+
+    # Public CLI commands take this lock before they can render their normal
+    # "not found" / attachment validation errors. Preserve that behavior for a
+    # missing or ambiguous record with a hash-safe name fallback; no lifecycle
+    # operation proceeds without independently resolving the record afterward.
+    try:
+        resolved = get_agent_by_name(agent_name)
+    except (HostsFileCorruptedError, ValueError):
+        return f"unresolved\0{agent_name}"
+    if not resolved:
+        return f"unresolved\0{agent_name}"
+    host, agent_type, record = resolved
+    key_id = host.get("key_id")
+    agents = host.get("agents")
+    if not isinstance(key_id, str) or not key_id or not isinstance(agents, dict):
+        raise PiProvisioningError("Pi credential lock identity could not be resolved")
+    agent_key = next((key for key, value in agents.items() if value is record), None)
+    if not isinstance(agent_key, str) or not agent_key or agent_type != "pi":
+        return f"unresolved\0{agent_name}"
+    return f"{key_id}\0{agent_key}"
+
+
 @contextmanager
 def pi_credential_lock(agent_name: str):
-    """Serialize Pi credential lifecycle actions across local CLI processes."""
+    """Serialize Pi lifecycle work by immutable host + record identity."""
+    identity = _pi_credential_lock_identity(agent_name)
     held = getattr(_PI_LOCK_STATE, "held", {})
-    if agent_name in held:
-        held[agent_name] += 1
+    if identity in held:
+        held[identity] += 1
         _PI_LOCK_STATE.held = held
         try:
             yield
         finally:
-            held[agent_name] -= 1
+            held[identity] -= 1
         return
 
     with _PI_LOCK_DIRECTORY_INIT:
         lock_dir = init_config_dir() / "locks"
         lock_dir.mkdir(mode=0o700, exist_ok=True)
-    fd = os.open(str(lock_dir / f"pi-{agent_name}.lock"), os.O_CREAT | os.O_RDWR, 0o600)
+    digest = hashlib.sha256(identity.encode()).hexdigest()
+    fd = os.open(str(lock_dir / f"pi-{digest}.lock"), os.O_CREAT | os.O_RDWR, 0o600)
     try:
         fcntl.flock(fd, fcntl.LOCK_EX)
-        held[agent_name] = 1
+        held[identity] = 1
         _PI_LOCK_STATE.held = held
         yield
     finally:
-        held.pop(agent_name, None)
+        held.pop(identity, None)
         fcntl.flock(fd, fcntl.LOCK_UN)
         os.close(fd)
 
@@ -149,6 +184,11 @@ def validate_bedrock_sso_provider(provider: object) -> str:
 
 def validate_pi_provider(provider: object) -> PiProviderSelection:
     """Return Pi's fixed provider/model pair for supported control-plane records."""
+    if isinstance(provider, dict) and provider.get("type") == PI_CODEX_PROVIDER_TYPE:
+        model = provider.get("default_model")
+        if model not in PI_CODEX_MODELS:
+            raise PiProvisioningError("Pi Codex OAuth requires a model supported by pinned Pi 0.73.1")
+        return PiProviderSelection(PI_CODEX_PROVIDER_TYPE, model)
     if isinstance(provider, dict) and provider.get("type") == "openrouter":
         return PiProviderSelection("openrouter", validate_openrouter_provider(provider))
     return PiProviderSelection("amazon-bedrock", validate_bedrock_sso_provider(provider))
@@ -191,13 +231,14 @@ def pi_chat_argv(model: str, session_id: str, *, resume: bool, provider: str = "
     selection = validate_pi_provider(
         {"type": "openrouter", "default_model": model}
         if provider == "openrouter"
-        else {
+        else ({"type": PI_CODEX_PROVIDER_TYPE, "default_model": model}
+              if provider == PI_CODEX_PROVIDER_TYPE else {
             "type": "bedrock", "credential_source": "aws-sso", "default_model": model,
             "aws_profile": "profile", "region": "us-east-1", "sso_start_url": "https://example.awsapps.com/start",
             "sso_region": "us-east-1", "sso_account_id": "123456789012", "sso_role_name": "Role",
-        }
+        })
     )
-    if provider not in {"openrouter", "amazon-bedrock"}:
+    if provider not in {"openrouter", "amazon-bedrock", PI_CODEX_PROVIDER_TYPE}:
         raise PiProvisioningError("Pi provider is unsupported")
     if not re.fullmatch(r"[0-9a-f]{8}-[0-9a-f-]{27,35}", session_id):
         raise PiProvisioningError("Pi chat session is invalid")

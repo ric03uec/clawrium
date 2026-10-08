@@ -90,7 +90,7 @@ async def test_backend_cancellation_signals_runner_and_returns_while_runner_stuc
     cancelled = threading.Event()
     never_finish = threading.Event()
 
-    def stuck_runner(_host, _agent, _argv, _prompt, _timeout, cancel):
+    def stuck_runner(_host, _agent, _argv, _prompt, _timeout, cancel, _recovery):
         started.set()
         assert cancel.wait(1), "backend did not signal cancellation"
         cancelled.set()

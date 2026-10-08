@@ -32,6 +32,7 @@ def _seed_disk_state(*, attached: bool) -> Path:
             [
                 {
                     "hostname": "race-host",
+                    "key_id": "race-host-key",
                     "os_family": "linux",
                     "agents": {
                         AGENT: {

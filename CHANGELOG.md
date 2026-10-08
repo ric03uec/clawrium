@@ -20,6 +20,7 @@ cut. The `itx-release` skill archives this section into a new
 
 - Added the install-only `pi` fleet agent. Pi installs in its own account and runs native commands on demand without a service, port, or dashboard (#1032).
 - Added scoped OpenRouter provisioning and finite CLI/GUI chat for Pi agents, including continued and reset conversations without a Pi service or dashboard (#1038).
+- Added agent-scoped native OpenAI Codex OAuth selection and interactive login for Pi, with private on-host refresh and CLI/GUI chat support (#1040).
 - Added AWS Identity Center SSO profile provisioning for Pi Bedrock selections. Pi uses only its dedicated account's profile and region; it never receives controller AWS caches or static Bedrock keys (#1039).
 - Add the daemonless, dedicated-account Codex CLI agent with pinned native command execution on supported Ubuntu and macOS hosts (#1034).
 - Add selection-only `codex-oauth` providers that safely import a local file-backed Codex ChatGPT login into the chosen Codex agent's encrypted secrets (#1035).
@@ -29,6 +30,7 @@ cut. The `itx-release` skill archives this section into a new
 
 ### Fixed
 
+- Fixed Pi Codex OAuth provider switches to revoke dedicated-account OAuth state, require marker-bound managed-account login, and start Pi with a clean environment (#1040).
 - Fixed Pi Bedrock provider replacement during `clawctl agent configure --stage providers` so the prior dedicated-account SSO and CLI caches are cleared before a different Identity Center profile activates, while failed cleanup retains the prior provider and same-identity updates retain warm caches (#1039).
 - Fixed a process-wide umask race during config-directory initialization that could cause intermittent Ubuntu 3.12 permission failures (#1046).
 

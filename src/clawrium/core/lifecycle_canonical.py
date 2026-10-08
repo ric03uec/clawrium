@@ -1248,6 +1248,25 @@ def revoke_pi_openrouter(*, agent_name: str, host: dict) -> None:
         client.close()
 
 
+def revoke_pi_codex(*, agent_name: str, host: dict) -> None:
+    """Remove only Pi-owned Codex OAuth from the dedicated account."""
+    from clawrium.core.pi import PI_CODEX_AUTH_PATH
+    from clawrium.core.playbook_resolver import normalize_os_family
+
+    family = normalize_os_family(host)
+    client = _open_ssh(host)
+    try:
+        _verify_pi_remote_ownership(client, agent_name=agent_name, family=family)
+        _pi_user_environment_operation(
+            client,
+            agent_name=agent_name,
+            path=f"{home_root_for(family)}/{agent_name}/{PI_CODEX_AUTH_PATH}",
+            body=None,
+        )
+    finally:
+        client.close()
+
+
 def _sync_pi_openrouter(
     *,
     agent_name: str,
@@ -1279,8 +1298,6 @@ def _sync_pi_openrouter(
     from clawrium.core.providers import get_provider_api_key
 
     hostname = host.get("hostname", "")
-    if workspace_only:
-        return CanonicalSyncResult(True, agent_name, hostname, (), (), ())
     providers = claw_record.get("providers")
     if (
         not isinstance(providers, list)
@@ -1297,11 +1314,26 @@ def _sync_pi_openrouter(
         if selection.provider == "openrouter":
             body = render_openrouter_environment(get_provider_api_key(providers[0]))
             aws_config = None
+        elif selection.provider == "openai-codex":
+            # Pi owns native OAuth exclusively in this account's auth.json.
+            # Remove Clawrium-managed activation files; never read or render it.
+            body = None
+            aws_config = None
         else:
             body = render_bedrock_sso_environment(record["aws_profile"], record["region"])
             aws_config = render_bedrock_sso_config(record)
     except PiProvisioningError as exc:
         raise CanonicalSyncError(str(exc)) from exc
+    if (
+        selection.provider == "openai-codex"
+        and claw_record.get("pi_codex_auth_recovery") is True
+    ):
+        raise CanonicalSyncError(
+            "Pi Codex credential recovery is pending; run `clawctl agent provider "
+            "login <provider> --agent <name>` to complete native OAuth before syncing"
+        )
+    if workspace_only:
+        return CanonicalSyncResult(True, agent_name, hostname, (), (), ())
     if dry_run:
         # Validate access without showing secret-bearing file contents.
         return CanonicalSyncResult(
@@ -1367,8 +1399,11 @@ def _sync_pi_openrouter(
     finally:
         client.close()
     if on_event is not None:
-        on_event("sync", f"Pi {selection.provider} model {model!r} provisioned; no daemon restart")
-    paths = (PI_PROVIDER_ENVIRONMENT_PATH,) + (
+        if selection.provider == "openai-codex":
+            on_event("sync", "Pi Codex OAuth selected; run `clawctl agent provider login <provider> --agent <name>` in a terminal to authenticate the dedicated account")
+        else:
+            on_event("sync", f"Pi {selection.provider} model {model!r} provisioned; no daemon restart")
+    paths = (() if selection.provider == "openai-codex" else (PI_PROVIDER_ENVIRONMENT_PATH,)) + (
         (PI_AWS_CONFIG_PATH, PI_AWS_CREDENTIALS_PATH) if aws_config else ()
     )
     return CanonicalSyncResult(True, agent_name, hostname, paths, (), ())
@@ -2976,7 +3011,14 @@ def sync_agent_canonical(
                     fresh = get_agent_by_name(agent_name)
                     if fresh is None:
                         raise CanonicalSyncError(f"agent {agent_name!r} not found")
-                    fresh_host, _fresh_type, fresh_record = fresh
+                    fresh_host, fresh_type, fresh_record = fresh
+                    if (
+                        fresh_type != "pi"
+                        or fresh_host.get("hostname") != host.get("hostname")
+                    ):
+                        raise CanonicalSyncError(
+                            "Pi agent ownership changed; retry the sync command"
+                        )
                     return _sync_pi_openrouter(
                         agent_name=agent_name,
                         host=fresh_host,

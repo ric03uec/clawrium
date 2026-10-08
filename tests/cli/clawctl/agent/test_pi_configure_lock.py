@@ -1,11 +1,30 @@
 """Pi configure transaction uses the same reentrant lock as lifecycle sync."""
 
+import json
 import threading
+from pathlib import Path
 
 from clawrium.core.pi import pi_credential_lock
 
 
-def test_pi_configure_lock_is_reentrant_and_releases_after_sync_failure():
+def _seed_pi_lock_identity(fleet_dir: Path) -> None:
+    """Give the canonical lock resolver a real Pi hosts.json record."""
+    hosts_path = fleet_dir / "hosts.json"
+    hosts = json.loads(hosts_path.read_text())
+    hosts[0]["key_id"] = "wolf-i-stable-key"
+    hosts[0]["agents"] = {
+        "pi-configure-race": {
+            "type": "pi",
+            "agent_name": "pi-configure-race",
+            "name": "pi-configure-race-alias",
+            "providers": ["router"],
+        }
+    }
+    hosts_path.write_text(json.dumps(hosts))
+
+
+def test_pi_configure_lock_is_reentrant_and_releases_after_sync_failure(fleet_dir: Path):
+    _seed_pi_lock_identity(fleet_dir)
     """Configure can call locked sync and a later detach can acquire the lock."""
     acquired = threading.Event()
     release = threading.Event()

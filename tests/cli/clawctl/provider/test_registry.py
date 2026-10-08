@@ -456,6 +456,61 @@ def test_create_claude_oauth_has_no_provider_scoped_credential(
     assert "Credentials:  n/a" in described.output
 
 
+def test_create_pi_codex_selection_requires_pinned_model_and_no_api_key(
+    fleet_dir, stdin_not_tty
+) -> None:
+    valid = runner.invoke(
+        app,
+        [
+            "provider",
+            "registry",
+            "create",
+            "pi-codex",
+            "--type",
+            "openai-codex",
+            "--model",
+            "gpt-5.5",
+        ],
+    )
+    assert valid.exit_code == 0, valid.output
+    assert get_provider("pi-codex") is not None
+    assert get_provider("pi-codex")["default_model"] == "gpt-5.5"
+    alternate = runner.invoke(
+        app,
+        [
+            "provider",
+            "registry",
+            "create",
+            "pi-codex-mini",
+            "--type",
+            "openai-codex",
+            "--model",
+            "gpt-5.1-codex-mini",
+        ],
+    )
+    assert alternate.exit_code == 0, alternate.output
+    assert get_provider("pi-codex-mini")["default_model"] == "gpt-5.1-codex-mini"
+
+    key = runner.invoke(
+        app,
+        [
+            "provider",
+            "registry",
+            "create",
+            "pi-codex-key",
+            "--type",
+            "openai-codex",
+            "--model",
+            "gpt-5.5",
+            "--api-key",
+            "must-not-be-stored",
+        ],
+    )
+    assert key.exit_code != 0
+    assert "do not accept provider-scoped credentials" in key.output
+    assert "must-not-be-stored" not in key.output
+
+
 def test_describe_unknown_fails(fleet_dir, stdin_not_tty) -> None:
     result = runner.invoke(app, ["provider", "registry", "describe", "missing"])
     assert result.exit_code != 0

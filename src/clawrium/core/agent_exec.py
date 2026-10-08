@@ -76,6 +76,10 @@ _LOG_DIR_SAFE_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
 # retain its base64 transport in a transient runner workdir, but never the bearer.
 _PI_EXEC_DIAGNOSTICS = frozenset({("--version",), ("--help",)})
 _PI_EXEC_PROMPT_MAX_CHARS = 100_000
+_PI_CODEX_RECOVERY_MESSAGE = (
+    "Pi Codex credential recovery is pending; run `clawctl agent provider login "
+    "<provider> --agent <name>` to complete native OAuth before retrying"
+)
 
 
 class AgentExecError(Exception):
@@ -382,7 +386,7 @@ def _parse_events(result) -> tuple[str, str, int | None]:
 
 def _prepare_pi_exec(
     hostname: str, agent_name: str, cmd_argv: list[str]
-) -> tuple[list[str], str | None, str]:
+) -> tuple[list[str], str | None, str, bool]:
     """Return fixed Pi argv, optional stdin prompt, and credential mode.
 
     Pi 0.73.1 accepts ``--provider``, ``--model``, and ``--print``. Its
@@ -390,8 +394,22 @@ def _prepare_pi_exec(
     not an argv element. Inference disables every local discovery/execution
     feature capable of reading the dedicated account's credential file.
     """
+    # Diagnostics execute no provider-selected inference and need no credential
+    # record; the playbook recognizes their fixed argv as credential-free.
     if tuple(cmd_argv) in _PI_EXEC_DIAGNOSTICS:
-        return cmd_argv, None, "diagnostic"
+        return cmd_argv, None, "diagnostic", False
+
+    # Resolve the durable record before credentialed inference so the playbook
+    # gets a controller-determined recovery assertion.
+    from clawrium.core.hosts import get_agent_by_name
+
+    resolved = get_agent_by_name(agent_name)
+    if resolved is None:
+        raise AgentExecError(f"Pi agent {agent_name!r} not found")
+    agent_host, agent_type, agent_record = resolved
+    if agent_type != "pi" or agent_host.get("hostname") != hostname:
+        raise AgentExecError("Pi agent ownership changed; retry the command")
+    codex_recovery_pending = agent_record.get("pi_codex_auth_recovery") is True
     if (
         len(cmd_argv) != 2
         or cmd_argv[0] != "--print"
@@ -406,16 +424,9 @@ def _prepare_pi_exec(
     # Provider-specific fixed argv belongs here. Selecting the provider/model
     # from the attached registry record, rather than caller argv, preserves the
     # credential boundary for both OpenRouter and AWS SSO-backed Bedrock.
-    from clawrium.core.hosts import get_agent_by_name
     from clawrium.core.pi import PiProvisioningError, validate_pi_provider
     from clawrium.core.providers.storage import get_provider
 
-    resolved = get_agent_by_name(agent_name)
-    if resolved is None:
-        raise AgentExecError(f"Pi agent {agent_name!r} not found")
-    agent_host, agent_type, agent_record = resolved
-    if agent_type != "pi" or agent_host.get("hostname") != hostname:
-        raise AgentExecError("Pi agent ownership changed; retry the command")
     providers = agent_record.get("providers")
     if (
         not isinstance(providers, list)
@@ -429,6 +440,8 @@ def _prepare_pi_exec(
         selection = validate_pi_provider(get_provider(providers[0]))
     except PiProvisioningError as exc:
         raise AgentExecError(str(exc)) from exc
+    if selection.provider == "openai-codex" and codex_recovery_pending:
+        raise AgentExecError(_PI_CODEX_RECOVERY_MESSAGE)
     return (
         [
             "--provider",
@@ -446,6 +459,7 @@ def _prepare_pi_exec(
         ],
         cmd_argv[1],
         "inference",
+        codex_recovery_pending,
     )
 
 
@@ -471,6 +485,7 @@ def run_agent_exec(
     claw_type: str,
     cmd_argv: list[str],
     timeout: int = _DEFAULT_TIMEOUT,
+    _pi_lock_held: bool = False,
 ) -> tuple[str, str, int]:
     """Run `cmd_argv` against the agent's native CLI on its host.
 
@@ -528,11 +543,34 @@ def run_agent_exec(
 
     extra_vars = {"agent_name": agent_name, "cmd_argv": cmd_argv}
     if claw_type == "pi":
-        pi_argv, pi_prompt, pi_exec_mode = _prepare_pi_exec(
+        pi_argv, pi_prompt, pi_exec_mode, pi_codex_auth_recovery = _prepare_pi_exec(
             host["hostname"], agent_name, cmd_argv
         )
+        # The preliminary resolution above only identifies whether this is a
+        # Codex request. Re-run it *inside* the canonical lock before any
+        # remote work so a concurrent configure/detach cannot revoke OAuth
+        # after authorization but before Pi starts.
+        if (
+            not _pi_lock_held
+            and pi_exec_mode == "inference"
+            and pi_argv[1] == "openai-codex"
+        ):
+            from clawrium.core.pi import pi_credential_lock
+
+            with pi_credential_lock(agent_name):
+                return run_agent_exec(
+                    hostname,
+                    agent_name,
+                    claw_type,
+                    cmd_argv,
+                    timeout,
+                    _pi_lock_held=True,
+                )
         extra_vars["cmd_argv"] = pi_argv
         extra_vars["pi_exec_mode"] = pi_exec_mode
+        # The playbook treats this as an assertion, never as a credential.
+        # It is sourced from the fresh hosts.json record above, not caller argv.
+        extra_vars["pi_codex_auth_recovery"] = pi_codex_auth_recovery
         if pi_prompt is not None:
             extra_vars["pi_exec_prompt_b64"] = base64.b64encode(
                 pi_prompt.encode("utf-8")
