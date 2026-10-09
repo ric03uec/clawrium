@@ -10,6 +10,20 @@
     remote_private: "{{ ssh_dir }}/id_ed25519"
     remote_public: "{{ ssh_dir }}/id_ed25519.pub"
   tasks:
+    - name: Inspect agent SSH directory
+      ansible.builtin.stat:
+        path: "{{ ssh_dir }}"
+        follow: false
+      register: agent_ssh_dir_stat
+      changed_when: false
+      no_log: true
+
+    - name: Refuse symlinked agent SSH directory
+      ansible.builtin.fail:
+        msg: "agent SSH directory is unsafe; recover it manually"
+      when: agent_ssh_dir_stat.stat.islnk | default(false)
+      no_log: true
+
     - name: Inspect agent SSH identity paths
       ansible.builtin.stat:
         path: "{{ item }}"
