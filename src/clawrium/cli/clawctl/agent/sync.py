@@ -344,6 +344,7 @@ def sync(
                 return
             if not result.success:
                 emit_error(f"Pi sync failed: {result.error or 'unknown error'}")
+                return
             stream_action(
                 resource=f"agent/{name}",
                 message="Pi OpenRouter credential synchronized; no daemon restart",
