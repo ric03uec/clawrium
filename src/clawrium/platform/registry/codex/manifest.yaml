@@ -6,7 +6,9 @@ agent:
 # CLI process on demand as the dedicated agent user; it never starts a daemon,
 # gateway, listener, or native web UI. Bounded settings and private credentials
 # use the no-daemon configure/sync paths rather than manifest feature flags.
-features: {}
+features:
+  chat:
+    type: codex
 
 
 platforms:

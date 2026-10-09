@@ -25,11 +25,14 @@ cut. The `itx-release` skill archives this section into a new
 - Add the daemonless, dedicated-account Codex CLI agent with pinned native command execution on supported Ubuntu and macOS hosts (#1034).
 - Add selection-only `codex-oauth` providers that safely import a local file-backed Codex ChatGPT login into the chosen Codex agent's encrypted secrets (#1035).
 - Activate Codex OAuth credentials privately on configure and sync while preserving tokens refreshed on the remote agent; re-attaching explicitly replaces remote credentials (#1036).
+- Add finite, daemonless Codex chat through `clawctl agent chat` and the GUI Chat tab, with native JSONL thread continuation and safe error handling (#1037).
 
 ### Changed
 
 ### Fixed
 
+- Reject incomplete or failed native Codex JSONL turns instead of presenting truncated output as a successful chat response (#1037).
+- Bound Codex and Pi browser chat sessions to the current agent installation and host, return explicit HTTP errors for failed turns, and refuse new Pi sessions when every cache slot is active (#1037).
 - Fixed Pi Codex OAuth provider switches to revoke dedicated-account OAuth state, require marker-bound managed-account login, and start Pi with a clean environment (#1040).
 - Fixed Pi Bedrock provider replacement during `clawctl agent configure --stage providers` so the prior dedicated-account SSO and CLI caches are cleared before a different Identity Center profile activates, while failed cleanup retains the prior provider and same-identity updates retain warm caches (#1039).
 - Fixed a process-wide umask race during config-directory initialization that could cause intermittent Ubuntu 3.12 permission failures (#1046).

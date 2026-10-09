@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 
@@ -223,3 +224,41 @@ def test_pi_gui_chat_returns_http_error_when_native_backend_fails(
     assert response.status_code == 502
     assert response.json() == {"detail": "Chat request failed"}
     assert "private prompt" not in response.text
+
+
+def test_pi_gui_chat_rejects_when_all_cached_sessions_are_active(
+    isolated_config, monkeypatch
+):
+    _seed_hosts(isolated_config)
+    monkeypatch.setattr(
+        agents_module,
+        "get_provider",
+        lambda _: {"type": "openrouter", "default_model": "moonshotai/kimi-k2.6"},
+    )
+    monkeypatch.setattr(agents_module, "_CLAUDE_BROWSER_SESSION_MAX", 1)
+    backend_cls = _install_fake(monkeypatch)
+    session = agents_module._get_pi_browser_session(
+        agent_key="pi-demo",
+        session_key="gui:active",
+        hostname="wolf-i",
+        agent_name="pi-demo",
+        model="moonshotai/kimi-k2.6",
+        provider_name="router",
+        installation_id="2026-10-06T00:00:00+00:00",
+    )
+
+    async def exercise():
+        async with session.lock:
+            with TestClient(app, base_url="http://localhost:36000") as client:
+                return client.post(
+                    "/api/agents/pi-demo/chat",
+                    json={"message": "private prompt", "session": "gui:new"},
+                )
+
+    response = asyncio.run(exercise())
+    assert response.status_code == 503
+    assert response.json() == {"detail": "Chat request failed"}
+    assert "private prompt" not in response.text
+    assert len(agents_module._PI_BROWSER_SESSIONS) == 1
+    assert agents_module._PI_BROWSER_SESSIONS[("pi-demo", "gui:active")] is session
+    assert len(backend_cls.instances) == 1

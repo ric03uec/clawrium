@@ -32,7 +32,7 @@ def test_codex_manifest_is_discoverable_and_daemonless() -> None:
         "type": "codex",
         "description": "OpenAI Codex CLI (on-demand CLI chat; no daemon or web UI)",
     }
-    assert manifest["features"] == {}
+    assert manifest["features"] == {"chat": {"type": "codex"}}
     assert {entry["version"] for entry in manifest["platforms"]} == {PINNED_VERSION}
     assert {
         (entry["os"], entry["os_version"], entry["arch"])

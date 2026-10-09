@@ -32,6 +32,35 @@ def test_pi_identity_replacement_retires_active_generation_without_stale_request
     asyncio.run(_exercise_identity_replacement(monkeypatch))
 
 
+def test_pi_same_hostname_new_host_key_retires_session(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakePiBackend:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+    monkeypatch.setattr(agents_module, "PiChatBackend", FakePiBackend)
+    common = dict(
+        agent_key="pi-demo",
+        session_key="browser:one",
+        hostname="shared-hostname",
+        agent_name="pi-demo",
+        model="openai/gpt-4o",
+        provider_name="provider",
+        installation_id="installed-once",
+    )
+    old_session = agents_module._get_pi_browser_session(
+        **common, host_key="old-host-key"
+    )
+    replacement = agents_module._get_pi_browser_session(
+        **common, host_key="new-host-key"
+    )
+    assert old_session.invalidated
+    assert replacement is not old_session
+    assert replacement.generation > old_session.generation
+    assert agents_module._PI_BROWSER_SESSIONS[("pi-demo", "browser:one")] is replacement
+
+
 async def _exercise_identity_replacement(monkeypatch: pytest.MonkeyPatch) -> None:
     started = asyncio.Event()
     release = asyncio.Event()

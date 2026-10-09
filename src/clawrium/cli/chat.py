@@ -9,8 +9,10 @@ Dispatch is driven by `features.chat.type` in the agent manifest:
                   schema, so it gets a dedicated dispatch value).
 - ``claude``    → finite Claude Code print-mode invocation over the private
                   Ansible argv/stdin transport (no daemon or gateway).
+- ``codex``     → finite Codex JSONL invocation over the same private
+                   argv/stdin transport (no daemon or gateway).
 - ``pi``        → finite Pi print-mode invocation using its provisioned
-                  OpenRouter or AWS Identity Center Bedrock access (no daemon or gateway).
+                   OpenRouter or AWS Identity Center Bedrock access (no daemon or gateway).
 """
 
 from __future__ import annotations
@@ -35,6 +37,7 @@ from clawrium.core.chat import (
     SecretStr,
 )
 from clawrium.core.chat_claude import ClaudeCodeChatBackend
+from clawrium.core.chat_codex import CodexChatBackend
 from clawrium.core.chat_pi import PiChatBackend
 from clawrium.core.pi import PiProvisioningError, validate_pi_provider
 from clawrium.core.providers.storage import get_provider
@@ -254,6 +257,13 @@ def chat(
                 agent_name=str(canonical_name),
                 response_timeout_seconds=timeout,
             )
+        elif chat_type == "codex":
+            backend = _build_codex_backend(
+                agent_record=agent_record,
+                host_record=host_record,
+                agent_name=str(canonical_name),
+                response_timeout_seconds=timeout,
+            )
         elif chat_type == "pi":
             backend = _build_pi_backend(
                 agent_record=agent_record,
@@ -302,7 +312,7 @@ def chat(
         console.print(
             f"[green]Connected target:[/green] {rich_escape(str(display_agent))} on {rich_escape(str(display_host))}"
         )
-        if chat_type in {"openai", "claude", "pi"}:
+        if chat_type in {"openai", "claude", "codex", "pi"}:
             console.print(
                 "Type /exit or press Ctrl+D to end. Use /reset to clear conversation history."
             )
@@ -359,14 +369,24 @@ def chat(
                     # only after the retry actually breaks the loop.
                     console.print("[dim]Gateway token rotated — retrying...[/dim]")
                     continue
+            auth_detail = (
+                "Codex rejected the configured credential"
+                if chat_type == "codex"
+                else _sanitize_exception_text(exc)
+            )
             console.print(
-                f"[red]Authentication failed:[/red] {rich_escape(_sanitize_exception_text(exc))}"
+                f"[red]Authentication failed:[/red] {rich_escape(auth_detail)}"
             )
             if chat_type in ("openai", "zeroclaw"):
                 console.print(
                     f"Token mismatch. Re-run 'clawctl agent configure {rich_escape(display_canonical_name)}'."
                 )
-            elif chat_type in {"claude", "pi"}:
+            elif chat_type in {"claude", "codex"}:
+                console.print(
+                    f"Re-run 'clawctl agent sync {rich_escape(display_canonical_name)}' "
+                    f"to reapply the selected {agent_type.title()} credential."
+                )
+            elif chat_type == "pi":
                 console.print(
                     f"Re-run 'clawctl agent sync {rich_escape(display_canonical_name)}' "
                     "to reapply the selected credential."
@@ -440,7 +460,7 @@ def chat(
                         f"'clawctl agent configure {rich_escape(display_canonical_name)}' "
                         f"if the pairing token is stale."
                     )
-            elif chat_type == "claude":
+            elif chat_type in {"claude", "codex"}:
                 if str(exc).startswith("Timed out"):
                     console.print(
                         f"Try a higher --timeout value (current: {timeout}s)."
@@ -525,7 +545,7 @@ async def _chat_loop(
     with console.status("Connecting to agent...", spinner="dots"):
         await backend.connect()
 
-    history_capable = chat_type in {"openai", "claude"}
+    history_capable = chat_type in {"openai", "claude", "codex", "pi"}
     # Parity with `_sanitize_exception_text` (issue #455 ATX W2): strip
     # C0/C1 control bytes + bidi-formatting + zero-width + line/paragraph
     # separators from the agent label before it reaches the terminal.
@@ -897,6 +917,26 @@ def _build_claude_backend(
     if not isinstance(unix_name, str) or not unix_name.strip():
         raise ValueError("Claude agent Unix user is missing.")
     return ClaudeCodeChatBackend(
+        hostname=hostname,
+        agent_name=unix_name,
+        timeout_seconds=response_timeout_seconds,
+    )
+
+
+def _build_codex_backend(
+    agent_record: dict[str, Any],
+    host_record: dict[str, Any],
+    agent_name: str,
+    response_timeout_seconds: float,
+) -> ChatBackend:
+    """Construct an on-demand Codex backend without reading credentials."""
+    hostname = host_record.get("hostname")
+    if not isinstance(hostname, str) or not hostname.strip():
+        raise ValueError("Host primary address not found.")
+    unix_name = agent_record.get("agent_name") or agent_record.get("name") or agent_name
+    if not isinstance(unix_name, str) or not unix_name.strip():
+        raise ValueError("Codex agent Unix user is missing.")
+    return CodexChatBackend(
         hostname=hostname,
         agent_name=unix_name,
         timeout_seconds=response_timeout_seconds,
