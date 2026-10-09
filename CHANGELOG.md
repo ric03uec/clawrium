@@ -31,6 +31,7 @@ cut. The `itx-release` skill archives this section into a new
 
 ### Fixed
 
+- Accept Codex CLI 0.160.1 ChatGPT OAuth files that include `OPENAI_API_KEY: null` while rejecting API-key credentials, and allow on-demand Codex chat from its isolated non-Git home (#1031).
 - Reject incomplete or failed native Codex JSONL turns instead of presenting truncated output as a successful chat response (#1037).
 - Bound Codex and Pi browser chat sessions to the current agent installation and host, return explicit HTTP errors for failed turns, and refuse new Pi sessions when every cache slot is active (#1037).
 - Fixed Pi Codex OAuth provider switches to revoke dedicated-account OAuth state, require marker-bound managed-account login, and start Pi with a clean environment (#1040).
@@ -39,7 +40,7 @@ cut. The `itx-release` skill archives this section into a new
 
 ### Documentation
 
-- Document the Codex real-host lifecycle smoke check and the remaining OAuth and macOS UAT prerequisites (#1031).
+- Document the Codex real-host lifecycle and authenticated Linux CLI/GUI UAT, including the remaining macOS and live token-refresh limitations (#1031).
 - Document Pi Bedrock detach and provider-switch cache-cleanup boundaries, including the separate upstream AWS session-revocation step (#1039).
 - Document fail-closed recovery steps for an interrupted Codex OAuth activation without exposing native auth credentials (#1036).
 

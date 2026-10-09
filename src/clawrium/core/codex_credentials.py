@@ -66,10 +66,15 @@ _CODEX_HOME_ENVIRONMENT_VARIABLE = "CODEX_HOME"
 _CODEX_AUTH_FILENAME = "auth.json"
 _CODEX_AUTH_MAX_BYTES = 64 * 1024
 
-# Codex 0.160.1's file-backed ChatGPT login schema.  API-key and keyring
-# modes are intentionally not importable: a selection-only provider must not
-# mistake either for subscription OAuth credentials.
-_CODEX_AUTH_ROOT_FIELDS = {"auth_mode": str, "tokens": dict, "last_refresh": str}
+# Codex 0.160.1 writes OPENAI_API_KEY: null alongside file-backed ChatGPT
+# tokens.  Only the null sentinel is valid here: API-key and keyring modes
+# must never be mistaken for subscription OAuth credentials.
+_CODEX_AUTH_ROOT_FIELDS = {
+    "OPENAI_API_KEY": type(None),
+    "auth_mode": str,
+    "tokens": dict,
+    "last_refresh": str,
+}
 _CODEX_AUTH_TOKEN_FIELDS = {
     "access_token": str,
     "refresh_token": str,
@@ -185,6 +190,8 @@ def _validate_native_codex_oauth_document(raw: object) -> dict[str, object]:
         "auth_mode": "chatgpt",
         "tokens": {key: tokens[key] for key in sorted(tokens)},
     }
+    if "OPENAI_API_KEY" in raw:
+        cleaned["OPENAI_API_KEY"] = None
     if "last_refresh" in raw:
         cleaned["last_refresh"] = raw["last_refresh"]
     return cleaned

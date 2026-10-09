@@ -18,6 +18,7 @@ from clawrium.core.codex_credentials import (
     get_codex_credential_state,
     get_codex_oauth_document,
     import_codex_oauth_from_local_reader,
+    normalize_codex_oauth_document,
     read_local_codex_oauth_document,
 )
 from clawrium.core.secrets import get_instance_key, get_instance_secrets
@@ -68,17 +69,32 @@ def _write_auth(path: Path, document: dict[str, object]) -> None:
 def test_reader_uses_codex_home_and_keeps_full_native_document(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
-    document = _document()
+    document = {"OPENAI_API_KEY": None, **_document()}
     _write_auth(tmp_path / "codex-home" / "auth.json", document)
     monkeypatch.setenv("CODEX_HOME", str(tmp_path / "codex-home"))
 
     assert json.loads(read_local_codex_oauth_document()) == document
 
 
+def test_native_chatgpt_null_api_key_survives_normalization_and_import(
+    isolated_config: Path,
+):
+    _seed_agent(isolated_config)
+    document = {"OPENAI_API_KEY": None, **_document()}
+    normalized = normalize_codex_oauth_document(json.dumps(document))
+    assert json.loads(normalized) == document
+
+    import_codex_oauth_from_local_reader("codex-one", reader=lambda: normalized)
+    assert json.loads(get_codex_oauth_document("codex-one")) == document
+
+
 @pytest.mark.parametrize(
     "mutate,category",
     [
         (lambda d: d.update(auth_mode="api_key"), "credentials_auth_mode_unsupported"),
+        (lambda d: d.update(OPENAI_API_KEY="sk-test"), "credentials_artifact_malformed"),
+        (lambda d: d.update(OPENAI_API_KEY={}), "credentials_artifact_malformed"),
+        (lambda d: d.update(unexpected="secret"), "credentials_artifact_malformed"),
         (lambda d: d["tokens"].pop("refresh_token"), "credentials_token_missing"),
         (
             lambda d: d["tokens"].update(extra="secret"),
@@ -98,6 +114,7 @@ def test_reader_rejects_unsupported_or_malformed_documents_without_leaking(
         read_local_codex_oauth_document()
     assert error.value.category == category
     assert "access-test-token" not in str(error.value)
+    assert "sk-test" not in str(error.value)
 
 
 def test_reader_rejects_insecure_symlink_and_oversize_sources(

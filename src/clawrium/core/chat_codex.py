@@ -354,8 +354,17 @@ class CodexChatBackend:
             self.clear_history()
         self._session_key = session_key
         if self._started and self._thread_id:
-            return ["exec", "resume", "--json", self._thread_id, "-"]
-        return ["exec", "--json", "-"]
+            return [
+                "exec",
+                "resume",
+                "--json",
+                "--skip-git-repo-check",
+                self._thread_id,
+                "-",
+            ]
+        # An isolated agent's home is not a Git repository. Codex otherwise
+        # exits before processing the prompt, even with valid OAuth credentials.
+        return ["exec", "--json", "--skip-git-repo-check", "-"]
 
     async def send_message(
         self,
