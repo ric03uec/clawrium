@@ -10,6 +10,20 @@
     remote_private: "{{ ssh_dir }}/id_ed25519"
     remote_public: "{{ ssh_dir }}/id_ed25519.pub"
   tasks:
+    - name: Inspect agent home without following links
+      ansible.builtin.stat:
+        path: "{{ agent_home }}"
+        follow: false
+      register: agent_home_stat
+      changed_when: false
+      no_log: true
+
+    - name: Refuse unsafe agent home
+      ansible.builtin.fail:
+        msg: "agent home is unsafe; recover it manually"
+      when: agent_home_stat.stat.islnk | default(false) or not (agent_home_stat.stat.isdir | default(false))
+      no_log: true
+
     - name: Inspect agent SSH directory
       ansible.builtin.stat:
         path: "{{ ssh_dir }}"
