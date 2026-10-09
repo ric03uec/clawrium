@@ -47,8 +47,10 @@ clawctl agent chat <name> --once "Summarize the current workspace"
 ```
 
 Each turn runs the pinned native protocol as the dedicated user:
-`codex exec --json -` for a fresh conversation, then
-`codex exec resume --json <thread-id> -` for later REPL turns. Prompts go on
+`codex exec --json --skip-git-repo-check -` for a fresh conversation, then
+`codex exec resume --json --skip-git-repo-check <thread-id> -` for later REPL
+turns. The flag permits execution from the agent's isolated, non-Git home; it
+does not alter credential selection. Prompts go on
 stdin, never into a shell fragment or command argv. `/reset` and `--once`
 start a fresh native thread. The finite process is timeout-bounded; malformed
 JSONL, nonzero exits, and authentication failures produce safe chat errors
@@ -88,15 +90,19 @@ so the operation can be retried safely.
 ## Verification callout
 
 Automated tests cover OAuth activation, refresh-safe sync, finite CLI/GUI chat,
-JSONL parsing, continuation/reset, timeout, cancellation, and redaction. A
-real-host Ubuntu installation of Codex 0.160.1 on wolf-i passed native
-`--version` and removal checks. This is a no-credential lifecycle check, not
-OAuth or chat validation.
+JSONL parsing, continuation/reset, timeout, cancellation, and redaction. On
+wolf-i (Ubuntu), a disposable Codex 0.160.1 agent passed install and native
+exec/shell version checks. A controller file-backed ChatGPT login was attached
+through a selection-only provider and synced to the agent's private `0600`
+auth file; native `login status`, CLI chat, and GUI chat all succeeded. CLI and
+GUI conversations continued across turns and reset to fresh threads. An
+ordinary repeat sync left the remote auth file unchanged and inference still
+worked. Explicit re-attach replaced the remote snapshot and inference still
+worked. Both the authenticated and the earlier no-auth disposable agents were
+removed successfully.
 
-End-to-end OAuth activation, refresh-preserving repeat sync, and CLI/GUI
-inference still require a file-backed controller Codex login (see
-`codex login status`) before they can be verified. The mac-test host was
-unreachable over SSH during the latest attempt, so macOS real-host validation
-also remains outstanding. A failed local `codex-1031-uat` install record is
-retained for safe retry and cleanup when that host is reachable; no remote
-install tasks ran during the failed attempt.
+The repeat-sync check did not observe an actual remote token refresh. mac-test
+was unreachable over SSH, so live macOS validation remains outstanding. Its
+failed local `codex-1031-uat` install record remains for safe retry and remote
+cleanup when that host is reachable; no remote install tasks ran during the
+failed attempt. See `.itx/1031/01_EXECUTION.md` for the verification ledger.
