@@ -97,7 +97,9 @@ through a selection-only provider and synced to the agent's private `0600`
 auth file; native `login status`, CLI chat, and GUI chat all succeeded. CLI and
 GUI conversations continued across turns and reset to fresh threads. An
 ordinary repeat sync left the remote auth file unchanged and inference still
-worked. The earlier no-auth disposable agent was also removed successfully.
+worked. Explicit re-attach replaced the remote snapshot and inference still
+worked. Both the authenticated and the earlier no-auth disposable agents were
+removed successfully.
 
 The repeat-sync check did not observe an actual remote token refresh. mac-test
 was unreachable over SSH, so live macOS validation remains outstanding. Its
