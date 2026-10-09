@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import logging
 import os
+import shutil
+import tempfile
 from pathlib import Path
 
 import ansible_runner
@@ -67,8 +69,13 @@ def ensure_agent_ssh_identity(
     os_family = host.get("os_family", "linux")
     existing = get_agent_private_key(key_id, agent_name)
     playbook = resolve_agent_ssh_keys_playbook(os_family)
-    data_dir = private_data_dir or (Path.home() / ".cache" / "clawrium-agent-ssh")
+    # A caller-supplied directory is already short-lived (install uses a
+    # TemporaryDirectory). Sync gets one here; neither path retains private
+    # key staging or ansible-runner artifacts after the operation.
+    owned_data_dir = private_data_dir is None
+    data_dir = Path(tempfile.mkdtemp(prefix="clawrium-agent-ssh-")) if owned_data_dir else private_data_dir
     data_dir.mkdir(parents=True, exist_ok=True)
+    os.chmod(data_dir, 0o700)
     inventory = inventory or _inventory(host)
 
     def run(
@@ -77,8 +84,10 @@ def ensure_agent_ssh_identity(
         public: Path | None = None,
         controller_exists: bool | None = None,
     ):
+        phase_dir = data_dir / phase
+        phase_dir.mkdir(parents=True, exist_ok=True)
         result = ansible_runner.run(
-            private_data_dir=str(data_dir / phase),
+            private_data_dir=str(phase_dir),
             inventory=inventory,
             playbook=str(playbook),
             quiet=True,
@@ -99,12 +108,27 @@ def ensure_agent_ssh_identity(
                 "state manually before retrying"
             )
 
-    # Preflight is intentionally always run: an existing controller pair must
-    # also reject a conflicting or symlinked remote identity.
-    run("preflight")
-    private, public = ensure_agent_keypair(key_id, agent_name)
-    if not (os.access(private, os.R_OK) and os.access(public, os.R_OK)):
-        raise AgentSSHIdentityError("controller agent SSH identity is not readable")
-    run("provision", private, public, controller_exists=True)
-    logger.info("Ensured SSH identity for agent %s on %s", agent_name, key_id)
-    return private, public
+    try:
+        # Preflight is intentionally always run: an existing controller pair must
+        # also reject a conflicting or symlinked remote identity.
+        run("preflight")
+        private, public = ensure_agent_keypair(key_id, agent_name)
+        if not (os.access(private, os.R_OK) and os.access(public, os.R_OK)):
+            raise AgentSSHIdentityError("controller agent SSH identity is not readable")
+
+        # ansible-runner can change into its private-data directory. Stage
+        # path-only copies under that directory so the copy module always has
+        # readable controller sources, while keeping those bytes transient.
+        stage_dir = data_dir / "provision" / "project" / "agent-identity"
+        stage_dir.mkdir(parents=True, mode=0o700, exist_ok=True)
+        staged_private, staged_public = stage_dir / private.name, stage_dir / public.name
+        shutil.copyfile(private, staged_private)
+        shutil.copyfile(public, staged_public)
+        staged_private.chmod(0o600)
+        staged_public.chmod(0o644)
+        run("provision", staged_private, staged_public, controller_exists=True)
+        logger.info("Ensured SSH identity for agent %s on %s", agent_name, key_id)
+        return private, public
+    finally:
+        if owned_data_dir:
+            shutil.rmtree(data_dir, ignore_errors=True)

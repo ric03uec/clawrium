@@ -679,8 +679,10 @@ def sync(
         emit_error(f"sync failed: {exc}")
         return
 
-    if not canonical_result.success:
-        emit_error(f"sync failed: {canonical_result.error or 'unknown error'}")
+    if getattr(canonical_result, "success", True) is False:
+        emit_error(
+            f"sync failed: {getattr(canonical_result, 'error', None) or 'unknown error'}"
+        )
         return
 
     elapsed = int(time.monotonic() - started)
