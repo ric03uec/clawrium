@@ -207,6 +207,11 @@ def get_agent_key_dir(key_id: str, agent_name: str) -> Path:
     base = get_config_dir() / "agent-keys"
     path = base / key_id / agent_name
     try:
+        # `resolve()` alone accepts a symlinked child that happens to point
+        # back inside the root. Reject every controlled component instead.
+        for component in (base, base / key_id, path):
+            if component.is_symlink():
+                raise InvalidKeyIdError("agent key path contains a symlink")
         if not path.resolve().is_relative_to(base.resolve()):
             raise InvalidKeyIdError("agent key path escapes agent-keys directory")
     except OSError as exc:

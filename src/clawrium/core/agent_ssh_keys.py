@@ -111,7 +111,8 @@ def ensure_agent_ssh_identity(
     try:
         # Preflight is intentionally always run: an existing controller pair must
         # also reject a conflicting or symlinked remote identity.
-        run("preflight")
+        existing_public = existing.with_suffix(existing.suffix + ".pub") if existing else None
+        run("preflight", existing, existing_public, controller_exists=existing is not None)
         private, public = ensure_agent_keypair(key_id, agent_name)
         if not (os.access(private, os.R_OK) and os.access(public, os.R_OK)):
             raise AgentSSHIdentityError("controller agent SSH identity is not readable")
@@ -130,5 +131,8 @@ def ensure_agent_ssh_identity(
         logger.info("Ensured SSH identity for agent %s on %s", agent_name, key_id)
         return private, public
     finally:
+        # Controller identity staging is always ephemeral, even when the
+        # caller owns the runner directory for non-secret diagnostics.
+        shutil.rmtree(data_dir / "provision" / "project" / "agent-identity", ignore_errors=True)
         if owned_data_dir:
             shutil.rmtree(data_dir, ignore_errors=True)
