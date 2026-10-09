@@ -134,6 +134,30 @@ def test_describe_json(fleet_dir) -> None:
     assert parsed[0]["kind"] == "agent"
 
 
+def test_describe_exposes_public_key_and_redacts_private_key(fleet_dir) -> None:
+    from clawrium.core.keys import ensure_agent_keypair
+
+    ensure_agent_keypair("10.0.0.1", "wise-hypatia")
+    text = runner.invoke(app, ["agent", "describe", "wise-hypatia"])
+    json_result = runner.invoke(
+        app, ["agent", "describe", "wise-hypatia", "-o", "json"]
+    )
+    yaml_result = runner.invoke(
+        app, ["agent", "describe", "wise-hypatia", "-o", "yaml"]
+    )
+
+    assert text.exit_code == json_result.exit_code == yaml_result.exit_code == 0
+    parsed_json = json.loads(json_result.output)[0]
+    parsed_yaml = yaml.safe_load(yaml_result.output)[0]
+    for record in (parsed_json, parsed_yaml):
+        assert record["ssh_public_key"].startswith("ssh-ed25519 ")
+        assert record["ssh_private_key"] == "[REDACTED]"
+    assert "OPENSSH PRIVATE KEY" not in text.output
+    # The compact fleet listing deliberately remains unchanged.
+    listing = runner.invoke(app, ["agent", "get", "-o", "json"])
+    assert "ssh_private_key" not in listing.output
+
+
 # ---------------------------------------------------------------------------
 # _first_provider read coverage
 #

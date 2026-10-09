@@ -56,6 +56,23 @@ def _isolate_config_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None
 
 
 @pytest.fixture(autouse=True)
+def _stub_agent_ssh_provisioning(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, request: pytest.FixtureRequest
+) -> None:
+    """Keep existing lifecycle unit tests focused on their own remote phase.
+
+    Agent identity provisioning has dedicated tests in ``test_agent_ssh_keys``;
+    the broad legacy lifecycle suite intentionally replaces all remote writes.
+    """
+    if request.module.__name__.endswith("test_agent_ssh_keys"):
+        return
+    monkeypatch.setattr(
+        "clawrium.core.agent_ssh_keys.ensure_agent_ssh_identity",
+        lambda *_args, **_kwargs: (tmp_path / "agent-id", tmp_path / "agent-id.pub"),
+    )
+
+
+@pytest.fixture(autouse=True)
 def _clear_render_template_caches() -> None:
     """B7 (ATX #555 polish): drop lru_cache state between tests.
 

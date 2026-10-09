@@ -338,10 +338,13 @@ def sync(
                 )
             except CanonicalSyncError as exc:
                 emit_error(f"Pi sync failed: {exc}")
+                return
             except (paramiko.SSHException, OSError, EOFError):
                 emit_error("Pi sync failed: remote synchronization did not finish")
+                return
             if not result.success:
                 emit_error(f"Pi sync failed: {result.error or 'unknown error'}")
+                return
             stream_action(
                 resource=f"agent/{name}",
                 message="Pi OpenRouter credential synchronized; no daemon restart",
@@ -675,6 +678,12 @@ def sync(
         # test pins this contract so a future refactor cannot silently
         # downgrade workspace failures to a non-zero-but-non-1 code.
         emit_error(f"sync failed: {exc}")
+        return
+
+    if getattr(canonical_result, "success", True) is False:
+        emit_error(
+            f"sync failed: {getattr(canonical_result, 'error', None) or 'unknown error'}"
+        )
         return
 
     elapsed = int(time.monotonic() - started)

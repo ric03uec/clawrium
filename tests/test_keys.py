@@ -230,6 +230,43 @@ class TestGenerateHostKeypair:
         assert mode == 0o644
 
 
+class TestAgentKeys:
+    def test_creates_separate_agent_identity_with_safe_modes(self, isolated_config: Path):
+        from clawrium.core.keys import ensure_agent_keypair
+
+        private, public = ensure_agent_keypair("host-id", "agent-one")
+        assert private == isolated_config / "agent-keys" / "host-id" / "agent-one" / "id_ed25519"
+        assert public == private.with_suffix(".pub")
+        assert private.stat().st_mode & 0o777 == 0o600
+        assert public.stat().st_mode & 0o777 == 0o644
+        assert private.parent.stat().st_mode & 0o777 == 0o700
+
+    def test_reuses_existing_identity(self, isolated_config: Path):
+        from clawrium.core.keys import ensure_agent_keypair
+
+        private, public = ensure_agent_keypair("host-id", "agent-one")
+        original = private.read_bytes()
+        assert ensure_agent_keypair("host-id", "agent-one") == (private, public)
+        assert private.read_bytes() == original
+
+    def test_rejects_partial_identity(self, isolated_config: Path):
+        from clawrium.core.keys import get_agent_key_dir, ensure_agent_keypair
+
+        directory = get_agent_key_dir("host-id", "agent-one")
+        directory.mkdir(parents=True)
+        (directory / "id_ed25519").write_text("partial")
+        with pytest.raises(ValueError, match="incomplete"):
+            ensure_agent_keypair("host-id", "agent-one")
+
+    def test_host_reset_tree_does_not_include_agent_identity(self, isolated_config: Path):
+        from clawrium.core.keys import delete_host_keys, ensure_agent_keypair, generate_host_keypair
+
+        generate_host_keypair("host-id")
+        private, _ = ensure_agent_keypair("host-id", "agent-one")
+        assert delete_host_keys("host-id") is True
+        assert private.exists()
+
+
 class TestDeleteHostKeys:
     """Tests for delete_host_keys function."""
 

@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <link rel="icon" href="data:,">
+  <title>Issue #1041 · Per-agent SSH identity architecture</title>
+  <style>
+    :root {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: #172b37;
+      background: #f5f4ef;
+      font-synthesis: none;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; }
+    a { color: inherit; text-underline-offset: 3px; }
+    code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    code { overflow-wrap: anywhere; }
+    .page { max-width: 1260px; margin: 0 auto; padding: 32px 32px 88px; }
+    .masthead { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 28px; }
+    .brand { font-size: 13px; font-weight: 800; letter-spacing: .19em; text-transform: uppercase; }
+    .brand span { color: #dd714d; }
+    .masthead a { font-size: 13px; font-weight: 600; color: #50636d; }
+    .hero { position: relative; overflow: hidden; padding: 48px 52px 46px; border-radius: 24px; background: #152b38; color: #f8f5ed; }
+    .hero::after { content: ""; position: absolute; width: 430px; height: 430px; right: -90px; top: -210px; border-radius: 50%; border: 80px solid rgba(110, 186, 172, .1); box-shadow: 0 0 0 80px rgba(110, 186, 172, .045); pointer-events: none; }
+    .eyebrow { display: inline-flex; gap: 10px; align-items: center; color: #a9d9cb; font-size: 11px; letter-spacing: .16em; font-weight: 800; text-transform: uppercase; }
+    .eyebrow::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: #8fe1bb; box-shadow: 0 0 0 5px rgba(143,225,187,.12); }
+    h1 { position: relative; z-index: 1; margin: 24px 0 12px; max-width: 800px; font-size: clamp(32px, 4vw, 52px); line-height: 1.08; letter-spacing: -.045em; }
+    .hero p { position: relative; z-index: 1; max-width: 700px; margin: 0; color: #c4d0d3; font-size: 16px; line-height: 1.65; }
+    .hero-meta { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 26px; }
+    .hero-meta span { border: 1px solid #4e6971; border-radius: 99px; padding: 7px 12px; font-size: 12px; color: #e2eae7; }
+    .section-heading { display: flex; align-items: baseline; gap: 14px; margin: 44px 0 18px; }
+    .section-heading .num { color: #c36d50; font: 700 13px ui-monospace, monospace; }
+    h2 { margin: 0; font-size: 22px; letter-spacing: -.025em; }
+    .section-heading p { margin: 0 0 0 auto; color: #647780; font-size: 13px; }
+    .entry-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+    .entry { display: flex; gap: 14px; padding: 20px; border: 1px solid #dfe4df; border-radius: 14px; background: #fff; box-shadow: 0 6px 20px rgba(23,43,55,.035); }
+    .entry .number { display: grid; flex: none; place-items: center; width: 29px; height: 29px; border-radius: 8px; color: #246b62; background: #e8f5ef; font: 700 12px ui-monospace, monospace; }
+    .entry h3 { margin: 0 0 5px; font-size: 14px; }
+    .entry p { margin: 0; color: #647780; font-size: 12px; line-height: 1.55; }
+    .architecture { display: grid; grid-template-columns: minmax(0, 1fr) 112px minmax(0, 1fr); align-items: stretch; gap: 0; }
+    .zone { min-width: 0; padding: 26px; border: 1px solid #dce4df; border-radius: 18px; background: #fff; box-shadow: 0 12px 30px rgba(23,43,55,.04); }
+    .zone.controller { border-top: 4px solid #2c8070; }
+    .zone.host { border-top: 4px solid #d77e58; }
+    .zone-label { color: #287d6d; font-size: 11px; font-weight: 800; letter-spacing: .16em; text-transform: uppercase; }
+    .host .zone-label { color: #b66240; }
+    .zone h3 { margin: 7px 0 3px; font-size: 23px; letter-spacing: -.03em; }
+    .zone-intro { margin: 0 0 22px; color: #60717b; font-size: 13px; line-height: 1.55; }
+    .node { padding: 16px 18px; border: 1px solid #e4e9e6; border-radius: 12px; background: #fafbf9; }
+    .node + .node { margin-top: 11px; }
+    .node-top { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+    .node h4 { margin: 0; font-size: 14px; }
+    .node .tag { flex: none; color: #4c8878; font: 700 10px ui-monospace, monospace; text-transform: uppercase; }
+    .host .node .tag { color: #bd7756; }
+    .node p { margin: 7px 0 0; color: #5c6f78; font-size: 12px; line-height: 1.6; }
+    .path { display: block; margin-top: 10px; padding: 9px 10px; border-radius: 7px; background: #eef5f0; color: #245c51; font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
+    .host .path { background: #faf0e9; color: #855039; }
+    .flow { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 12px 5px; text-align: center; }
+    .flow .arrow { position: relative; width: 100%; height: 2px; background: #ba9987; }
+    .flow .arrow::after { content: ""; position: absolute; right: 0; top: -5px; width: 0; height: 0; border-top: 6px solid transparent; border-bottom: 6px solid transparent; border-left: 9px solid #ba9987; }
+    .flow strong { margin: 0 0 11px; color: #a65e44; font: 800 10px ui-monospace, monospace; letter-spacing: .05em; text-transform: uppercase; }
+    .flow small { max-width: 100px; margin-top: 10px; color: #77858a; font-size: 11px; line-height: 1.4; }
+    .guardrail { margin-top: 13px; display: flex; align-items: start; gap: 10px; padding: 14px 18px; border: 1px solid #e7dac9; border-radius: 11px; background: #fff8ed; color: #75523b; font-size: 12px; line-height: 1.55; }
+    .guardrail strong { white-space: nowrap; }
+    .lifecycle { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 11px; }
+    .state { position: relative; padding: 20px 19px; border: 1px solid #dfe5e1; border-radius: 13px; background: #fff; }
+    .state::before { content: ""; display: block; width: 24px; height: 3px; margin-bottom: 14px; border-radius: 8px; background: #5aafa0; }
+    .state.warn::before { background: #db9063; }
+    .state h3 { margin: 0 0 8px; font-size: 14px; }
+    .state p { margin: 0; color: #647780; font-size: 12px; line-height: 1.6; }
+    .state .outcome { display: inline-block; margin-top: 14px; font: 700 10px ui-monospace, monospace; letter-spacing: .04em; text-transform: uppercase; color: #2c8070; }
+    .state.warn .outcome { color: #ba6947; }
+    .demo { padding: 27px; border: 1px solid #dce4df; border-radius: 18px; background: #fff; }
+    .demo-intro { margin: 0 0 17px; color: #61747d; font-size: 13px; line-height: 1.6; }
+    .choices { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 18px; }
+    .choices button { padding: 9px 13px; border: 1px solid #cad9d2; border-radius: 8px; background: #f6faf7; color: #315d55; font: 700 12px ui-monospace, monospace; cursor: pointer; }
+    .choices button:hover, .choices button:focus-visible { border-color: #2c8070; outline-offset: 2px; }
+    .choices button[aria-pressed="true"] { background: #236d61; border-color: #236d61; color: #fff; }
+    .walkthrough { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
+    .walk-panel { min-width: 0; padding: 20px; border-radius: 12px; background: #f5f8f6; }
+    .walk-panel h3 { margin: 0 0 9px; font-size: 16px; }
+    .walk-panel p { margin: 0 0 14px; font-size: 12px; line-height: 1.6; color: #5a6e77; }
+    .command { display: block; padding: 12px; background: #1a303b; border-radius: 8px; color: #a7e2c9; font: 12px/1.5 ui-monospace, monospace; overflow-wrap: anywhere; }
+    .steps { padding: 0; margin: 0; list-style: none; counter-reset: step; }
+    .steps li { display: flex; gap: 10px; align-items: start; padding: 9px 0; border-bottom: 1px solid #dbe5de; color: #344e58; font-size: 12px; line-height: 1.55; }
+    .steps li:last-child { border-bottom: 0; }
+    .steps li::before { content: counter(step, decimal-leading-zero); counter-increment: step; color: #2c8070; font: 800 11px ui-monospace, monospace; }
+    .result { display: inline-block; margin-top: 11px; padding: 7px 10px; border-radius: 6px; background: #e4f3eb; color: #235f50; font: 700 11px ui-monospace, monospace; }
+    .result.error { background: #fff0e7; color: #a34f32; }
+    .format-note { margin-top: 10px !important; }
+    .mock-output { margin: 0; padding: 16px; border-radius: 9px; background: #1a303b; color: #e2ece9; font: 12px/1.65 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .lower { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 14px; }
+    .panel { padding: 25px 27px; border: 1px solid #dfe5e1; border-radius: 16px; background: #fff; }
+    .panel h3 { margin: 0 0 14px; font-size: 16px; }
+    .panel p { margin: 0; color: #657780; font-size: 12px; line-height: 1.6; }
+    .file-list { display: grid; gap: 11px; padding: 0; margin: 0; list-style: none; }
+    .file-list li { display: flex; flex-direction: column; gap: 2px; font-size: 12px; line-height: 1.45; }
+    .file-list code { color: #2e776b; font-size: 11px; font-weight: 600; }
+    .file-list span { color: #657780; }
+    .terminal { margin-top: 15px; padding: 17px; border-radius: 10px; background: #1a303b; color: #e2ece9; font: 12px/1.75 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; overflow-wrap: anywhere; }
+    .terminal .muted { color: #85a7a2; }
+    .terminal .visible { color: #9ce4c7; }
+    .terminal .hidden { color: #ffb396; }
+    .footnote { margin: 20px 0 0; color: #708087; font-size: 12px; line-height: 1.6; }
+    @media (max-width: 900px) {
+      .entry-grid, .lifecycle { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .architecture { grid-template-columns: minmax(0, 1fr); gap: 0; }
+      .flow { min-height: 90px; }
+      .flow .arrow { width: 2px; height: 30px; }
+      .flow .arrow::after { right: -5px; top: auto; bottom: 0; border-left: 6px solid transparent; border-right: 6px solid transparent; border-top: 9px solid #ba9987; border-bottom: 0; }
+      .flow strong { margin-bottom: 8px; }
+      .flow small { margin-top: 8px; max-width: none; }
+    }
+    @media (max-width: 650px) {
+      .page { padding: 18px 16px 48px; }
+      .masthead { margin-bottom: 16px; }
+      .hero { padding: 36px 26px; }
+      .section-heading { flex-wrap: wrap; }
+      .section-heading p { margin-left: 0; width: 100%; }
+      .entry-grid, .lifecycle, .lower, .walkthrough { grid-template-columns: minmax(0, 1fr); }
+      .zone { padding: 20px; }
+    }
+    @media print {
+      :root { background: #fff; }
+      .page { padding: 0; max-width: none; }
+      .hero, .zone, .entry, .state, .panel { box-shadow: none; }
+      .architecture, .entry-grid, .lifecycle, .lower, .walkthrough { break-inside: avoid; }
+      .section-heading { margin-top: 26px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header class="masthead">
+      <div class="brand">CLAWRIUM <span>/</span> DESIGN NOTE</div>
+       <a href="00_PLAN.md">Read the plan ↗</a>
+    </header>
+
+    <section class="hero" aria-labelledby="page-title">
+      <div class="eyebrow">Issue #1041 · planned architecture</div>
+      <h1 id="page-title">One SSH identity<br>for every agent.</h1>
+      <p>The control machine creates and retains each agent’s keypair. Shared Ansible provisioning installs the same identity into that agent user’s SSH directory; sync fills gaps without rotating established keys.</p>
+      <div class="hero-meta"><span>Controller-generated</span><span>Linux + macOS</span><span>Idempotent on sync</span><span>Private key never displayed</span></div>
+    </section>
+
+    <section aria-labelledby="entry-title">
+      <div class="section-heading"><span class="num">01 /</span><h2 id="entry-title">Three ways into one system flow</h2><p>Provisioning happens only on real lifecycle operations.</p></div>
+      <div class="entry-grid">
+        <div class="entry"><span class="number">01</span><div><h3>Fresh installation</h3><p><code>core/install.py</code> invokes provisioning after the agent user is created, before installation succeeds.</p></div></div>
+        <div class="entry"><span class="number">02</span><div><h3>Every sync</h3><p><code>core/lifecycle_canonical.py</code> backfills older agents and checks existing identities on normal and workspace-only sync.</p></div></div>
+        <div class="entry"><span class="number">03</span><div><h3>CLI-only agents too</h3><p><code>cli/clawctl/agent/sync.py</code> routes CLI-only sync through provisioning instead of returning early. Dry runs remain read-only.</p></div></div>
+      </div>
+    </section>
+
+    <section aria-labelledby="arch-title">
+      <div class="section-heading"><span class="num">02 /</span><h2 id="arch-title">System boundary</h2><p>One per-agent identity crosses a host-management connection.</p></div>
+      <div class="architecture">
+        <div class="zone controller">
+          <div class="zone-label">Local · control machine</div>
+          <h3>Generate &amp; retain</h3>
+          <p class="zone-intro">Clawrium owns the desired identity. Key generation and consistency checks are shared across agent types.</p>
+          <div class="node">
+            <div class="node-top"><h4>Agent key store</h4><span class="tag">core/keys.py</span></div>
+             <p>Ed25519 keypair scoped by immutable host key ID + agent name. A separate root prevents host reset from deleting it alongside <code>xclm_ed25519</code>.</p>
+             <span class="path mono">~/.config/clawrium/agent-keys/&lt;host-key-id&gt;/&lt;agent&gt;/id_ed25519{,.pub}<br>private 0600 · directories 0700</span>
+          </div>
+          <div class="node">
+            <div class="node-top"><h4>OS dispatcher</h4><span class="tag">playbook_resolver.py</span></div>
+             <p>Selects the shared Linux or macOS provisioning playbook. A read-only remote preflight runs before first generation; Ansible copies controller file paths without putting key bytes in metadata or events.</p>
+          </div>
+        </div>
+        <div class="flow" aria-label="Ansible connects through the existing host management SSH identity and provisions the agent keypair on the target host">
+          <strong>Ansible / SSH</strong><div class="arrow" aria-hidden="true"></div><small>uses existing host management key</small>
+        </div>
+        <div class="zone host">
+          <div class="zone-label">Remote · target host</div>
+          <h3>Install &amp; verify</h3>
+          <p class="zone-intro">A shared system-level playbook owns the filesystem work, regardless of agent implementation.</p>
+          <div class="node">
+            <div class="node-top"><h4>Agent user’s SSH directory</h4><span class="tag">Linux / macOS</span></div>
+             <p>Recheck destination before copying. Set ownership and restrictive <code>~/.ssh</code> / private-key permissions; reject unrelated existing keys.</p>
+             <span class="path mono">Linux: /home/&lt;agent&gt;/.ssh/id_ed25519{,.pub}<br>macOS: /Users/&lt;agent&gt;/.ssh/id_ed25519{,.pub}</span>
+          </div>
+          <div class="node">
+            <div class="node-top"><h4>Other agents stay separate</h4><span class="tag">isolation</span></div>
+            <p>Agent B on the same host receives its own pair in its own user home. Neither identity becomes the management SSH credential.</p>
+          </div>
+        </div>
+      </div>
+       <div class="guardrail"><strong>Boundary rule</strong><span>Remote writes go through Ansible. Resolve the agent home as <code>/home/&lt;agent&gt;</code> or <code>/Users/&lt;agent&gt;</code>, never <code>ansible_user_dir</code>. Linux uses the agent group; macOS uses <code>staff</code>. Paths and names above are the proposed layout, subject to implementation review.</span></div>
+    </section>
+
+    <section aria-labelledby="states-title">
+      <div class="section-heading"><span class="num">03 /</span><h2 id="states-title">Reconciliation rules</h2><p>The same decision on install and every real sync.</p></div>
+      <div class="lifecycle">
+         <div class="state"><h3>No keypair anywhere</h3><p>Preflight finds no local or remote pair: create on the controller, then install into the agent home. Also backfills an existing agent.</p><span class="outcome">Create + provision</span></div>
+        <div class="state"><h3>Matching pair exists</h3><p>Leave it untouched. Install, configure, restart, and repeated sync do not rotate this identity.</p><span class="outcome">No-op</span></div>
+         <div class="state"><h3>Remote copy missing</h3><p>Restore absent files from the controller. A remaining component must first match the controller pair.</p><span class="outcome">Repair without rotation</span></div>
+         <div class="state warn"><h3>Partial or conflicting</h3><p>Local partial, remote conflict or orphaned remote identity: stop with a recovery hint. Never overwrite or silently rotate.</p><span class="outcome">Stop + explain</span></div>
+       </div>
+     </section>
+
+     <section aria-labelledby="demo-title">
+       <div class="section-heading"><span class="num">04 /</span><h2 id="demo-title">Walk through an operation</h2><p>Select a scenario to see the proposed flow.</p></div>
+       <div class="demo">
+         <p class="demo-intro">These are design examples, not live commands. Each scenario starts with the controller checking its own key store and the remote agent home; unsafe remote state fails before a new identity is minted.</p>
+         <div class="choices" role="group" aria-label="Workflow scenario">
+           <button type="button" data-scenario="install" aria-pressed="true">Fresh install</button>
+           <button type="button" data-scenario="backfill" aria-pressed="false">Legacy backfill</button>
+           <button type="button" data-scenario="repeat" aria-pressed="false">Repeat sync</button>
+           <button type="button" data-scenario="repair" aria-pressed="false">Repair remote</button>
+           <button type="button" data-scenario="conflict" aria-pressed="false">Conflict</button>
+           <button type="button" data-scenario="isolation" aria-pressed="false">Two agents</button>
+           <button type="button" data-scenario="dryrun" aria-pressed="false">Dry run</button>
+           <button type="button" data-scenario="reset" aria-pressed="false">Reset boundary</button>
+         </div>
+         <div class="walkthrough" aria-live="polite">
+           <div class="walk-panel">
+             <h3 id="scenario-title">Fresh install</h3>
+             <p id="scenario-description">The agent user is created before the shared key provisioning step.</p>
+             <code class="command" id="scenario-command">$ clawctl agent create maurice --type hermes --host labbox</code>
+             <span id="scenario-result" class="result">Created · agent identity installed</span>
+           </div>
+           <div class="walk-panel">
+             <h3>What happens</h3>
+             <ol class="steps" id="scenario-steps">
+               <li>Agent install creates the user on labbox.</li>
+               <li>Read-only preflight checks the agent’s SSH destination.</li>
+               <li>Controller generates a unique pair, then shared Ansible copies it with safe ownership and modes.</li>
+               <li>Installation becomes successful only after provisioning succeeds.</li>
+             </ol>
+           </div>
+         </div>
+       </div>
+     </section>
+
+     <section aria-labelledby="surface-title">
+       <div class="section-heading"><span class="num">05 /</span><h2 id="surface-title">Visibility &amp; ownership</h2><p>Public identity visible; secret material confined.</p></div>
+      <div class="lower">
+        <div class="panel">
+          <h3>Implementation touchpoints</h3>
+          <ul class="file-list">
+            <li><code>src/clawrium/core/keys.py</code><span>Per-agent identity lifecycle and local safety checks.</span></li>
+            <li><code>src/clawrium/core/install.py · lifecycle_canonical.py</code><span>Fresh install and all sync paths invoke the shared flow.</span></li>
+            <li><code>src/clawrium/core/playbook_resolver.py · platform/playbooks/</code><span>OS-specific Ansible provisioning with a single dispatcher.</span></li>
+            <li><code>src/clawrium/cli/clawctl/agent/describe.py</code><span>Public key and redacted private-key indicator in text, JSON, and YAML.</span></li>
+          </ul>
+        </div>
+        <div class="panel">
+          <h3>Agent details, conceptually</h3>
+          <p>Read the public key from the controller’s store. Do not persist private bytes in hosts.json or emit them through CLI output, events, errors, or logs.</p>
+           <div class="choices" role="group" aria-label="Agent describe output format" style="margin-top: 14px; margin-bottom: 0">
+             <button type="button" data-format="text" aria-pressed="true">Text</button>
+             <button type="button" data-format="json" aria-pressed="false">JSON</button>
+             <button type="button" data-format="yaml" aria-pressed="false">YAML</button>
+           </div>
+           <p id="format-command" class="format-note mono">$ clawctl agent describe maurice</p>
+           <pre id="format-output" class="mock-output">Name:            maurice
+Type:            hermes
+Host:            labbox
+SSH public key:  ssh-ed25519 &lt;illustrative-public-key&gt; clawrium
+SSH private key: [REDACTED]</pre>
+           <p style="margin-top: 15px">The existing host reset is separate and keeps agent identities. A future explicit <strong>agent reset</strong> would own rotation; there is no agent reset or key-management command today.</p>
+        </div>
+      </div>
+       <p class="footnote">Architecture proposal for <a href="https://github.com/ric03uec/clawrium/issues/1041">issue #1041</a>, based on <a href="00_PLAN.md">00_PLAN.md</a> and <a href="01_SCAFFOLD.md">01_SCAFFOLD.md</a>. Public key strings in this mock are illustrative. This page describes intended behavior, not implemented behavior.</p>
+     </section>
+   </main>
+   <script>
+     const scenarios = {
+       install: {
+         title: "Fresh install", description: "The agent user is created before the shared key provisioning step.",
+         command: "$ clawctl agent create maurice --type hermes --host labbox", result: "Created · agent identity installed", error: false,
+         steps: ["Agent install creates the user on labbox.", "Read-only preflight checks the agent’s SSH destination.", "Controller generates a unique pair, then shared Ansible copies it with safe ownership and modes.", "Installation becomes successful only after provisioning succeeds."]
+       },
+       backfill: {
+         title: "Legacy backfill", description: "An existing agent receives an identity on its next real sync, including workspace-only or CLI-only sync.",
+         command: "$ clawctl agent sync maurice --workspace-only", result: "Synced · new identity installed", error: false,
+         steps: ["Confirm installation exists, then inspect controller and remote key state.", "Both sides are absent: mint one controller keypair.", "Shared OS-specific Ansible playbook provisions the remote agent user.", "Workspace overlay runs afterward; no daemon restart is needed for this flag."]
+       },
+       repeat: {
+         title: "Repeat sync", description: "A second sync observes an already matching identity and preserves the exact same key bytes.",
+         command: "$ clawctl agent sync maurice --no-restart", result: "Synced · identity unchanged", error: false,
+         steps: ["Read the valid existing controller pair.", "Confirm both remote key files match that pair.", "No key is generated or replaced; only safe mode/ownership drift may be corrected.", "Continue normal sync without restarting the agent."]
+       },
+       repair: {
+         title: "Repair remote copy", description: "A missing remote file can be restored from the existing controller identity.",
+         command: "$ clawctl agent sync maurice", result: "Synced · original identity restored", error: false,
+         steps: ["Validate that the controller holds a complete pair.", "Inspect remote files; verify any component still present matches the controller.", "Copy only missing component(s) using Ansible with secret-bearing tasks suppressed.", "Recheck state, then continue sync; the controller key never rotates."]
+       },
+       conflict: {
+         title: "Conflict / unsafe state", description: "If a remote file disagrees, or only a remote pair remains, stop instead of overwriting it.",
+         command: "$ clawctl agent sync maurice", result: "Failed · inspect existing SSH identity", error: true,
+         steps: ["Preflight spots a mismatched, symlinked or orphaned remote identity (or a partial local pair).", "Abort before a conflicting write, before generating over remote occupancy, and before daemon restart.", "Report only non-secret state and a manual recovery hint.", "Keep the established controller and management SSH keys untouched."]
+       },
+       isolation: {
+         title: "Two agents on one host", description: "An agent name is part of the key scope; two users on labbox receive unrelated pairs.",
+         command: "$ clawctl agent create scout --type zeroclaw --host labbox", result: "Created · separate identity installed", error: false,
+         steps: ["Maurice retains agent-keys/<host-key-id>/maurice/id_ed25519.", "Scout receives a new pair under agent-keys/<host-key-id>/scout/.", "Shared Ansible installs each pair in its own user’s ~/.ssh.", "Neither agent pair changes the host management key used by Clawrium."]
+       },
+       dryrun: {
+         title: "Read-only diff", description: "A diff is not a sync write: it never generates or provisions the SSH keypair.",
+         command: "$ clawctl agent sync maurice --diff", result: "Diff complete · no identity written", error: false,
+         steps: ["Read-only diff checks the current configuration without running provisioning.", "No local key directory or remote SSH file is created.", "A subsequent real sync performs the preflight and reconciliation.", "CLI-only and daemon agents follow the same no-write rule."]
+       },
+       reset: {
+         title: "Reset boundary", description: "Host reset concerns management access; agent identity remains in its separate controller store.",
+         command: "$ clawctl host reset labbox", result: "Agent identity retained", error: false,
+         steps: ["Host reset may remove the management key directory under keys/<host-key-id>/.", "Agent identities are stored separately under agent-keys/<host-key-id>/.", "A future explicit agent reset is the sole place to rotate an agent pair.", "No export, view, or rotate command is introduced in this issue."]
+       }
+     };
+     document.querySelectorAll("[data-scenario]").forEach(button => button.addEventListener("click", () => {
+       document.querySelectorAll("[data-scenario]").forEach(item => item.setAttribute("aria-pressed", String(item === button)));
+       const scenario = scenarios[button.dataset.scenario];
+       document.getElementById("scenario-title").textContent = scenario.title;
+       document.getElementById("scenario-description").textContent = scenario.description;
+       document.getElementById("scenario-command").textContent = scenario.command;
+       const result = document.getElementById("scenario-result");
+       result.textContent = scenario.result;
+       result.classList.toggle("error", scenario.error);
+       document.getElementById("scenario-steps").replaceChildren(...scenario.steps.map(text => {
+         const li = document.createElement("li"); li.textContent = text; return li;
+       }));
+     }));
+     const outputs = {
+       text: { command: "$ clawctl agent describe maurice", content: "Name:            maurice\nType:            hermes\nHost:            labbox\nSSH public key:  ssh-ed25519 <illustrative-public-key> clawrium\nSSH private key: [REDACTED]" },
+       json: { command: "$ clawctl agent describe maurice --output json", content: '[\n  {\n    "name": "maurice",\n    "type": "hermes",\n    "host": "labbox",\n    "ssh_public_key": "ssh-ed25519 <illustrative-public-key> clawrium",\n    "ssh_private_key": "[REDACTED]"\n  }\n]' },
+       yaml: { command: "$ clawctl agent describe maurice --output yaml", content: '- name: maurice\n  type: hermes\n  host: labbox\n  ssh_public_key: ssh-ed25519 <illustrative-public-key> clawrium\n  ssh_private_key: "[REDACTED]"' }
+     };
+     document.querySelectorAll("[data-format]").forEach(button => button.addEventListener("click", () => {
+       document.querySelectorAll("[data-format]").forEach(item => item.setAttribute("aria-pressed", String(item === button)));
+       const output = outputs[button.dataset.format];
+       document.getElementById("format-command").textContent = output.command;
+       document.getElementById("format-output").textContent = output.content;
+     }));
+   </script>
+ </body>
+</html>
