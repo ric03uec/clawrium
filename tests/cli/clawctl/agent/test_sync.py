@@ -122,6 +122,23 @@ def _patch_canonical_capture(monkeypatch) -> dict:
     return captured
 
 
+def test_sync_reports_unsuccessful_canonical_result(fleet_dir, monkeypatch) -> None:
+    class FailedResult:
+        success = False
+        error = "state write failed"
+        files_written: list[str] = []
+        files_unchanged: list[str] = []
+
+    monkeypatch.setattr(
+        "clawrium.core.lifecycle_canonical.sync_agent_canonical",
+        lambda *_args, **_kwargs: FailedResult(),
+    )
+    result = runner.invoke(app, ["agent", "sync", "wise-hypatia"])
+    assert result.exit_code != 0
+    assert "state write failed" in result.output
+    assert "synced  (drift=0" not in result.output
+
+
 def test_sync_rejects_removed_force_flag(fleet_dir) -> None:
     """#560 Phase 1: `--force` was dropped alongside `--canonical`.
     Recovery from `channel detach` is via re-attach, not a flag."""

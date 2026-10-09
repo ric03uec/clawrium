@@ -3002,6 +3002,15 @@ def sync_agent_canonical(
         if not has_daemon_lifecycle(agent_type):
             if not has_completed_install(_claw_record):
                 raise CanonicalSyncError(incomplete_install_message(agent_type, "sync"))
+            if not dry_run:
+                try:
+                    from clawrium.core.agent_ssh_keys import ensure_agent_ssh_identity
+
+                    ensure_agent_ssh_identity(host, agent_name)
+                except Exception as exc:
+                    raise CanonicalSyncError(
+                        f"agent SSH identity provisioning failed: {exc}"
+                    ) from exc
             if agent_type == "pi":
                 from clawrium.core.pi import pi_credential_lock
 
@@ -3199,6 +3208,16 @@ def sync_agent_canonical(
     # (W5 iter-3): workspace-only preserves the current lifecycle
     # position so an operator may overlay onto a STOPPED agent without
     # silently flipping it to READY.
+    if not dry_run:
+        try:
+            from clawrium.core.agent_ssh_keys import ensure_agent_ssh_identity
+
+            ensure_agent_ssh_identity(host, agent_name)
+        except Exception as exc:
+            raise CanonicalSyncError(
+                f"agent SSH identity provisioning failed: {exc}"
+            ) from exc
+
     if workspace_only:
         from clawrium.core.workspace_sync import push_workspace_phase
 

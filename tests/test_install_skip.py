@@ -60,6 +60,10 @@ def _setup_common(monkeypatch, tmp_path, host_record: dict, version: str = "2026
         clawrium.core.install, "initialize_onboarding", lambda h, c: True
     )
 
+    monkeypatch.setattr(
+        "clawrium.core.agent_ssh_keys.ensure_agent_ssh_identity",
+        lambda *args, **kwargs: (tmp_path / "agent-key", tmp_path / "agent-key.pub"),
+    )
     return host_state
 
 
@@ -244,6 +248,10 @@ def _setup_common_zeroclaw(
         clawrium.core.install, "initialize_onboarding", lambda h, c: True
     )
 
+    monkeypatch.setattr(
+        "clawrium.core.agent_ssh_keys.ensure_agent_ssh_identity",
+        lambda *args, **kwargs: (tmp_path / "agent-key", tmp_path / "agent-key.pub"),
+    )
     return host_state
 
 

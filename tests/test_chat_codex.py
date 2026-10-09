@@ -54,9 +54,12 @@ def test_jsonl_session_continuation_and_reset() -> None:
     backend.clear_history()
     assert asyncio.run(backend.send_message("fresh", "main")) == "hello"
     assert calls == [
-        (["exec", "--json", "-"], "one"),
-        (["exec", "resume", "--json", "native-thread", "-"], "two"),
-        (["exec", "--json", "-"], "fresh"),
+        (["exec", "--json", "--skip-git-repo-check", "-"], "one"),
+        (
+            ["exec", "resume", "--json", "--skip-git-repo-check", "native-thread", "-"],
+            "two",
+        ),
+        (["exec", "--json", "--skip-git-repo-check", "-"], "fresh"),
     ]
 
 
@@ -162,7 +165,10 @@ def test_cancellation_resets_native_thread() -> None:
         assert await backend.send_message("again", "main") == "retry"
 
     asyncio.run(exercise())
-    assert calls == [["exec", "--json", "-"], ["exec", "--json", "-"]]
+    assert calls == [
+        ["exec", "--json", "--skip-git-repo-check", "-"],
+        ["exec", "--json", "--skip-git-repo-check", "-"],
+    ]
 
 
 def test_transport_encodes_prompt_and_removes_runner_artifacts(
@@ -210,10 +216,13 @@ def test_transport_encodes_prompt_and_removes_runner_artifacts(
     monkeypatch.setattr(chat_codex.ansible_runner, "run", fake_run)
     prompt = "secret prompt {{ lookup('env', 'NOPE') }}"
     assert chat_codex.run_codex_chat(
-        "wolf", "codex-agent", ["exec", "--json", "-"], prompt, 3
+        "wolf", "codex-agent", ["exec", "--json", "--skip-git-repo-check", "-"], prompt, 3
     ) == (_events(), "", 0)
     variables = captured["inventory"]["all"]["vars"]
     assert prompt not in variables["codex_chat_argv"]
+    assert variables["codex_chat_argv"] == [
+        "exec", "--json", "--skip-git-repo-check", "-"
+    ]
     assert base64.b64decode(variables["codex_chat_prompt_b64"]).decode() == prompt
     assert not list((tmp_path / "config" / "logs").iterdir())
 
