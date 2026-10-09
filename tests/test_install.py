@@ -197,7 +197,7 @@ def test_install_success(monkeypatch, tmp_path):
     assert result["agent"] == "openclaw"
     assert result["version"] == "0.1.0"
     assert result["host"] == "test-host"
-    assert len(result["playbooks_run"]) == 2
+    assert len(result["playbooks_run"]) == 3
     assert result["error"] is None
 
     # Verify ansible_runner.run was called twice (base + claw playbook)

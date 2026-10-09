@@ -57,6 +57,18 @@ class TestResolveAgentPlaybook:
             resolve_agent_playbook("hermes", "install", "windows")
 
 
+class TestResolveAgentSSHKeysPlaybook:
+    def test_linux_returns_shared_key_playbook(self):
+        from clawrium.core.playbook_resolver import resolve_agent_ssh_keys_playbook
+
+        assert resolve_agent_ssh_keys_playbook("linux").name == "agent_ssh_keys.yaml"
+
+    def test_darwin_returns_shared_key_playbook(self):
+        from clawrium.core.playbook_resolver import resolve_agent_ssh_keys_playbook
+
+        assert resolve_agent_ssh_keys_playbook("darwin").name == "agent_ssh_keys_macos.yaml"
+
+
 class TestResolveShellPlaybook:
     def test_linux_returns_shell_yaml(self):
         path = resolve_shell_playbook("linux")

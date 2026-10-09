@@ -168,6 +168,17 @@ def resolve_agent_playbook(agent_type: str, op: str, os_family: str) -> Path:
     return path
 
 
+def resolve_agent_ssh_keys_playbook(os_family: str) -> Path:
+    """Return the shared system-level per-agent SSH key playbook."""
+    suffix = _suffix_for(os_family)
+    path = _PLATFORM_ROOT / "playbooks" / f"agent_ssh_keys{suffix}.yaml"
+    if not path.exists():
+        raise FileNotFoundError(
+            f"agent SSH key playbook for os_family={os_family!r} not found at {path}."
+        )
+    return path
+
+
 def resolve_shell_playbook(os_family: str) -> Path:
     """Return the path to the `clawctl agent shell` playbook for this OS family."""
     suffix = _suffix_for(os_family)

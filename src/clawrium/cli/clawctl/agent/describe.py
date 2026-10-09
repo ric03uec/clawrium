@@ -35,6 +35,20 @@ def describe(
     """Describe a single agent."""
     host, agent_key, claw_record = safe_resolve_agent(name)
     row = agent_to_row(host, agent_key, claw_record)
+    # Deliberately enrich only the detail view: compact `agent get` rows
+    # must not gain key material. The key API validates the pair without
+    # reading private bytes into output.
+    from clawrium.core.keys import read_agent_public_key
+
+    identity_name = claw_record.get("agent_name") or agent_key
+    try:
+        public_key = read_agent_public_key(
+            host.get("key_id") or host.get("hostname", ""), identity_name
+        )
+    except (ValueError, OSError):
+        public_key = None
+    row["ssh_public_key"] = public_key
+    row["ssh_private_key"] = "[REDACTED]" if public_key else "absent"
 
     if output is OutputFormat.json:
         typer.echo(dump_json([row]), nl=False)
@@ -60,6 +74,8 @@ def describe(
     lines.append(f"  Port:    {_s(row['port'] or '-')}")
     identity = config.get("identity") or config.get("identity_file") or "-"
     lines.append(f"  Identity: {_s(identity)}")
+    lines.append(f"  SSH public key: {_s(row['ssh_public_key'] or 'absent')}")
+    lines.append(f"  SSH private key: {_s(row['ssh_private_key'])}")
 
     skills = (config.get("skills") or claw_record.get("skills") or []) or []
     lines.append("")

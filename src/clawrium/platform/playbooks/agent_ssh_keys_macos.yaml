@@ -1,0 +1,84 @@
+---
+# macOS sibling of agent_ssh_keys.yaml. Keep the safety contract in lockstep.
+- hosts: all
+  become: yes
+  vars:
+    agent_home: "/Users/{{ agent_name }}"
+    agent_group: staff
+    ssh_dir: "{{ agent_home }}/.ssh"
+    remote_private: "{{ ssh_dir }}/id_ed25519"
+    remote_public: "{{ ssh_dir }}/id_ed25519.pub"
+  tasks:
+    - name: Refuse to run on non-macOS hosts
+      ansible.builtin.fail:
+        msg: "agent_ssh_keys_macos.yaml is macOS-only; use the Linux sibling"
+      when: ansible_os_family != "Darwin"
+
+    - name: Inspect agent SSH identity paths
+      ansible.builtin.stat:
+        path: "{{ item }}"
+        follow: false
+      loop:
+        - "{{ remote_private }}"
+        - "{{ remote_public }}"
+      register: agent_ssh_key_stats
+      changed_when: false
+      no_log: true
+
+    - name: Refuse unsafe or orphaned remote identity
+      ansible.builtin.fail:
+        msg: "agent SSH identity is occupied, incomplete, or unsafe; recover it manually"
+      when: >-
+        (agent_ssh_key_stats.results | selectattr('stat.islnk') | list | length > 0) or
+        ((not controller_pair_exists | bool) and
+         (agent_ssh_key_stats.results | selectattr('stat.exists') | list | length > 0))
+      no_log: true
+
+    - name: Refuse remote keys that do not match controller identity
+      ansible.builtin.fail:
+        msg: "agent SSH identity conflicts with the controller copy; recover it manually"
+      when: >-
+        (controller_pair_exists | bool) and (
+          (agent_ssh_key_stats.results[0].stat.exists and
+           agent_ssh_key_stats.results[0].stat.checksum !=
+             (lookup('ansible.builtin.file', controller_private_key_path, rstrip=False) | hash('sha1'))) or
+          (agent_ssh_key_stats.results[1].stat.exists and
+           agent_ssh_key_stats.results[1].stat.checksum !=
+             (lookup('ansible.builtin.file', controller_public_key_path, rstrip=False) | hash('sha1')))
+        )
+      no_log: true
+
+    - name: Stop after read-only preflight
+      ansible.builtin.meta: end_play
+      when: agent_ssh_key_phase == "preflight"
+
+    - name: Create agent SSH directory
+      ansible.builtin.file:
+        path: "{{ ssh_dir }}"
+        state: directory
+        owner: "{{ agent_name }}"
+        group: "{{ agent_group }}"
+        mode: "0700"
+
+    - name: Copy controller private identity without replacement
+      ansible.builtin.copy:
+        src: "{{ controller_private_key_path }}"
+        dest: "{{ remote_private }}"
+        owner: "{{ agent_name }}"
+        group: "{{ agent_group }}"
+        mode: "0600"
+        force: false
+        follow: false
+      no_log: true
+
+    - name: Copy controller public identity without replacement
+      ansible.builtin.copy:
+        src: "{{ controller_public_key_path }}"
+        dest: "{{ remote_public }}"
+        owner: "{{ agent_name }}"
+        group: "{{ agent_group }}"
+        mode: "0644"
+        force: false
+        follow: false
+      no_log: true
+

@@ -26,6 +26,7 @@ import hashlib
 import logging
 import os
 import sys
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, NotRequired, TypedDict
@@ -1549,7 +1550,26 @@ def run_installation(
             if preserved.get("auth"):
                 emit("claw", "Reusing existing gateway credentials (skip path)")
 
-        # Step 10: Update host with success status and gateway auth
+        # Step 10: Provision the agent-owned SSH identity only after its user
+        # exists, but before recording installation success. This shared
+        # system-level flow intentionally also runs on binary-skip reinstalls.
+        try:
+            from clawrium.core.agent_ssh_keys import ensure_agent_ssh_identity
+
+            with tempfile.TemporaryDirectory(prefix="clawrium-agent-ssh-") as staging:
+                os.chmod(staging, 0o700)
+                ensure_agent_ssh_identity(
+                    host,
+                    agent_name,
+                    private_data_dir=Path(staging),
+                    inventory=inventory,
+                )
+            playbooks_run.append("agent_ssh_keys")
+            emit("ssh", "Agent SSH identity provisioned")
+        except Exception as exc:
+            raise InstallationError(f"Agent SSH identity provisioning failed: {exc}") from exc
+
+        # Step 11: Update host with success status and gateway auth
         def set_installed(h: dict) -> dict:
             if "agents" in h and agent_name in h["agents"]:
                 h["agents"][agent_name]["status"] = "installed"

@@ -16,6 +16,9 @@ cut. The `itx-release` skill archives this section into a new
 
 ### Added
 
+- Provision a distinct controller-owned SSH keypair for every agent during
+  installation and sync, and expose its public key in agent details.
+
 ### Changed
 
 ### Fixed
