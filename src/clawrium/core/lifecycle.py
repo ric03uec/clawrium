@@ -45,6 +45,7 @@ __all__ = [
     "stop_agent",
     "restart_agent",
     "remove_agent",
+    "hard_delete_agent",
     "configure_agent",
     "sync_agent",
     "LifecycleError",
@@ -3856,6 +3857,54 @@ def configure_agent(
         _cleanup_ansible_artifacts(operation_log_dir)
 
 
+def hard_delete_agent(hostname: str, agent_key: str) -> None:
+    """Forget one agent locally after remote removal failed.
+
+    Remove the record last so an interrupted cleanup can be retried. Missing
+    local artifacts are already clean and do not prevent retry.
+    """
+    host = get_host(hostname)
+    record = (host or {}).get("agents", {}).get(agent_key)
+    if not isinstance(record, dict):
+        raise LifecycleError(f"Agent '{agent_key}' not installed on '{hostname}'")
+
+    agent_type = record["type"]
+    unix_name = record.get("agent_name") or agent_key
+    try:
+        # Reuse the existing name validation before constructing either path.
+        from clawrium.core.skills_state import state_file_path
+
+        state_file_path(unix_name)
+        agents_dir = get_config_dir() / "agents"
+        type_dir = agents_dir / agent_type
+        workspace = type_dir / unix_name
+        if any(path.is_symlink() for path in (agents_dir, type_dir, workspace)):
+            raise LifecycleError("Local agent workspace contains a symlink")
+        instance_key = get_instance_key(
+            host.get("key_id") or host["hostname"], agent_type, unix_name
+        )
+        remove_instance_secrets(instance_key)
+        cleanup_agent_state(unix_name)
+        if workspace.exists():
+            shutil.rmtree(workspace)
+
+        def remove_exact(current: dict) -> dict:
+            agents = current.get("agents", {})
+            if agents.get(agent_key) != record:
+                raise LifecycleError(
+                    f"Agent '{agent_key}' changed during local cleanup"
+                )
+            del agents[agent_key]
+            return current
+
+        if not update_host(host["hostname"], remove_exact):
+            raise LifecycleError(f"Host '{hostname}' not found during local cleanup")
+    except LifecycleError:
+        raise
+    except Exception as exc:
+        raise LifecycleError(f"Local cleanup failed for '{agent_key}': {exc}") from exc
+
+
 def remove_agent(
     hostname: str,
     claw_name: str,
@@ -3956,6 +4005,7 @@ def remove_agent(
     if not success:
         return {
             "success": False,
+            "remote_cleanup_failed": True,
             "agent": agent_key,
             "host": hostname,
             "operation": "remove",

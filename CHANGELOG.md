@@ -31,6 +31,7 @@ cut. The `itx-release` skill archives this section into a new
 
 ### Fixed
 
+- Allow an explicitly confirmed local-only hard delete when remote agent cleanup fails, while warning that remote service and data need manual cleanup (#1052).
 - Reject incomplete or failed native Codex JSONL turns instead of presenting truncated output as a successful chat response (#1037).
 - Bound Codex and Pi browser chat sessions to the current agent installation and host, return explicit HTTP errors for failed turns, and refuse new Pi sessions when every cache slot is active (#1037).
 - Fixed Pi Codex OAuth provider switches to revoke dedicated-account OAuth state, require marker-bound managed-account login, and start Pi with a clean environment (#1040).

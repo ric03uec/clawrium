@@ -2313,6 +2313,91 @@ class TestRestartAgentZeroclawWiring:
 class TestRemoveClaw:
     """Tests for remove_claw function."""
 
+    def test_hard_delete_cleans_only_selected_agent_and_missing_files(
+        self, tmp_path, monkeypatch
+    ):
+        from clawrium.core.lifecycle import hard_delete_agent
+
+        host = {
+            "hostname": "wolf-i",
+            "key_id": "host-key",
+            "agents": {
+                "target": {"type": "pi", "agent_name": "target"},
+                "sibling": {"type": "pi", "agent_name": "sibling"},
+            },
+        }
+        monkeypatch.setattr("clawrium.core.lifecycle.get_host", lambda _: host)
+        monkeypatch.setattr(
+            "clawrium.core.lifecycle.update_host",
+            lambda _, updater: bool(updater(host)),
+        )
+        workspace = tmp_path / "clawrium" / "agents" / "pi" / "target"
+        sibling = workspace.parent / "sibling"
+        workspace.mkdir(parents=True)
+        sibling.mkdir()
+        (workspace / "notes.md").write_text("agent-owned")
+        (sibling / "notes.md").write_text("keep")
+        removed_keys = []
+        monkeypatch.setattr(
+            "clawrium.core.lifecycle.remove_instance_secrets", removed_keys.append
+        )
+
+        hard_delete_agent("wolf-i", "target")
+        assert removed_keys == ["host-key:pi:target"]
+        assert not workspace.exists()
+        assert (sibling / "notes.md").read_text() == "keep"
+        assert set(host["agents"]) == {"sibling"}
+
+    def test_hard_delete_retries_after_partial_cleanup(self, tmp_path, monkeypatch):
+        from clawrium.core.lifecycle import hard_delete_agent
+
+        host = {
+            "hostname": "wolf-i",
+            "agents": {"target": {"type": "pi", "agent_name": "target"}},
+        }
+        monkeypatch.setattr("clawrium.core.lifecycle.get_host", lambda _: host)
+        monkeypatch.setattr(
+            "clawrium.core.lifecycle.update_host",
+            lambda _, updater: bool(updater(host)),
+        )
+        workspace = tmp_path / "clawrium" / "agents" / "pi" / "target"
+        workspace.mkdir(parents=True)
+        monkeypatch.setattr(
+            "clawrium.core.lifecycle.remove_instance_secrets", lambda _: False
+        )
+        with patch(
+            "clawrium.core.lifecycle.shutil.rmtree", side_effect=OSError("busy")
+        ):
+            with pytest.raises(LifecycleError, match="busy"):
+                hard_delete_agent("wolf-i", "target")
+        assert "target" in host["agents"]
+
+        hard_delete_agent("wolf-i", "target")
+        assert not workspace.exists()
+        assert "target" not in host["agents"]
+
+    def test_hard_delete_rejects_symlinked_workspace_parent(self, tmp_path, monkeypatch):
+        from clawrium.core.config import get_config_dir
+        from clawrium.core.lifecycle import hard_delete_agent
+
+        host = {
+            "hostname": "wolf-i",
+            "agents": {"target": {"type": "pi", "agent_name": "target"}},
+        }
+        monkeypatch.setattr("clawrium.core.lifecycle.get_host", lambda _: host)
+        outside = tmp_path / "outside"
+        (outside / "target").mkdir(parents=True)
+        sentinel = outside / "target" / "keep"
+        sentinel.write_text("untouched")
+        agents_dir = get_config_dir() / "agents"
+        agents_dir.mkdir(parents=True, exist_ok=True)
+        (agents_dir / "pi").symlink_to(outside, target_is_directory=True)
+
+        with pytest.raises(LifecycleError, match="symlink"):
+            hard_delete_agent("wolf-i", "target")
+        assert sentinel.read_text() == "untouched"
+        assert "target" in host["agents"]
+
     def test_raises_error_when_host_not_found(self):
         with patch("clawrium.core.lifecycle.get_host", return_value=None):
             with pytest.raises(LifecycleError) as exc_info:
