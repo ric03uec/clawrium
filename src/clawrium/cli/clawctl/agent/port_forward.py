@@ -28,7 +28,12 @@ def port_forward(
     spec: str = typer.Argument(..., help="Port spec: [LOCAL:]REMOTE."),
 ) -> None:
     """Forward a local port to the agent host."""
-    safe_resolve_agent(name)
+    _host, agent_type, _record = safe_resolve_agent(name)
+    if agent_type == "pi":
+        emit_error(
+            "Pi has no native listener to port-forward",
+            hint="Use 'clawctl agent exec <name> -- <pi args>' instead.",
+        )
     local_port, remote_port = _parse_spec(spec)
 
     # The current tunnel manager opens the web UI port only. For

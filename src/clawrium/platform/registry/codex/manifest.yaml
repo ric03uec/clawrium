@@ -1,0 +1,41 @@
+agent:
+  type: codex
+  description: "OpenAI Codex CLI (on-demand CLI chat; no daemon or web UI)"
+
+# Codex CLI is a user-scoped npm package. Chat launches a finite print-mode
+# CLI process on demand as the dedicated agent user; it never starts a daemon,
+# gateway, listener, or native web UI. Bounded settings and private credentials
+# use the no-daemon configure/sync paths rather than manifest feature flags.
+features:
+  chat:
+    type: codex
+
+
+platforms:
+  - version: "0.160.1"
+    os: ubuntu
+    os_version: "24.04"
+    arch: x86_64
+    requirements:
+      min_memory_mb: 1024
+      gpu_required: false
+      dependencies:
+        nodejs: ">=16.0.0"
+  - version: "0.160.1"
+    os: ubuntu
+    os_version: "22.04"
+    arch: x86_64
+    requirements:
+      min_memory_mb: 1024
+      gpu_required: false
+      dependencies:
+        nodejs: ">=16.0.0"
+  - version: "0.160.1"
+    os: macos
+    os_version: ">=14"
+    arch: arm64
+    requirements:
+      min_memory_mb: 1024
+      gpu_required: false
+      dependencies:
+        nodejs: ">=16.0.0"

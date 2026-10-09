@@ -6,6 +6,10 @@ import typer
 
 from clawrium.cli.clawctl.agent._shared import resolve_agent_key, safe_resolve_agent
 from clawrium.cli.output import emit_error, stream_action
+from clawrium.core.agent_lifecycle import (
+    has_completed_install,
+    incomplete_install_message,
+)
 
 
 def status(
@@ -21,7 +25,17 @@ def status(
     host, _agent_type, claw_record = safe_resolve_agent(name)
     agent_key = resolve_agent_key(host, name)
     agent_type = claw_record.get("type", _agent_type)
+    if agent_type == "pi":
+        if not has_completed_install(claw_record):
+            emit_error(incomplete_install_message(agent_type, "status"))
+        stream_action(
+            resource=f"agent/{name}",
+            message="Pi is install-only; no daemon status is available. Use agent get or describe.",
+        )
+        return
     if agent_type != "openclaw":
+        if not has_completed_install(claw_record):
+            emit_error(incomplete_install_message(agent_type, "status"))
         stream_action(
             resource=f"agent/{name}",
             message="status available via `clawctl agent get`",

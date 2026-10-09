@@ -18,7 +18,9 @@ from clawrium.cli.clawctl.agent._shared import safe_resolve_agent
 
 def chat(
     name: str = typer.Argument(..., help="Agent name."),
-    session: str = typer.Option("main", "--session", "-s", help="Conversation session key."),
+    session: str = typer.Option(
+        "main", "--session", "-s", help="Conversation session key."
+    ),
     timeout: float = typer.Option(
         120.0, "--timeout", min=1.0, help="Response timeout (seconds)."
     ),

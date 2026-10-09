@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Pi fleet agent · Architecture &amp; customer milestones · #1032</title>
+  <style>
+    :root {
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: #1c2e38;
+      background: #f4f6f3;
+      font-synthesis: none;
+      --ink: #1c2e38;
+      --muted: #587079;
+      --line: #d5dfdc;
+      --white: #ffffff;
+      --teal: #006e68;
+      --aqua: #dff3ee;
+      --blue: #245681;
+      --pale-blue: #e7eff6;
+      --orange: #a15519;
+      --pale-orange: #fbefe1;
+      --shadow: 0 14px 42px rgba(21, 52, 58, .055);
+    }
+    *, *::before, *::after { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body { margin: 0; }
+    a { color: var(--teal); text-underline-offset: 3px; }
+    a:hover { color: #004e4c; }
+    a:focus-visible { outline: 3px solid #bd823e; outline-offset: 3px; border-radius: 2px; }
+    .shell { width: min(1160px, calc(100% - 48px)); margin: auto; }
+    .masthead { background: #132e38; color: #f8fbf7; overflow: hidden; position: relative; }
+    .masthead::after { content: "π"; position: absolute; font-family: Georgia, serif; right: max(3%, calc((100vw - 1160px) / 2)); top: -85px; font-size: clamp(240px, 28vw, 480px); opacity: .055; pointer-events: none; }
+    .topline { display: flex; gap: 16px; justify-content: space-between; align-items: center; padding-top: 28px; position: relative; z-index: 1; }
+    .brand { font-size: 13px; font-weight: 800; letter-spacing: .15em; text-transform: uppercase; }
+    .topline a { color: #c2ebe1; font-size: 13px; }
+    .hero { padding: 70px 0 76px; position: relative; z-index: 1; max-width: 830px; }
+    .eyebrow { color: #8de2cb; font-size: 12px; font-weight: 800; letter-spacing: .19em; text-transform: uppercase; }
+    h1 { font-size: clamp(44px, 6.2vw, 80px); letter-spacing: -.055em; line-height: 1.03; margin: 14px 0 23px; }
+    .hero p { color: #c8d9d8; font-size: clamp(16px, 1.7vw, 20px); line-height: 1.6; margin: 0; max-width: 720px; }
+    .hero-meta { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 30px; }
+    .pill { border: 1px solid #597c7e; padding: 8px 12px; border-radius: 100px; color: #d9eeea; font-size: 12px; font-weight: 700; }
+    .section-nav { background: #fff; border-bottom: 1px solid var(--line); }
+    .section-nav .shell { display: flex; gap: 26px; flex-wrap: wrap; padding: 16px 0; }
+    .section-nav a { color: var(--ink); text-decoration: none; font-size: 13px; font-weight: 700; }
+    .section-nav a:hover { color: var(--teal); }
+    main { padding: 62px 0 90px; }
+    section { scroll-margin-top: 20px; margin-bottom: 74px; }
+    .section-header { margin-bottom: 26px; }
+    .section-kicker { color: var(--teal); font-size: 12px; font-weight: 800; letter-spacing: .17em; text-transform: uppercase; }
+    h2 { font-size: clamp(29px, 3.5vw, 43px); letter-spacing: -.04em; margin: 8px 0 10px; line-height: 1.12; }
+    .lede { max-width: 770px; margin: 0; color: var(--muted); line-height: 1.65; font-size: 15px; }
+    h3 { margin: 0 0 9px; font-size: 17px; letter-spacing: -.02em; }
+    p { line-height: 1.6; }
+    .diagram { padding: 26px; border: 1px solid var(--line); border-radius: 20px; background: var(--white); box-shadow: var(--shadow); }
+    .diagram-label { color: var(--muted); font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .16em; margin: 0 0 14px; }
+    .architecture { display: grid; grid-template-columns: minmax(0, 1fr) 90px minmax(0, 1fr); gap: 10px; align-items: stretch; }
+    .tier { border: 1px solid var(--line); border-radius: 14px; padding: 20px; min-width: 0; }
+    .tier.controller { background: #f1f7f5; }
+    .tier.host { background: #eef4f9; }
+    .tier-name { color: var(--muted); text-transform: uppercase; letter-spacing: .14em; font-size: 10px; font-weight: 800; margin-bottom: 17px; }
+    .node { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 12px 13px; margin-bottom: 9px; }
+    .node:last-child { margin-bottom: 0; }
+    .node strong { display: block; font-size: 13px; line-height: 1.4; }
+    .node small { color: var(--muted); display: block; margin-top: 3px; font-size: 11px; line-height: 1.5; }
+    .node.emphasis { border-color: #9abdb8; box-shadow: inset 3px 0 0 var(--teal); }
+    .node.identity { border-color: #a6c4d8; box-shadow: inset 3px 0 0 var(--blue); }
+    .node.provider { border-color: #efdcb9; background: #fffcf6; }
+    .node .provider-names { color: var(--orange); font-weight: 700; }
+    .bridge { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; color: var(--muted); text-align: center; }
+    .bridge span { font-size: 10px; font-weight: 800; line-height: 1.4; }
+    .bridge b { color: var(--teal); font-size: 28px; line-height: 1; }
+    .diagram-footer { border-top: 1px solid var(--line); margin-top: 19px; padding-top: 15px; color: var(--muted); font-size: 12px; line-height: 1.6; }
+    .principles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin-top: 18px; }
+    .principle { background: #fff; border: 1px solid var(--line); border-radius: 13px; padding: 18px; }
+    .principle strong { display: block; color: var(--teal); margin-bottom: 5px; font-size: 13px; }
+    .principle p { font-size: 12px; color: var(--muted); margin: 0; }
+    .flow-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+    .flow { border: 1px solid var(--line); border-radius: 14px; background: #fff; padding: 21px 18px; box-shadow: var(--shadow); }
+    .flow .ordinal { display: inline-grid; place-items: center; width: 29px; height: 29px; background: var(--aqua); color: var(--teal); border-radius: 8px; font-size: 12px; font-weight: 900; margin-bottom: 15px; }
+    .flow h3 { font-size: 15px; }
+    .flow p { color: var(--muted); font-size: 12px; margin: 0; }
+    .flow code, .step code, .footnote code { font-size: .95em; overflow-wrap: anywhere; }
+    .boundary { margin-top: 16px; border-radius: 12px; background: #e9f1ef; padding: 15px 19px; font-size: 13px; line-height: 1.55; color: #2c5c59; }
+    .provider-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+    .provider { border: 1px solid var(--line); border-radius: 14px; background: #fff; padding: 21px; }
+    .provider .badge { display: inline-block; border-radius: 100px; background: var(--aqua); color: var(--teal); padding: 5px 9px; font-size: 10px; font-weight: 800; margin-bottom: 14px; text-transform: uppercase; letter-spacing: .06em; }
+    .provider:nth-child(2) .badge { background: var(--pale-blue); color: var(--blue); }
+    .provider:nth-child(3) .badge { background: var(--pale-orange); color: var(--orange); }
+    .provider p { color: var(--muted); font-size: 13px; margin: 0; }
+    .provider .issue { margin-top: 17px; border-top: 1px solid var(--line); padding-top: 13px; font-size: 12px; font-weight: 700; }
+    .timeline { list-style: none; margin: 0; padding: 0; border-left: 2px solid #bfd7d0; margin-left: 19px; }
+    .step { position: relative; padding: 0 0 29px 35px; }
+    .step:last-child { padding-bottom: 0; }
+    .step::before { content: attr(data-step); position: absolute; left: -20px; top: 0; width: 38px; height: 38px; border-radius: 11px; background: #dcefeb; border: 2px solid #fff; display: grid; place-items: center; font-size: 12px; color: var(--teal); font-weight: 900; }
+    .step-card { background: #fff; border: 1px solid var(--line); border-radius: 13px; padding: 20px 23px; }
+    .step-card h3 { margin: 0 0 5px; }
+    .step-card p { color: var(--muted); font-size: 13px; margin: 0; }
+    .step-card p + p { margin-top: 9px; }
+    .step-card p strong { color: var(--ink); }
+    .step-card .gate { margin-top: 12px; color: #1c645e; font-size: 12px; font-weight: 700; }
+    .callout { background: #fff8e9; border: 1px solid #f0d8ae; border-radius: 14px; padding: 20px 22px; margin-top: 21px; }
+    .callout strong { display: block; color: #764b17; font-size: 13px; margin-bottom: 5px; }
+    .callout p { margin: 0; color: #715e43; font-size: 12px; }
+    footer { border-top: 1px solid var(--line); padding: 25px 0 40px; color: var(--muted); font-size: 12px; }
+    footer .shell { display: flex; flex-wrap: wrap; gap: 12px; justify-content: space-between; }
+    @media (max-width: 860px) {
+      .architecture { grid-template-columns: 1fr; }
+      .bridge { padding: 3px; }
+      .bridge b { transform: rotate(90deg); }
+      .flow-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .provider-grid, .principles { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 540px) {
+      .shell { width: min(100% - 30px, 1160px); }
+      .hero { padding: 52px 0 58px; }
+      main { padding-top: 45px; }
+      section { margin-bottom: 56px; }
+      .diagram { padding: 15px; }
+      .flow-grid { grid-template-columns: 1fr; }
+      .section-nav .shell { gap: 12px 19px; }
+    }
+    @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+    @media print {
+      :root { background: #fff; }
+      .masthead { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      section { break-inside: avoid; }
+      .section-nav { display: none; }
+      main { padding: 30px 0; }
+    }
+  </style>
+</head>
+<body>
+  <header class="masthead">
+    <div class="shell">
+      <div class="topline"><div class="brand">Clawrium / Architecture notes</div><a href="https://github.com/ric03uec/clawrium/issues/1032">Issue #1032 ↗</a></div>
+      <div class="hero">
+        <div class="eyebrow">Proposal · Pi fleet agent</div>
+        <h1>One fleet. An on-demand Pi agent.</h1>
+        <p>Choose the provider and model in Clawrium, provision scoped access to a fleet host, then talk to Pi through the existing CLI or GUI. Pi uses the access it was given—no gateway to operate.</p>
+        <div class="hero-meta"><span class="pill">Install-only create</span><span class="pill">Isolated credentials</span><span class="pill">CLI + GUI chat</span><span class="pill">Linux + macOS</span></div>
+      </div>
+    </div>
+  </header>
+  <nav class="section-nav" aria-label="Page sections"><div class="shell"><a href="#architecture">Architecture</a><a href="#lifecycle">Lifecycle</a><a href="#providers">Provider choices</a><a href="#steps">Customer milestones</a></div></nav>
+  <main class="shell">
+    <section id="architecture" aria-labelledby="architecture-heading">
+      <div class="section-header"><div class="section-kicker">01 / System boundaries</div><h2 id="architecture-heading">Clawrium grants access. Pi uses it.</h2><p class="lede">Provider choice, model mapping and credential source live in the Clawrium control plane. Clawrium provisions the selected model and scoped access onto the fleet host; Pi consumes that provisioned access when invoked.</p></div>
+      <div class="diagram" role="img" aria-label="Architecture: Clawrium control plane holds provider records for OpenRouter, AWS SSO Bedrock, and Codex OAuth; Clawrium selects a model and provisions scoped access over SSH and Ansible onto a dedicated Pi account on the fleet host. Pi uses the already provisioned model access for inference; it does not ask for access grants.">
+        <div class="diagram-label">Control plane · selects and provisions → Fleet host · consumes assigned access</div>
+        <div class="architecture">
+          <div class="tier controller">
+            <div class="tier-name">Clawrium control plane · your machine</div>
+            <div class="node"><strong>clawctl + fleet GUI</strong><small>Create, attach, configure, sync, chat, exec, remove</small></div>
+            <div class="node provider"><strong>Provider records + selected model</strong><small class="provider-names">OpenRouter · AWS SSO / Bedrock · Codex OAuth</small><small>Credential source, validated model mapping, per-agent access scope</small></div>
+            <div class="node emphasis"><strong>Lifecycle + chat adapters</strong><small>Provisions selected settings and access; runs bounded remote turns and owns cleanup</small></div>
+          </div>
+          <div class="bridge" aria-hidden="true"><span>SSH / Ansible<br>inject model +<br>scoped access</span><b>→</b></div>
+          <div class="tier host">
+            <div class="tier-name">Fleet host · Linux or macOS</div>
+            <div class="node identity"><strong>Dedicated Pi OS user</strong><small>Owned package prefix, settings, scoped authentication and sessions</small></div>
+            <div class="node"><strong>Provisioned model + access</strong><small>Only the selected agent's settings and authentication material; no shared credential store</small></div>
+            <div class="node"><strong>Pi CLI · pinned version</strong><small>On-demand inference with the assigned model; chat / exec / finite shell</small></div>
+          </div>
+        </div>
+        <div class="diagram-footer"><strong>Provisioning:</strong> Clawrium resolves provider, model and agent-scoped authentication, then syncs those onto the host. <strong>Execution:</strong> CLI or GUI → Clawrium chat adapter → Pi in its OS account → inference using the already-authorized model endpoint. Pi does not discover providers or ask the control plane for an access grant. Responses return to the same chat surface.</div>
+      </div>
+      <div class="principles"><div class="principle"><strong>No persistent process</strong><p>No daemon, service, gateway, tunnel or reserved port; service controls report not applicable.</p></div><div class="principle"><strong>Clear ownership</strong><p>The Pi manifest has chat capability but no web UI. Clawrium owns agent-level files; project-level <code>.pi</code> stays operator-owned.</p></div><div class="principle"><strong>Secret boundary</strong><p>Provider records stay in the control plane; only scoped access reaches the host. No secrets in fleet metadata, diffs or logs.</p></div></div>
+    </section>
+
+    <section id="lifecycle" aria-labelledby="lifecycle-heading">
+      <div class="section-header"><div class="section-kicker">02 / Operator journey</div><h2 id="lifecycle-heading">Four lifecycle moments</h2><p class="lede">Create installs the binary and account. Clawrium's configuration injects the selected model and scoped access. Conversation processes start only when requested.</p></div>
+      <div class="flow-grid"><div class="flow"><span class="ordinal">01</span><h3>Create</h3><p><code>clawctl agent create &lt;name&gt; --type pi --host &lt;host&gt;</code> provisions a dedicated account and pinned installation. No login or inference yet.</p></div><div class="flow"><span class="ordinal">02</span><h3>Configure &amp; sync</h3><p>Attach a supported provider and model; render only bounded agent settings and the selected credential mode.</p></div><div class="flow"><span class="ordinal">03</span><h3>Chat &amp; exec</h3><p>CLI and GUI start a bounded Pi invocation on demand; session continuity and reset work without a service.</p></div><div class="flow"><span class="ordinal">04</span><h3>Remove</h3><p>Verify ownership, clean remote Pi-owned resources first, then delete per-instance local state and secrets.</p></div></div>
+      <div class="boundary"><strong>Native UI boundary:</strong> GUI chat is Clawrium's chat view. <code>agent open</code> and the “Open Agent UI” button remain unavailable because Pi does not provide a native web dashboard.</div>
+    </section>
+
+    <section id="providers" aria-labelledby="providers-heading">
+      <div class="section-header"><div class="section-kicker">03 / Provider contract</div><h2 id="providers-heading">Three control-plane choices. One Pi.</h2><p class="lede">Clawrium selects and provisions one supported provider/model and its scoped access. Pi uses the assigned model. Each choice has a separate live-response gate.</p></div>
+      <div class="provider-grid"><article class="provider"><span class="badge">First · baseline</span><h3>OpenRouter</h3><p>Attach an existing Clawrium provider and supported model, then sync only the selected Pi account's key and settings. A real reply proves the access works.</p><div class="issue"><a href="https://github.com/ric03uec/clawrium/issues/1038">#1038 · Live OpenRouter validation ↗</a></div></article><article class="provider"><span class="badge">Second · short-lived identity</span><h3>AWS SSO / Bedrock</h3><p>Clawrium maps model, region and scoped AWS profile into Pi settings. Validate expiry and refresh or an actionable re-login path with a real reply.</p><div class="issue"><a href="https://github.com/ric03uec/clawrium/issues/1039">#1039 · Live Bedrock validation ↗</a></div></article><article class="provider"><span class="badge">Third · native OAuth</span><h3>OpenAI Codex</h3><p>Clawrium selects Codex; Pi consumes the authenticated <code>openai-codex</code> session provisioned for its account. Verify login and refresh; an API key is not OAuth evidence.</p><div class="issue"><a href="https://github.com/ric03uec/clawrium/issues/1040">#1040 · Live Codex validation ↗</a></div></article></div>
+    </section>
+
+    <section id="steps" aria-labelledby="steps-heading">
+      <div class="section-header"><div class="section-kicker">04 / Customer-verifiable delivery</div><h2 id="steps-heading">A usable outcome at every step</h2><p class="lede">Each milestone has an operator action, the work needed to unlock it, and a live acceptance check. These are planned outcomes, not completed features.</p></div>
+      <ol class="timeline">
+        <li class="step" data-step="01"><div class="step-card"><h3>I can install and inspect Pi on a host</h3><p><strong>Try it:</strong> Create Pi on Linux and macOS, list the agent, then run <code>clawctl agent exec &lt;name&gt; -- --version</code>.</p><p><strong>Execute:</strong> Pin Pi, add its manifest and per-OS install/exec playbooks, provision a dedicated OS user, wire fleet views and mark service controls not applicable.</p><div class="gate">Pass → pinned version runs on both hosts; no login, service, port or native dashboard; existing agents unaffected.</div></div></li>
+        <li class="step" data-step="02"><div class="step-card"><h3>I can ask my OpenRouter model a question in the CLI</h3><p><strong>Try it:</strong> Attach an existing provider, select a model, sync, then use CLI chat and native exec for a real reply on i-wolf. Follow up in the same session.</p><p><strong>Execute:</strong> Validate Pi's model mapping, provision the selected model and agent-scoped key, and build bounded on-demand chat, exec, streaming and session continuation/reset.</p><div class="gate">Pass → live response and continued session through Pi; no manual host-side provider setup. <a href="https://github.com/ric03uec/clawrium/issues/1038">#1038 ↗</a></div></div></li>
+        <li class="step" data-step="03"><div class="step-card"><h3>I can chat with the same agent in the GUI</h3><p><strong>Try it:</strong> Send a message in Clawrium's GUI, continue the conversation, clear history and start a new one.</p><p><strong>Execute:</strong> Connect GUI chat to the same provisioned model and on-demand Pi adapter, show provider/model and redact errors. Leave the native Open Agent UI action unavailable.</p><div class="gate">Pass → real GUI response, continuation and reset with the same OpenRouter selection; no Pi daemon.</div></div></li>
+        <li class="step" data-step="04"><div class="step-card"><h3>I can use my AWS SSO-backed Bedrock model</h3><p><strong>Try it:</strong> Select Bedrock in Clawrium, sync and chat in CLI and GUI; repeat after credentials expire and refresh or re-login.</p><p><strong>Execute:</strong> Validate Pi's Bedrock model/region/profile contract; provision only this agent's scoped AWS access and surface expiry clearly.</p><div class="gate">Pass → live replies before and after refresh/re-login; expired access fails explicitly. <a href="https://github.com/ric03uec/clawrium/issues/1039">#1039 ↗</a></div></div></li>
+        <li class="step" data-step="05"><div class="step-card"><h3>I can use my Codex OAuth-backed model</h3><p><strong>Try it:</strong> Select Codex, complete the supported login handoff, then get real CLI and GUI replies; repeat after refresh/re-login.</p><p><strong>Execute:</strong> Validate Pi-native <code>openai-codex</code> OAuth and narrow control-plane-to-host credential handoff; exercise native exec and both chat surfaces.</p><div class="gate">Pass → authenticated OAuth replies and verified renewal; an API-key response does not count. <a href="https://github.com/ric03uec/clawrium/issues/1040">#1040 ↗</a></div></div></li>
+        <li class="step" data-step="06"><div class="step-card"><h3>I can switch providers and remove Pi safely</h3><p><strong>Try it:</strong> Switch and detach providers, confirm old access no longer works, remove Pi and inspect the host and remaining agents.</p><p><strong>Execute:</strong> Remove stale agent-local credentials without revoking shared provider credentials; add ownership-checked remote-first cleanup, cover both OSes with focused tests, run <code>make test</code> and <code>make lint</code>, and publish operator docs/changelog.</p><div class="gate">Pass → no stale access or unrelated fleet changes; operator-owned project <code>.pi</code> files remain intact.</div></div></li>
+      </ol>
+      <aside class="callout"><strong>Validate the contract before each live gate</strong><p>Confirm Pi's pinned model mapping, session/streaming behavior and provider-specific credential handoff before exposing each customer workflow. A configured provider alone is not a model response; keep secrets and prompt-bearing runner artifacts private.</p></aside>
+    </section>
+  </main>
+  <footer><div class="shell"><span>Issue #1032 · Planning visualization · Static, self-contained HTML</span><span>Source plan: <a href="00_PLAN.md">00_PLAN.md</a></span></div></footer>
+</body>
+</html>

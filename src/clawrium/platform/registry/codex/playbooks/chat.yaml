@@ -1,0 +1,61 @@
+---
+# Run one finite Codex JSONL turn. This is an on-demand CLI chat transport
+# only: it creates no daemon, gateway, listener, tunnel, or service. Prompt
+# text is delivered through stdin and Codex arguments use command.argv.
+- hosts: all
+  gather_facts: false
+  vars:
+    codex_home: "/home/{{ agent_name }}"
+    codex_binary: "{{ codex_home }}/.local/codex/bin/codex"
+    # This is fixed bootstrap text, not user-controlled data. "$@" preserves
+    # every argv element exactly, including a native thread ID; stdin stays
+    # with the executed Codex process. OAuth remains private Codex file state.
+    codex_chat_bootstrap: >-
+      exec "$@"
+  tasks:
+    - name: Validate agent_name for Codex chat
+      ansible.builtin.fail:
+        msg: "Invalid agent_name"
+      when: agent_name is not match('^[a-z][a-z0-9_-]{0,31}$')
+
+    - name: Validate Codex chat argv and prompt transport
+      ansible.builtin.fail:
+        msg: "Codex chat requires argv, prompt, and a positive timeout"
+      when: >-
+        (codex_chat_argv is not defined) or (codex_chat_argv | length == 0)
+        or (codex_chat_prompt_b64 is not defined)
+        or (codex_chat_prompt_b64 | length == 0)
+        or (codex_chat_timeout is not defined) or (codex_chat_timeout | int < 1)
+
+    - name: Run finite Codex chat command as dedicated agent user
+      ansible.builtin.command:
+        argv: "{{ ['/usr/bin/timeout', '--kill-after=5', codex_chat_timeout | string, '/bin/bash', '-c', codex_chat_bootstrap, 'clawrium-codex-chat', codex_binary] + codex_chat_argv }}"
+        chdir: "{{ codex_home }}"
+        stdin: "{{ codex_chat_prompt_b64 | b64decode }}"
+        stdin_add_newline: false
+      environment:
+        HOME: "{{ codex_home }}"
+        CODEX_HOME: "{{ codex_home }}/.codex"
+        PATH: "{{ codex_home }}/.local/codex/bin:/usr/local/bin:/usr/bin:/bin"
+        DISABLE_AUTOUPDATER: "1"
+      become: true
+      become_user: "{{ agent_name }}"
+      register: codex_chat_result
+      failed_when: false
+      changed_when: false
+      no_log: true
+
+    - name: Emit Codex chat stdout
+      ansible.builtin.debug:
+        msg: "CODEX_CHAT_STDOUT={{ codex_chat_result.stdout | default('') | b64encode }}"
+
+    # Never export raw stderr: Codex authentication diagnostics can contain
+    # secrets. The controller needs only a non-sensitive classification.
+    - name: Emit Codex chat authentication classification
+      ansible.builtin.debug:
+        msg: >-
+          CODEX_CHAT_AUTH_FAILURE={{ 'true' if (codex_chat_result.stderr | default('') | lower) is search('auth|unauthori[sz]ed|forbidden|not logged in|api[ _-]?key|oauth|credential') else 'false' }}
+
+    - name: Emit Codex chat exit status
+      ansible.builtin.debug:
+        msg: "CODEX_CHAT_RC={{ codex_chat_result.rc | default(255) }}"

@@ -11,8 +11,8 @@ Non-interactive contract (plan §7):
 
 - `--type` is always required.
 - For Ollama: `--ollama-url` is required.
-- For AWS Bedrock: `--access-key` and `--secret-key` are required;
-  `--region` is optional.
+- For AWS Bedrock: either static `--access-key` + `--secret-key`, or the
+  complete non-secret AWS Identity Center `--sso-*` profile metadata is required.
 - For every other (cloud) provider: `--api-key` OR `--api-key-stdin`
   is required.
 - If a mandatory flag is missing AND stdin is not a TTY: fail fast.
@@ -42,7 +42,9 @@ from clawrium.cli.output import (
     dump_yaml,
     emit_error,
     render_table,
+    stream_action,
 )
+from clawrium.core.pi import PI_CODEX_MODELS, PiProvisioningError, validate_bedrock_sso_provider
 from clawrium.core.providers.storage import (
     DuplicateProviderError,
     InvalidLiteLLMUrlError,
@@ -53,6 +55,8 @@ from clawrium.core.providers.storage import (
     OllamaConnectionError,
     ProvidersFileCorruptedError,
     CLAUDE_OAUTH_PROVIDER_TYPE,
+    CODEX_OAUTH_PROVIDER_TYPE,
+    PI_CODEX_OAUTH_PROVIDER_TYPE,
     PROVIDER_MODELS,
     add_provider,
     fetch_litellm_models,
@@ -132,7 +136,11 @@ def _provider_to_row(record: dict) -> dict:
     """
     name = record.get("name", "")
     ptype = record.get("type", "")
-    creds_status = _credentials_status(name, ptype)
+    creds_status = (
+        "sso"
+        if ptype == "bedrock" and record.get("credential_source") == "aws-sso"
+        else _credentials_status(name, ptype)
+    )
     return {
         "kind": "provider",
         "name": name,
@@ -147,7 +155,7 @@ def _provider_to_row(record: dict) -> dict:
 
 
 def _credentials_status(name: str, ptype: str) -> str:
-    if ptype in ("ollama", CLAUDE_OAUTH_PROVIDER_TYPE):
+    if ptype in ("ollama", CLAUDE_OAUTH_PROVIDER_TYPE, CODEX_OAUTH_PROVIDER_TYPE):
         return "n/a"
     if ptype == "bedrock":
         access, secret = get_provider_aws_credentials(name)
@@ -208,7 +216,7 @@ def create(
         ...,
         "--type",
         "-t",
-        help="Provider type (anthropic, claude-oauth, openai, bedrock, opencode, opencode-go, ollama, ...).",
+        help="Provider type (anthropic, claude-oauth, codex-oauth, openai, bedrock, opencode, opencode-go, ollama, ...).",
     ),
     model: Optional[str] = typer.Option(
         None, "--model", "-m", help="Default model id."
@@ -228,6 +236,11 @@ def create(
     region: Optional[str] = typer.Option(
         None, "--region", help="AWS region (Bedrock)."
     ),
+    sso_profile: Optional[str] = typer.Option(None, "--sso-profile", help="Dedicated AWS Identity Center profile name (Bedrock)."),
+    sso_start_url: Optional[str] = typer.Option(None, "--sso-start-url", help="AWS Identity Center start URL (Bedrock)."),
+    sso_region: Optional[str] = typer.Option(None, "--sso-region", help="AWS Identity Center region (Bedrock)."),
+    sso_account_id: Optional[str] = typer.Option(None, "--sso-account-id", help="AWS account ID assigned to the profile (Bedrock)."),
+    sso_role_name: Optional[str] = typer.Option(None, "--sso-role-name", help="AWS IAM Identity Center role name (Bedrock)."),
     ollama_url: Optional[str] = typer.Option(
         None, "--ollama-url", help="Ollama server URL (Ollama)."
     ),
@@ -270,6 +283,10 @@ def create(
             "--context-window must be a positive integer",
             hint="pin to the model's actual context window (e.g. 131072)",
         )
+    if ollama_url is not None and provider_type != "ollama":
+        emit_error("--ollama-url only valid for ollama providers")
+    if litellm_url is not None and provider_type != "litellm":
+        emit_error("--litellm-url only valid for litellm providers")
 
     try:
         if get_provider(name):
@@ -282,7 +299,14 @@ def create(
 
     now = _now_iso()
 
-    if provider_type == CLAUDE_OAUTH_PROVIDER_TYPE:
+    if provider_type == PI_CODEX_OAUTH_PROVIDER_TYPE:
+        if model not in PI_CODEX_MODELS or any((api_key is not None, api_key_stdin, access_key is not None, secret_key is not None, region is not None, ollama_url is not None, litellm_url is not None, context_window is not None)):
+            emit_error("openai-codex providers require a pinned Pi 0.73.1 model and do not accept provider-scoped credentials")
+        add_provider({"name": name, "type": provider_type, "default_model": model, "created_at": now, "updated_at": now})
+        stream_action(resource=f"provider/{name}", message=f"created (type={provider_type})")
+        return
+
+    if provider_type in (CLAUDE_OAUTH_PROVIDER_TYPE, CODEX_OAUTH_PROVIDER_TYPE):
         if any(
             (
                 model is not None,
@@ -297,11 +321,8 @@ def create(
             )
         ):
             emit_error(
-                "claude-oauth providers do not accept provider-scoped credentials or settings",
-                hint=(
-                    "attach the provider to a Claude agent to import its OAuth "
-                    "credential into that agent's private secret scope"
-                ),
+                f"{provider_type} providers do not accept provider-scoped credentials or settings",
+                hint="attach the provider to its matching agent type to import its OAuth credential into that agent's private secret scope",
             )
         record = {
             "name": name,
@@ -313,7 +334,9 @@ def create(
             add_provider(record)
         except DuplicateProviderError as exc:
             emit_error(str(exc))
-        typer.echo(f"provider/{name}: created (type={provider_type})")
+        stream_action(
+            resource=f"provider/{name}", message=f"created (type={provider_type})"
+        )
         return
 
     if provider_type == "ollama":
@@ -394,6 +417,34 @@ def create(
         return
 
     if provider_type == "bedrock":
+        sso_values = (sso_profile, sso_start_url, sso_region, sso_account_id, sso_role_name)
+        if any(sso_values):
+            if access_key or secret_key:
+                emit_error("cannot combine static AWS keys with AWS Identity Center SSO")
+            if api_key is not None or api_key_stdin:
+                emit_error("cannot combine API keys with AWS Identity Center SSO")
+            record = {
+                "name": name, "type": provider_type, "default_model": model,
+                "credential_source": "aws-sso", "aws_profile": sso_profile,
+                "region": region, "sso_start_url": sso_start_url, "sso_region": sso_region,
+                "sso_account_id": sso_account_id, "sso_role_name": sso_role_name,
+                "created_at": now, "updated_at": now,
+            }
+            try:
+                validate_bedrock_sso_provider(record)
+            except PiProvisioningError as exc:
+                emit_error(str(exc), hint="provide --model, --region, and every --sso-* setting")
+            try:
+                add_provider(record)
+            except DuplicateProviderError as exc:
+                emit_error(str(exc))
+            stream_action(
+                resource=f"provider/{name}",
+                message=f"created (type={provider_type}, credential_source=aws-sso)",
+            )
+            return
+        if api_key is not None or api_key_stdin:
+            emit_error("--api-key/--api-key-stdin are not valid for bedrock providers")
         require_flag(access_key, flag="--access-key")
         require_flag(secret_key, flag="--secret-key")
         if not access_key and stdin_is_tty():
@@ -402,13 +453,7 @@ def create(
             secret_key = typer.prompt("AWS Secret Access Key", hide_input=True)
         if not access_key or not secret_key:
             emit_error("AWS access key and secret key are required for Bedrock")
-        record = {
-            "name": name,
-            "type": provider_type,
-            "default_model": model,
-            "created_at": now,
-            "updated_at": now,
-        }
+        record = {"name": name, "type": provider_type, "default_model": model, "created_at": now, "updated_at": now}
         if region:
             record["region"] = region
         try:
@@ -532,9 +577,7 @@ def _emit_types(output: OutputFormat, *, no_headers: bool) -> None:
             "kind": "provider-type",
             "name": ptype,
             "endpoint": (cfg.get("endpoint") or ""),
-            "model_count": (
-                0 if ptype == "ollama" else get_model_count(ptype)
-            ),
+            "model_count": (0 if ptype == "ollama" else get_model_count(ptype)),
         }
         for ptype, cfg in sorted(PROVIDER_MODELS.items())
     ]
@@ -614,7 +657,7 @@ def delete(
         emit_error(f"failed to delete provider {name!r}")
     if ptype == "bedrock":
         remove_provider_aws_credentials(name)
-    elif ptype not in ("ollama", CLAUDE_OAUTH_PROVIDER_TYPE):
+    elif ptype not in ("ollama", CLAUDE_OAUTH_PROVIDER_TYPE, CODEX_OAUTH_PROVIDER_TYPE):
         remove_provider_api_key(name)
     typer.echo(f"provider/{name}: deleted")
 
@@ -667,13 +710,10 @@ def edit(
     record = _safe_get_provider(name)
     ptype = record.get("type")
 
-    if ptype == CLAUDE_OAUTH_PROVIDER_TYPE:
+    if ptype in (CLAUDE_OAUTH_PROVIDER_TYPE, CODEX_OAUTH_PROVIDER_TYPE):
         emit_error(
-            "claude-oauth providers have no provider-scoped editable settings",
-            hint=(
-                "attach the provider to a Claude agent to refresh its local OAuth "
-                "credential"
-            ),
+            f"{ptype} providers have no provider-scoped editable settings",
+            hint="attach the provider to its matching agent type to refresh its local OAuth credential",
         )
 
     if not any(
@@ -735,7 +775,9 @@ def edit(
         # currently-stored one. Probe failure surfaces as a warning so
         # an `edit` doesn't fail just because the proxy is offline.
         probe_key = (
-            api_key if api_key else (None if api_key_stdin else get_provider_api_key(name))
+            api_key
+            if api_key
+            else (None if api_key_stdin else get_provider_api_key(name))
         )
         if probe_key:
             try:
@@ -749,6 +791,8 @@ def edit(
 
     new_api_key: Optional[str] = None
     if api_key or api_key_stdin:
+        if ptype == "bedrock" and record.get("credential_source") == "aws-sso":
+            emit_error("cannot combine API keys with AWS Identity Center SSO")
         if ptype in ("ollama", "bedrock", CLAUDE_OAUTH_PROVIDER_TYPE):
             emit_error(f"--api-key is not valid for {ptype} providers")
         new_api_key = _resolve_api_key(api_key, api_key_stdin, required=True)
@@ -756,6 +800,8 @@ def edit(
     if access_key or secret_key:
         if ptype != "bedrock":
             emit_error("--access-key/--secret-key only valid for bedrock providers")
+        if record.get("credential_source") == "aws-sso":
+            emit_error("cannot combine static AWS keys with AWS Identity Center SSO")
         if not (access_key and secret_key):
             emit_error(
                 "both --access-key and --secret-key are required when updating AWS creds"

@@ -70,6 +70,12 @@ secret_app = typer.Typer(
 _CLAUDE_CREDENTIAL_KEYS = frozenset({ANTHROPIC_API_KEY, CLAUDE_CODE_OAUTH_TOKEN})
 
 
+def _reject_pi_mutation(agent: str) -> None:
+    _, claw_type, _ = get_installed_claw(agent)
+    if claw_type == "pi":
+        emit_error("Pi secrets are unavailable in the install-only foundation.", exit_code=2)
+
+
 def _resolve_instance_key(agent: str) -> tuple[str, str]:
     """Resolve an agent name to (instance_key, canonical_name)."""
     try:
@@ -200,6 +206,7 @@ def create(
     ``CLAUDE_CODE_OAUTH_TOKEN`` select one exclusive credential mode and
     atomically remove the other reserved key.
     """
+    _reject_pi_mutation(agent)
     sources = [bool(value), value_stdin, bool(from_file)]
     chosen = sum(sources)
     if chosen > 1:
@@ -353,6 +360,7 @@ def delete(
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation."),
 ) -> None:
     """Delete a per-agent secret."""
+    _reject_pi_mutation(agent)
     instance_key, canonical = _resolve_instance_key(agent)
     try:
         entries = get_instance_secrets(instance_key)
@@ -394,6 +402,7 @@ def import_cmd(
     ),
 ) -> None:
     """Bulk-import secrets from a .env-style file."""
+    _reject_pi_mutation(agent)
     text = _read_from_file(from_file)
     pairs = _parse_env_file(text)
     if not pairs:
