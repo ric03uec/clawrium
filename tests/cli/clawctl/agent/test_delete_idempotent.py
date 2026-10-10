@@ -69,3 +69,52 @@ def test_delete_success_false_errors(fleet_dir, monkeypatch) -> None:
     result = runner.invoke(app, ["agent", "delete", "wise-hypatia", "--yes"])
     assert result.exit_code != 0
     assert "playbook rc=1" in result.output
+
+
+def test_remote_failure_requires_explicit_hard_delete(fleet_dir, monkeypatch) -> None:
+    from unittest.mock import Mock
+
+    monkeypatch.setattr(
+        "clawrium.cli.clawctl.agent.delete.remove_agent",
+        lambda **_: {
+            "success": False,
+            "remote_cleanup_failed": True,
+            "error": "unreachable",
+        },
+    )
+    cleanup = Mock()
+    monkeypatch.setattr("clawrium.cli.clawctl.agent.delete.hard_delete_agent", cleanup)
+
+    result = runner.invoke(app, ["agent", "delete", "wise-hypatia", "--yes"])
+    assert result.exit_code != 0
+    assert "Local agent record retained" in result.output
+    assert "clean them up manually" in result.output
+    cleanup.assert_not_called()
+
+    # Without --yes, non-interactive callers cannot skip the initial prompt.
+    result = runner.invoke(app, ["agent", "delete", "wise-hypatia", "--hard-delete"])
+    assert result.exit_code != 0
+    cleanup.assert_not_called()
+
+    result = runner.invoke(
+        app, ["agent", "delete", "wise-hypatia", "--yes", "--hard-delete"]
+    )
+    assert result.exit_code == 0
+    assert "deleted locally" in result.output
+    cleanup.assert_called_once()
+
+
+def test_hard_delete_not_offered_for_local_failure(fleet_dir, monkeypatch) -> None:
+    from unittest.mock import Mock
+
+    monkeypatch.setattr(
+        "clawrium.cli.clawctl.agent.delete.remove_agent",
+        lambda **_: {"success": False, "error": "local config update failed"},
+    )
+    cleanup = Mock()
+    monkeypatch.setattr("clawrium.cli.clawctl.agent.delete.hard_delete_agent", cleanup)
+    result = runner.invoke(
+        app, ["agent", "delete", "wise-hypatia", "--yes", "--hard-delete"]
+    )
+    assert result.exit_code != 0
+    cleanup.assert_not_called()

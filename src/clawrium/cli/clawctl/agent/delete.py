@@ -7,18 +7,22 @@ then prunes the local record via `core/hosts.py:remove_agent_from_host`.
 from __future__ import annotations
 
 import typer
+import sys
 
 from clawrium.cli.clawctl._common import confirm_destructive
 from clawrium.cli.clawctl.agent._shared import resolve_agent_key, safe_resolve_agent
 from clawrium.cli.output import emit_error, stream_action
-from clawrium.core.lifecycle import LifecycleError, remove_agent
+from clawrium.core.lifecycle import LifecycleError, hard_delete_agent, remove_agent
 
 
 def delete(
     name: str = typer.Argument(..., help="Agent name."),
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirm prompt."),
+    hard_delete: bool = typer.Option(
+        False, "--hard-delete", help="Allow local-only cleanup if remote removal fails."
+    ),
 ) -> None:
-    """Delete an agent (remote cleanup + local record removal)."""
+    """Delete an agent; optionally forget it locally after remote failure."""
     # Bug #516: see configure.py for full rationale.
     host, _agent_type, claw_record = safe_resolve_agent(name)
     agent_key = resolve_agent_key(host, name)
@@ -62,6 +66,37 @@ def delete(
         emit_error(f"remote cleanup failed: {exc}")
 
     if not result.get("success"):
+        if result.get("remote_cleanup_failed"):
+            stream_action(
+                resource=f"agent/{name}",
+                message=(
+                    f"Remote cleanup failed: {result.get('error') or 'unknown error'}. "
+                    f"Service, configuration, and data may remain on {hostname}; "
+                    "clean them up manually."
+                ),
+            )
+            if not (yes and hard_delete):
+                if not sys.stdin.isatty():
+                    emit_error(
+                        "Local agent record retained.",
+                        hint=f"To forget it locally: clawctl agent delete {name} --yes --hard-delete",
+                    )
+                if not typer.confirm(
+                    "Forget this agent locally anyway?", default=False
+                ):
+                    emit_error("Local agent record retained.")
+            try:
+                hard_delete_agent(hostname, agent_key)
+            except LifecycleError as exc:
+                emit_error(
+                    str(exc),
+                    hint=f"Retry: clawctl agent delete {name} --yes --hard-delete",
+                )
+            stream_action(
+                resource=f"agent/{name}",
+                message="deleted locally; remote cleanup required",
+            )
+            return
         emit_error(
             f"remote cleanup failed: {result.get('error') or 'unknown error'}",
             hint=f"clawctl agent describe {name}",

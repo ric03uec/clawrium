@@ -1,0 +1,14 @@
+{
+  "session_id": "53004444-f5d4-426c-9c92-f2f4fed363d5",
+  "transport": "cli",
+  "commit_sha": "3bdd80d2382dc970d58f9d74b50135cd3ce50be2",
+  "iteration": 2,
+  "last_rating": 4.5,
+  "last_blockers": [],
+  "started_at": "2026-10-09T22:42:19Z",
+  "updated_at": "2026-10-09T22:51:00Z",
+  "reviews": [
+    {"revision": "53004444-f5d4-426c-9c92-f2f4fed363d5", "rating": 2, "cost_usd": 0.87185472, "duration_ms": 221473, "blockers": ["Workspace deletion follows symlinked agent-type parent; fixed with preflight and regression test."]},
+    {"revision": "56e481e1-1da7-4e1c-b789-1189cd4bbe9f", "rating": 4.5, "cost_usd": 0.31810944, "duration_ms": 137353, "blockers": []}
+  ]
+}

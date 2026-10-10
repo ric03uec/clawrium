@@ -472,7 +472,7 @@ clawctl agent logs opc-work --level error
 
 ---
 
-### remove
+### delete
 
 Remove an agent from a host.
 
@@ -484,8 +484,8 @@ clawctl agent delete <agent-name> [options]
 - `agent-name` - Name of the agent to remove
 
 **Options:**
-- `--force` - Skip confirmation prompt
-- `--keep-data` - Preserve agent data and configuration files
+- `--yes` / `-y` - Skip the initial confirmation prompt
+- `--hard-delete` - Offer local-only cleanup when remote removal fails
 
 **Examples:**
 
@@ -493,37 +493,20 @@ clawctl agent delete <agent-name> [options]
 # Remove with confirmation
 clawctl agent delete opc-work
 
-# Force remove (no prompt)
-clawctl agent delete opc-work --force
+# Skip the initial prompt
+clawctl agent delete opc-work --yes
 
-# Remove but keep data
-clawctl agent delete opc-work --keep-data
+# If the remote host cannot be cleaned up, explicitly forget the agent locally
+clawctl agent delete opc-work --yes --hard-delete
 ```
 
-**Interactive prompt:**
-```
-Remove agent 'opc-work' from host 'lab1'?
-This will:
-  - Stop the agent (if running)
-  - Remove the installation
-  - Delete configuration and data
-
-Are you sure? [y/N]: y
-
-✓ Stopping agent...
-✓ Removing installation...
-✓ Cleaning up data...
-✓ Agent 'opc-work' removed from lab1
-```
-
-**Warning:**
-By default, removal is permanent and deletes all agent data including:
-- Configuration files
-- Identity files (SOUL.md, IDENTITY.md)
-- Logs and session history
-- Cache and temporary files
-
-Use `--keep-data` to preserve these files for later reinstallation.
+When remote cleanup fails, the CLI warns that the service, configuration, and
+data may remain on the host and must be cleaned up manually. Interactive use
+requires a separate, default-no confirmation before forgetting the agent
+locally. Non-interactive use requires **both** `--yes --hard-delete`;
+`--yes` alone keeps the local record. Local-only cleanup removes that
+agent's local secrets, state, workspace, and fleet record. Repeating cleanup
+after partially deleted local files is safe.
 
 ---
 
