@@ -1,0 +1,91 @@
+---
+# Single-purpose Linux installer for the `uv` launcher used by Hermes's
+# mcp-atlassian subprocess. Invoked only at sync time by
+# `core.lifecycle_canonical._hermes_install_atlassian_mcp`, never by
+# configure.yaml or install.yaml. See AGENTS.md §Integration Binary Install.
+#
+# The installer preserves a newer existing uv instead of replacing it with this
+# minimum pinned release. Downloads are checksum verified; a missing or older
+# launcher is upgraded atomically by extraction into the agent-owned bin dir.
+- hosts: all
+  become: yes
+  vars:
+    mcp_atlassian_version: "0.21.1"
+    mcp_atlassian_uv_version: "0.13.0"
+    mcp_atlassian_uv_arch_map:
+      x86_64: "x86_64-unknown-linux-gnu"
+      aarch64: "aarch64-unknown-linux-gnu"
+      armv7l: "armv7-unknown-linux-gnueabihf"
+    mcp_atlassian_uv_sha256_map:
+      x86_64: "1468ebd5a5541121837c5a2817b9972ba6090fa6caa3d142620850a47fb75154"
+      aarch64: "3ccfb6af6e242433eb552f7d9676abd5412c6595c497e990d9c8cb7b5bd4d2c3"
+      armv7l: "e38957791fdd56d356421d81a509b66680d47478870082519340361e5abdbb8b"
+  tasks:
+    - name: Refuse to run on non-Linux hosts (dispatcher contract)
+      ansible.builtin.fail:
+        msg: install_atlassian_mcp.yaml invoked against non-Linux host
+      when: ansible_os_family == "Darwin"
+
+    - name: Fail early if host architecture is unsupported
+      ansible.builtin.fail:
+        msg: >-
+          uv install: ansible_architecture='{{ ansible_architecture }}' is not
+          mapped to an Astral uv {{ mcp_atlassian_uv_version }} release asset.
+          Supported: {{ mcp_atlassian_uv_arch_map.keys() | list | join(', ') }}.
+          See https://github.com/astral-sh/uv/releases/tag/{{ mcp_atlassian_uv_version }}.
+      when: ansible_architecture not in mcp_atlassian_uv_arch_map
+
+    - name: Ensure agent uv directories exist
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: "{{ agent_name }}"
+        group: "{{ agent_name }}"
+        mode: "0700"
+      loop:
+        - "/home/{{ agent_name }}/.local/bin"
+        - "/home/{{ agent_name }}/.hermes/tmp"
+
+    - name: Probe existing uv launcher
+      ansible.builtin.command: "/home/{{ agent_name }}/.local/bin/uv --version"
+      register: mcp_atlassian_uv_probe
+      changed_when: false
+      failed_when: false
+      become_user: "{{ agent_name }}"
+
+    - name: Determine whether pinned uv minimum is needed
+      ansible.builtin.set_fact:
+        mcp_atlassian_uv_needs_install: >-
+          {{ mcp_atlassian_uv_probe.rc != 0 or
+             (mcp_atlassian_uv_probe.stdout | regex_replace('^uv\\s+([^\\s]+).*$','\\1'))
+             is version(mcp_atlassian_uv_version, '<') }}
+
+    - name: Download checksum-verified minimum uv release
+      ansible.builtin.get_url:
+        url: "https://github.com/astral-sh/uv/releases/download/{{ mcp_atlassian_uv_version }}/uv-{{ mcp_atlassian_uv_arch_map[ansible_architecture] }}.tar.gz"
+        dest: "/home/{{ agent_name }}/.hermes/tmp/uv-{{ mcp_atlassian_uv_version }}.tar.gz"
+        checksum: "sha256:{{ mcp_atlassian_uv_sha256_map[ansible_architecture] }}"
+        validate_certs: yes
+        owner: "{{ agent_name }}"
+        group: "{{ agent_name }}"
+        mode: "0600"
+        timeout: 120
+      when: mcp_atlassian_uv_needs_install | bool
+
+    - name: Extract uv launcher without downgrading newer installs
+      ansible.builtin.unarchive:
+        src: "/home/{{ agent_name }}/.hermes/tmp/uv-{{ mcp_atlassian_uv_version }}.tar.gz"
+        dest: "/home/{{ agent_name }}/.local/bin"
+        remote_src: yes
+        extra_opts:
+          - --strip-components=1
+      become_user: "{{ agent_name }}"
+      when: mcp_atlassian_uv_needs_install | bool
+
+    - name: Assert uv launcher is executable
+      ansible.builtin.file:
+        path: "/home/{{ agent_name }}/.local/bin/uv"
+        owner: "{{ agent_name }}"
+        group: "{{ agent_name }}"
+        mode: "0755"
+        state: file

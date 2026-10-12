@@ -1,0 +1,84 @@
+---
+# macOS counterpart to install_atlassian_mcp.yaml. The sync-time dispatcher
+# selects this file for darwin hosts; it installs the checksum-verified uv
+# launcher under /Users/<agent> while retaining a newer existing version.
+- hosts: all
+  become: yes
+  vars:
+    mcp_atlassian_version: "0.21.1"
+    mcp_atlassian_uv_version: "0.13.0"
+    mcp_atlassian_uv_arch_map:
+      arm64: "aarch64-apple-darwin"
+      x86_64: "x86_64-apple-darwin"
+    mcp_atlassian_uv_sha256_map:
+      arm64: "a9c1b29002cf3c83f07fa9cd8a887a3be0107d90e23189721221e7257db8e3d6"
+      x86_64: "5f44dcbde809b632f47c36fadb241cb4d6f9af71d0c8f172b5d2026d3dde742c"
+  tasks:
+    - name: Refuse to run on non-Darwin hosts (dispatcher contract)
+      ansible.builtin.fail:
+        msg: install_atlassian_mcp_macos.yaml invoked against non-Darwin host
+      when: ansible_os_family != "Darwin"
+
+    - name: Fail early if darwin architecture is unsupported
+      ansible.builtin.fail:
+        msg: >-
+          uv install: ansible_architecture='{{ ansible_architecture }}' is not
+          mapped to an Astral uv {{ mcp_atlassian_uv_version }} darwin release asset.
+          Supported: {{ mcp_atlassian_uv_arch_map.keys() | list | join(', ') }}.
+          See https://github.com/astral-sh/uv/releases/tag/{{ mcp_atlassian_uv_version }}.
+      when: ansible_architecture not in mcp_atlassian_uv_arch_map
+
+    - name: Ensure agent uv directories exist (darwin)
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: "{{ agent_name }}"
+        group: staff
+        mode: "0700"
+      loop:
+        - "/Users/{{ agent_name }}/.local/bin"
+        - "/Users/{{ agent_name }}/.hermes/tmp"
+
+    - name: Probe existing uv launcher (darwin)
+      ansible.builtin.command: "/Users/{{ agent_name }}/.local/bin/uv --version"
+      register: mcp_atlassian_uv_probe
+      changed_when: false
+      failed_when: false
+      become_user: "{{ agent_name }}"
+
+    - name: Determine whether pinned uv minimum is needed (darwin)
+      ansible.builtin.set_fact:
+        mcp_atlassian_uv_needs_install: >-
+          {{ mcp_atlassian_uv_probe.rc != 0 or
+             (mcp_atlassian_uv_probe.stdout | regex_replace('^uv\\s+([^\\s]+).*$','\\1'))
+             is version(mcp_atlassian_uv_version, '<') }}
+
+    - name: Download checksum-verified minimum uv release (darwin)
+      ansible.builtin.get_url:
+        url: "https://github.com/astral-sh/uv/releases/download/{{ mcp_atlassian_uv_version }}/uv-{{ mcp_atlassian_uv_arch_map[ansible_architecture] }}.tar.gz"
+        dest: "/Users/{{ agent_name }}/.hermes/tmp/uv-{{ mcp_atlassian_uv_version }}.tar.gz"
+        checksum: "sha256:{{ mcp_atlassian_uv_sha256_map[ansible_architecture] }}"
+        validate_certs: yes
+        owner: "{{ agent_name }}"
+        group: staff
+        mode: "0600"
+        timeout: 120
+      when: mcp_atlassian_uv_needs_install | bool
+
+    - name: Extract uv launcher without downgrading newer installs (darwin)
+      ansible.builtin.unarchive:
+        src: "/Users/{{ agent_name }}/.hermes/tmp/uv-{{ mcp_atlassian_uv_version }}.tar.gz"
+        dest: "/Users/{{ agent_name }}/.local/bin"
+        remote_src: yes
+        extra_opts:
+          - --strip-components=1
+      become_user: "{{ agent_name }}"
+      when: mcp_atlassian_uv_needs_install | bool
+
+    - name: Assert uv launcher is executable (darwin)
+      ansible.builtin.file:
+        path: "/Users/{{ agent_name }}/.local/bin/uv"
+        owner: "{{ agent_name }}"
+        group: staff
+        mode: "0755"
+        state: file

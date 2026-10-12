@@ -1014,33 +1014,35 @@ def _build_pi_bedrock_sso_readiness_probe(
     root-owned system paths and UID 0 defaults.
     """
     if os_family == "darwin":
-        identity_check = (
-            f"/usr/bin/perl -MJSON::PP -e {shlex.quote(_PI_BEDROCK_STS_IDENTITY_VALIDATOR_PERL)}"
-        )
+        identity_check = f"/usr/bin/perl -MJSON::PP -e {shlex.quote(_PI_BEDROCK_STS_IDENTITY_VALIDATOR_PERL)}"
         trusted_path = (
             f"/usr/bin/perl -e {shlex.quote(_PI_BEDROCK_AWS_PATH_VALIDATOR_PERL)}"
         )
         resolve_path = "/usr/bin/perl -MCwd=abs_path -e 'print abs_path(shift)'"
     else:
-        identity_check = f"/usr/bin/python3 -c {shlex.quote(_PI_BEDROCK_STS_IDENTITY_VALIDATOR)}"
+        identity_check = (
+            f"/usr/bin/python3 -c {shlex.quote(_PI_BEDROCK_STS_IDENTITY_VALIDATOR)}"
+        )
         trusted_path = (
             f"/usr/bin/python3 -c {shlex.quote(_PI_BEDROCK_AWS_PATH_VALIDATOR_PYTHON)}"
         )
-        resolve_path = "/usr/bin/python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))'"
+        resolve_path = (
+            "/usr/bin/python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))'"
+        )
     candidate_list = " ".join(shlex.quote(candidate) for candidate in candidates)
     quoted_root = shlex.quote(trusted_root)
     return (
-        f"trusted_path() {{ {trusted_path} \"$1\" \"$2\" \"$3\" \"$4\"; }}; "
+        f'trusted_path() {{ {trusted_path} "$1" "$2" "$3" "$4"; }}; '
         "aws_cli=''; "
         f"for candidate in {candidate_list}; do "
-        "test -x \"$candidate\" || continue; "
-        f"resolved=$({resolve_path} \"$candidate\") || continue; "
-        f"trusted_path \"$candidate\" {expected_uid} 1 {quoted_root} || continue; "
-        f"trusted_path \"$resolved\" {expected_uid} 0 {quoted_root} || continue; "
+        'test -x "$candidate" || continue; '
+        f'resolved=$({resolve_path} "$candidate") || continue; '
+        f'trusted_path "$candidate" {expected_uid} 1 {quoted_root} || continue; '
+        f'trusted_path "$resolved" {expected_uid} 0 {quoted_root} || continue; '
         "\"$resolved\" --version 2>&1 | /usr/bin/grep -q '^aws-cli/2\\.' || continue; "
-        "aws_cli=\"$resolved\"; break; done; "
-        "test -n \"$aws_cli\" || exit 127; printf '%s\\n' \"$aws_cli\"; set -o pipefail; "
-        f"\"$aws_cli\" sts get-caller-identity --output json 2>/dev/null | {identity_check} "
+        'aws_cli="$resolved"; break; done; '
+        'test -n "$aws_cli" || exit 127; printf \'%s\\n\' "$aws_cli"; set -o pipefail; '
+        f'"$aws_cli" sts get-caller-identity --output json 2>/dev/null | {identity_check} '
         f"{shlex.quote(account_id)} {shlex.quote(role_name)}"
     )
 
@@ -1320,7 +1322,9 @@ def _sync_pi_openrouter(
             body = None
             aws_config = None
         else:
-            body = render_bedrock_sso_environment(record["aws_profile"], record["region"])
+            body = render_bedrock_sso_environment(
+                record["aws_profile"], record["region"]
+            )
             aws_config = render_bedrock_sso_config(record)
     except PiProvisioningError as exc:
         raise CanonicalSyncError(str(exc)) from exc
@@ -1361,7 +1365,10 @@ def _sync_pi_openrouter(
                 phase="switching Pi provider",
             )
             _pi_user_environment_operation(
-                client, agent_name=agent_name, path=f"{root}/{PI_AWS_CONFIG_PATH}", body=None
+                client,
+                agent_name=agent_name,
+                path=f"{root}/{PI_AWS_CONFIG_PATH}",
+                body=None,
             )
             _pi_user_environment_operation(
                 client,
@@ -1370,13 +1377,19 @@ def _sync_pi_openrouter(
                 body=None,
             )
         _pi_user_environment_operation(
-            client, agent_name=agent_name, path=f"{root}/{PI_PROVIDER_ENVIRONMENT_PATH}", body=body
+            client,
+            agent_name=agent_name,
+            path=f"{root}/{PI_PROVIDER_ENVIRONMENT_PATH}",
+            body=body,
         )
         # The SSO profile is public configuration, not a token. Keep it in the
         # dedicated account for Bedrock only.
         if aws_config is not None:
             _pi_user_environment_operation(
-                client, agent_name=agent_name, path=f"{root}/{PI_AWS_CONFIG_PATH}", body=aws_config
+                client,
+                agent_name=agent_name,
+                path=f"{root}/{PI_AWS_CONFIG_PATH}",
+                body=aws_config,
             )
             _pi_user_environment_operation(
                 client,
@@ -1400,12 +1413,18 @@ def _sync_pi_openrouter(
         client.close()
     if on_event is not None:
         if selection.provider == "openai-codex":
-            on_event("sync", "Pi Codex OAuth selected; run `clawctl agent provider login <provider> --agent <name>` in a terminal to authenticate the dedicated account")
+            on_event(
+                "sync",
+                "Pi Codex OAuth selected; run `clawctl agent provider login <provider> --agent <name>` in a terminal to authenticate the dedicated account",
+            )
         else:
-            on_event("sync", f"Pi {selection.provider} model {model!r} provisioned; no daemon restart")
-    paths = (() if selection.provider == "openai-codex" else (PI_PROVIDER_ENVIRONMENT_PATH,)) + (
-        (PI_AWS_CONFIG_PATH, PI_AWS_CREDENTIALS_PATH) if aws_config else ()
-    )
+            on_event(
+                "sync",
+                f"Pi {selection.provider} model {model!r} provisioned; no daemon restart",
+            )
+    paths = (
+        () if selection.provider == "openai-codex" else (PI_PROVIDER_ENVIRONMENT_PATH,)
+    ) + ((PI_AWS_CONFIG_PATH, PI_AWS_CREDENTIALS_PATH) if aws_config else ())
     return CanonicalSyncResult(True, agent_name, hostname, paths, (), ())
 
 
@@ -2300,6 +2319,79 @@ def _openclaw_install_plugins(
 _HERMES_SLACK_TYPES = frozenset({"slack-user", "slack-cookie"})
 
 
+# #1059: `uv tool run` backs the Hermes Atlassian MCP subprocess.  The
+# launcher is installed by a dedicated, sync-time runbook — never by the
+# legacy configure playbook — so rendered config and its executable land in
+# one daemon restart.
+_HERMES_ATLASSIAN_TYPES = frozenset({"atlassian"})
+
+
+def _hermes_install_atlassian_mcp(
+    agent_name: str,
+    hostname: str,
+    host: dict,
+    inputs,
+    *,
+    on_event: Callable[[str, str], None] | None = None,
+    timeout: int = 180,
+    dry_run: bool = False,
+) -> None:
+    """Install the checksum-pinned ``uv`` launcher for Hermes Atlassian.
+
+    The gate belongs here rather than in the runbook: a host with no attached
+    Atlassian integration must not incur a network install. Failure raises
+    before the canonical write/restart phase, preserving the daemon's last
+    working configuration. A dry run reports the intended install but never
+    invokes Ansible.
+    """
+    if not any(i.type in _HERMES_ATLASSIAN_TYPES for i in inputs.integrations):
+        return
+
+    if dry_run:
+        if on_event is not None:
+            on_event(
+                "atlassian_mcp_install",
+                f"would install uv launcher for {agent_name}",
+            )
+        return
+
+    # Lazy imports avoid the lifecycle ↔ lifecycle_canonical import cycle.
+    from clawrium.core.lifecycle import _run_lifecycle_playbook
+    from clawrium.core.playbook_resolver import (
+        normalize_os_family,
+        resolve_agent_playbook,
+    )
+
+    operation = "install_atlassian_mcp"
+    try:
+        playbook_path = resolve_agent_playbook(
+            "hermes", operation, normalize_os_family(host)
+        )
+    except (FileNotFoundError, ValueError) as exc:
+        raise CanonicalSyncError(
+            f"Atlassian MCP launcher install unavailable for {agent_name!r}: {exc}"
+        ) from exc
+    if on_event is not None:
+        on_event(
+            "atlassian_mcp_install",
+            f"installing uv launcher for {agent_name} via {playbook_path.name}",
+        )
+
+    success, err = _run_lifecycle_playbook(
+        agent_type="hermes",
+        agent_name=agent_name,
+        hostname=hostname,
+        operation=operation,
+        host=host,
+        timeout=timeout,
+        playbook_path_override=playbook_path,
+    )
+    if not success:
+        raise CanonicalSyncError(
+            f"Atlassian MCP launcher install failed for {agent_name!r}: {err}"
+        )
+
+
 def _hermes_install_slack_mcp(
     agent_name: str,
     hostname: str,
@@ -3021,9 +3113,8 @@ def sync_agent_canonical(
                     if fresh is None:
                         raise CanonicalSyncError(f"agent {agent_name!r} not found")
                     fresh_host, fresh_type, fresh_record = fresh
-                    if (
-                        fresh_type != "pi"
-                        or fresh_host.get("hostname") != host.get("hostname")
+                    if fresh_type != "pi" or fresh_host.get("hostname") != host.get(
+                        "hostname"
                     ):
                         raise CanonicalSyncError(
                             "Pi agent ownership changed; retry the sync command"
@@ -3039,28 +3130,45 @@ def sync_agent_canonical(
             if agent_type == "codex":
                 if workspace_only:
                     return CanonicalSyncResult(
-                        success=True, agent=agent_name, host=hostname,
-                        files_written=(), files_unchanged=(), diffs=(),
+                        success=True,
+                        agent=agent_name,
+                        host=hostname,
+                        files_written=(),
+                        files_unchanged=(),
+                        diffs=(),
                     )
                 if dry_run:
                     # Never inspect or expose the private native auth document
                     # in a canonical diff.
                     return CanonicalSyncResult(
-                        success=True, agent=agent_name, host=hostname,
-                        files_written=(), files_unchanged=(), diffs=(),
+                        success=True,
+                        agent=agent_name,
+                        host=hostname,
+                        files_written=(),
+                        files_unchanged=(),
+                        diffs=(),
                     )
                 from clawrium.core.lifecycle import _configure_codex_credentials
 
                 success, error = _configure_codex_credentials(
-                    hostname=hostname, host=host, agent_key=record_key,
+                    hostname=hostname,
+                    host=host,
+                    agent_key=record_key,
                     unix_agent_name=_claw_record.get("agent_name") or agent_name,
-                    config_data=_claw_record.get("config", {}), extra_vars=None,
+                    config_data=_claw_record.get("config", {}),
+                    extra_vars=None,
                 )
                 if not success:
-                    raise CanonicalSyncError(error or "Codex credential activation failed")
+                    raise CanonicalSyncError(
+                        error or "Codex credential activation failed"
+                    )
                 return CanonicalSyncResult(
-                    success=True, agent=agent_name, host=hostname,
-                    files_written=(".codex/auth.json",), files_unchanged=(), diffs=(),
+                    success=True,
+                    agent=agent_name,
+                    host=hostname,
+                    files_written=(".codex/auth.json",),
+                    files_unchanged=(),
+                    diffs=(),
                 )
             if agent_type == "claude":
                 return _sync_claude_settings(
@@ -3541,6 +3649,14 @@ def sync_agent_canonical(
         # no slack integration is attached.
         if inputs.agent_type == "hermes":
             _hermes_reconcile_herdr(agent_name, hostname, host, on_event=on_event)
+            _hermes_install_atlassian_mcp(
+                agent_name,
+                hostname,
+                host,
+                inputs,
+                on_event=on_event,
+                dry_run=dry_run,
+            )
             _hermes_install_slack_mcp(
                 agent_name,
                 hostname,
