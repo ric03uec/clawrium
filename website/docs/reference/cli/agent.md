@@ -382,6 +382,12 @@ Status: RUNNING
 Process ID: 12345
 Uptime: 2d 5h 32m
 
+Config:
+  Port:    8080
+  Identity: -
+  SSH public key: ssh-ed25519 AAAA… example
+  SSH private key: [REDACTED]
+
 Onboarding: COMPLETE (4/4 stages)
   ✓ PROVIDERS  (completed 2026-04-05 10:02:00 UTC)
     Provider: openai-prod (OpenAI GPT-4)

@@ -55,6 +55,13 @@ have independent native-thread state; **New chat** starts fresh. The GUI does
 not transfer credentials to a browser and generic SSE errors expose no remote
 diagnostic details.
 
+## Per-agent SSH identity
+
+Installation and sync provision a distinct controller-owned SSH keypair for
+each Codex agent. `clawctl agent describe <name>` prints the agent's public
+key and shows the private key only as a redacted placeholder; `agent get`
+rows never contain key material.
+
 ## Exec, shell, and unavailable daemon operations
 
 ```bash
