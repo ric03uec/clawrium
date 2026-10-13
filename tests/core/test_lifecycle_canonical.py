@@ -4172,6 +4172,28 @@ class TestHermesInstallSlackMCP:
         )
         assert calls == []
 
+    def test_dry_run_reports_but_never_invokes_ansible(self, monkeypatch):
+        """#1059 W1: a Slack attachment must not mutate during dry-run."""
+        calls = self._stub_playbook(monkeypatch)
+        events: list[tuple[str, str]] = []
+
+        lc._hermes_install_slack_mcp(
+            "maurice",
+            "wolf-i",
+            {"os_family": "linux"},
+            _inputs_with_integrations(["slack-user"]),
+            dry_run=True,
+            on_event=lambda stage, message: events.append((stage, message)),
+        )
+
+        assert calls == []
+        assert events == [
+            (
+                "slack_mcp_install",
+                "would install slack-mcp-server for maurice via install_slack_mcp.yaml",
+            )
+        ]
+
     def test_slack_user_triggers_linux_runbook(self, monkeypatch):
         """slack-user attached on a linux host → the Linux runbook is
         picked (not the darwin sibling). Agent_type argument is

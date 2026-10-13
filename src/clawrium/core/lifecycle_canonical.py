@@ -2400,6 +2400,7 @@ def _hermes_install_slack_mcp(
     *,
     on_event: Callable[[str, str], None] | None = None,
     timeout: int = 180,
+    dry_run: bool = False,
 ) -> None:
     """Install slack-mcp-server on `hostname` via the dedicated runbook.
 
@@ -2421,17 +2422,25 @@ def _hermes_install_slack_mcp(
     if not any(i.type in _HERMES_SLACK_TYPES for i in inputs.integrations):
         return
 
-    # Lazy import to sidestep the lifecycle ↔ lifecycle_canonical cycle
-    # that a top-level `from clawrium.core.lifecycle import ...` would
-    # trigger during module init on Python 3.13+.
-    from clawrium.core.lifecycle import _run_lifecycle_playbook
-
     os_family = str(host.get("os_family") or "linux").strip().lower()
     if os_family in ("mac", "macos", "osx"):
         os_family = "darwin"
     operation = (
         "install_slack_mcp_macos" if os_family == "darwin" else "install_slack_mcp"
     )
+
+    if dry_run:
+        if on_event is not None:
+            on_event(
+                "slack_mcp_install",
+                f"would install slack-mcp-server for {agent_name} via {operation}.yaml",
+            )
+        return
+
+    # Lazy import to sidestep the lifecycle ↔ lifecycle_canonical cycle
+    # that a top-level `from clawrium.core.lifecycle import ...` would
+    # trigger during module init on Python 3.13+.
+    from clawrium.core.lifecycle import _run_lifecycle_playbook
 
     if on_event is not None:
         on_event(
@@ -3552,6 +3561,36 @@ def sync_agent_canonical(
             f"secret, or restore it via `clawctl secret set ...`."
         )
 
+    if dry_run:
+        # Dry-runs may inspect the installed unit and remote files above, but
+        # must stop before every state-changing integration/writer boundary.
+        # Preserve actionable reporting for attached Hermes MCP binaries.
+        if inputs.agent_type == "hermes":
+            _hermes_install_atlassian_mcp(
+                agent_name,
+                hostname,
+                host,
+                inputs,
+                on_event=on_event,
+                dry_run=True,
+            )
+            _hermes_install_slack_mcp(
+                agent_name,
+                hostname,
+                host,
+                inputs,
+                on_event=on_event,
+                dry_run=True,
+            )
+        return CanonicalSyncResult(
+            success=True,
+            agent=agent_name,
+            host=hostname,
+            files_written=(),
+            files_unchanged=tuple(d.path for d in diffs if not d.unified_diff),
+            diffs=tuple(diffs),
+        )
+
     files_written: list[str] = []
     files_unchanged: list[str] = []
 
@@ -3663,6 +3702,7 @@ def sync_agent_canonical(
                 host,
                 inputs,
                 on_event=on_event,
+                dry_run=dry_run,
             )
 
         # #835: openclaw slack-mcp-server install. Same slot + same

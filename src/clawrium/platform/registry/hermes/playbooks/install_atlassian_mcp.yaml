@@ -46,6 +46,22 @@
         - "/home/{{ agent_name }}/.local/bin"
         - "/home/{{ agent_name }}/.hermes/tmp"
 
+    - name: Inspect existing uv launcher without following links
+      ansible.builtin.stat:
+        path: "/home/{{ agent_name }}/.local/bin/uv"
+        follow: false
+      register: mcp_atlassian_uv_path
+
+    - name: Refuse unsafe existing uv launcher
+      ansible.builtin.assert:
+        that:
+          - >-
+            not mcp_atlassian_uv_path.stat.exists or
+            (not mcp_atlassian_uv_path.stat.islnk and mcp_atlassian_uv_path.stat.isreg)
+        fail_msg: >-
+          Refusing to use /home/{{ agent_name }}/.local/bin/uv because it is not
+          a regular file. Remove the symlink or special file and retry sync.
+
     - name: Probe existing uv launcher
       ansible.builtin.command: "/home/{{ agent_name }}/.local/bin/uv --version"
       register: mcp_atlassian_uv_probe
@@ -85,7 +101,8 @@
     - name: Assert uv launcher is executable
       ansible.builtin.file:
         path: "/home/{{ agent_name }}/.local/bin/uv"
-        owner: "{{ agent_name }}"
-        group: "{{ agent_name }}"
         mode: "0755"
         state: file
+      # Never follow an agent-controlled path as root. Ownership was set when
+      # the directory/archive was created; this mode repair runs as the agent.
+      become_user: "{{ agent_name }}"
