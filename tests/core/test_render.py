@@ -3082,8 +3082,8 @@ def test_hermes_atlassian_mcp_servers_byte_lock_w15():
         "    model: \"claude-haiku-4-5-20251001\"\n"
         "mcp_servers:\n"
         "  my_atl:\n"
-        '    command: "/home/alpha/.local/bin/uvx"\n'
-        '    args: ["--from", "mcp-atlassian==0.21.1", "mcp-atlassian"]\n'
+        '    command: "/home/alpha/.local/bin/uv"\n'
+        '    args: ["tool", "run", "--from", "mcp-atlassian==0.21.1", "mcp-atlassian"]\n'
         "    env:\n"
         "      JIRA_URL: 'https://acme.atlassian.net'\n"
         "      JIRA_USERNAME: 'u@x.com'\n"
@@ -6000,10 +6000,7 @@ def test_hermes_slack_user_darwin_byte_lock():
 
 
 def test_hermes_atlassian_darwin_home_root_applied():
-    """#834 (ATX iter-1 B1): atlassian's uvx path must also flip to
-    `/Users/` on darwin. atlassian is not currently installed on darwin,
-    but the render layer is OS-agnostic — the moment atlassian ships on
-    darwin, the hardcode would break silently. Cover it now."""
+    """Atlassian's uv launcher must use the Darwin agent home."""
     base = _baseline_inputs(ptype="anthropic")
     inputs = RenderInputs(
         agent_name="alpha",
@@ -6023,7 +6020,8 @@ def test_hermes_atlassian_darwin_home_root_applied():
         ),
     )
     yaml = render_hermes(inputs, os_family="darwin").files[".hermes/config.yaml"]
-    assert '    command: "/Users/alpha/.local/bin/uvx"\n' in yaml
+    assert '    command: "/Users/alpha/.local/bin/uv"\n' in yaml
+    assert '    args: ["tool", "run", "--from", "mcp-atlassian==0.21.1", "mcp-atlassian"]\n' in yaml
 
 
 def test_hermes_slack_atlassian_cross_type_slug_collision_raises():

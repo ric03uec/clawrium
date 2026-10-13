@@ -34,6 +34,7 @@ cut. The `itx-release` skill archives this section into a new
 
 ### Fixed
 
+- Sync Hermes Atlassian integrations with a checksum-verified `uv` launcher before rendering and restarting, so Jira and Confluence MCP tools no longer depend on an absent `uvx` executable (#1059).
 - Allow an explicitly confirmed local-only hard delete when remote agent cleanup fails, while warning that remote service and data need manual cleanup (#1052).
 - Accept Codex CLI 0.160.1 ChatGPT OAuth files that include `OPENAI_API_KEY: null` while rejecting API-key credentials, and allow on-demand Codex chat from its isolated non-Git home (#1031).
 - Reject incomplete or failed native Codex JSONL turns instead of presenting truncated output as a successful chat response (#1037).

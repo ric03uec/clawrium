@@ -2,7 +2,7 @@
 
 **Status:** ✅ Supported (Hermes via MCP, OpenClaw via `.env`, ZeroClaw via `config.toml`)
 
-Atlassian integration connects agents to **Jira** and **Confluence** on Atlassian Cloud using a single set of credentials. On Hermes the integration is wired through the [`mcp-atlassian`](https://pypi.org/project/mcp-atlassian/) MCP server — hermes launches it as a subprocess via `uvx` and registers its Jira/Confluence tools at startup. On OpenClaw and ZeroClaw the credentials are rendered into the agent's environment (`.env` / `config.toml`) so the agent can call the Jira/Confluence REST API directly.
+Atlassian integration connects agents to **Jira** and **Confluence** on Atlassian Cloud using a single set of credentials. On Hermes the integration is wired through the [`mcp-atlassian`](https://pypi.org/project/mcp-atlassian/) MCP server — hermes launches it as a subprocess via `uv tool run` and registers its Jira/Confluence tools at startup. On OpenClaw and ZeroClaw the credentials are rendered into the agent's environment (`.env` / `config.toml`) so the agent can call the Jira/Confluence REST API directly.
 
 This is a **headless, no-UI** integration. Authentication is via Atlassian API token only — there is no browser-based OAuth approval at any step.
 
@@ -67,18 +67,13 @@ The filter fields, when set, scope the MCP tool surface to specific Jira project
 clawctl agent integration attach my-hermes work-atlassian
 ```
 
-### 4. Configure the agent
+### 4. Sync the agent
 
 ```bash
-clawctl agent configure my-hermes
+clawctl agent sync my-hermes
 ```
 
-For **Hermes**, the configure playbook:
-
-1. Installs `uv` for the agent user via `pip install --user uv==<pinned-version>` (PyPI hash-verified; no `curl|sh`).
-2. Pre-installs `mcp-atlassian` at a pinned version: `uv tool install --force mcp-atlassian==<pinned-version>`.
-3. Renders an `mcp_servers:` block into `~/.hermes/config.yaml` with the Atlassian credentials embedded as single-quoted YAML scalars (escaped via the template's `yaml_quote` macro).
-4. Restarts `hermes-<agent-name>.service`. Hermes reads `config.yaml`, launches `uvx --from mcp-atlassian==<version> mcp-atlassian` as a subprocess, and registers the Jira/Confluence tools.
+For **Hermes**, sync installs the checksum-verified `uv` launcher when needed (while retaining a newer existing `uv`), then renders an `mcp_servers:` block into `~/.hermes/config.yaml` with the Atlassian credentials embedded as single-quoted YAML scalars. It restarts `hermes-<agent-name>.service` only after the launcher is available. Hermes reads `config.yaml`, launches `uv tool run --from mcp-atlassian==<version> mcp-atlassian` as a subprocess, and registers the Jira/Confluence tools.
 
 For **OpenClaw**, the playbook renders the same credentials into `~/.openclaw/.env` as `JIRA_URL` / `JIRA_EMAIL` / `JIRA_API_TOKEN` / `CONFLUENCE_URL` / `CONFLUENCE_EMAIL` / `CONFLUENCE_API_TOKEN` (shell-quoted via the template's `shell_quote` macro).
 
@@ -101,8 +96,8 @@ The `mcp_servers` block in `~/.hermes/config.yaml` looks like:
 ```yaml
 mcp_servers:
   work_atlassian:
-    command: "/home/my-hermes/.local/bin/uvx"
-    args: ["--from", "mcp-atlassian==<pinned-version>", "mcp-atlassian"]
+    command: "/home/my-hermes/.local/bin/uv"
+    args: ["tool", "run", "--from", "mcp-atlassian==<pinned-version>", "mcp-atlassian"]
     env:
       JIRA_URL: 'https://company.atlassian.net'
       JIRA_USERNAME: 'dev@company.com'
@@ -147,7 +142,7 @@ clawctl integration registry create work-atlassian --type atlassian
 # entry works as-is — Atlassian doesn't issue separate tokens per service.
 
 clawctl agent integration attach my-hermes work-atlassian
-clawctl agent configure my-hermes
+clawctl agent sync my-hermes
 ```
 
 ---
@@ -179,10 +174,10 @@ clawctl integration registry create personal-atlassian --type atlassian   # me.a
 
 clawctl agent integration attach my-hermes work-atlassian
 clawctl agent integration attach my-hermes personal-atlassian
-clawctl agent configure my-hermes
+clawctl agent sync my-hermes
 ```
 
-Hermes launches two `uvx mcp-atlassian` subprocesses; tools are namespaced as `mcp_work_atlassian_jira_search`, `mcp_personal_atlassian_confluence_get_page`, etc.
+Hermes launches two `uv tool run --from mcp-atlassian` subprocesses; tools are namespaced as `mcp_work_atlassian_jira_search`, `mcp_personal_atlassian_confluence_get_page`, etc.
 
 ---
 
@@ -192,8 +187,8 @@ Hermes launches two `uvx mcp-atlassian` subprocesses; tools are namespaced as `m
 |---------|-----------|
 | OAuth needs browser | Not used. API token only. |
 | Token refresh | Not needed. Atlassian API tokens are long-lived (until manually revoked). |
-| MCP server startup prompts | `uvx --from mcp-atlassian==<version> mcp-atlassian` runs non-interactively. |
-| Package install during reconfigure | `pip install --user uv` and `uv tool install --force mcp-atlassian` are both non-interactive and version-pinned. |
+| MCP server startup prompts | `uv tool run --from mcp-atlassian==<version> mcp-atlassian` runs non-interactively. |
+| Launcher provisioning | `clawctl agent sync` downloads a checksum-verified minimum `uv` release only when the agent has no suitable launcher; newer existing releases are retained. |
 
 ---
 
@@ -202,13 +197,13 @@ Hermes launches two `uvx mcp-atlassian` subprocesses; tools are namespaced as `m
 <details>
 <summary><strong>Hermes restart succeeds but Jira / Confluence tools don't appear</strong></summary>
 
-1. SSH to the agent host and confirm `mcp-atlassian` is installed at the pinned version under the agent user:
+1. SSH to the agent host and confirm the managed `uv` launcher is available:
 
    ```bash
-   sudo -u my-hermes /home/my-hermes/.local/bin/uv tool list
+   sudo -u my-hermes /home/my-hermes/.local/bin/uv --version
    ```
 
-   You should see `mcp-atlassian v<pinned-version>`. If not, re-run `clawctl agent configure <agent-name>` — the configure playbook installs the package with `--force`.
+   If it is missing, re-run `clawctl agent sync <agent-name>`; the sync-time installer restores the launcher before Hermes is restarted.
 
 2. Inspect the rendered MCP block (the file is `mode: 0600` and owned by the agent user):
 
@@ -257,14 +252,9 @@ You have a stale integration record from before [#348](https://github.com/ric03u
 </details>
 
 <details>
-<summary><strong>`uv tool install` fails on configure</strong></summary>
+<summary><strong>`uv` is missing during Atlassian MCP startup</strong></summary>
 
-The Atlassian-MCP install path is conditional on at least one Atlassian integration being assigned. If you see `uv: command not found` on a fresh agent:
-
-1. Confirm the agent user has Python 3.11+ available (uv installs as a pip package under the agent user).
-2. Inspect the configure playbook's stat assertion for `~/.local/bin/uv` — if `pip install --user uv` succeeded but the binary isn't at that path, the agent host may have a non-standard home directory layout.
-
-Re-run `clawctl agent configure <agent-name>`; the install task is idempotent.
+The launcher path is conditional on at least one Atlassian integration being attached. Re-run `clawctl agent sync <agent-name>`; the dedicated sync-time installer downloads a checksum-verified launcher before config writes and restart. If it still fails, check the sync output for its architecture or download error.
 
 </details>
 
