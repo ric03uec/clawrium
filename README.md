@@ -27,7 +27,7 @@
 |------|-----------------|-------|
 | **Control machine OS** | Ubuntu, macOS | Tested end-to-end |
 | **Target host OS** | Ubuntu, macOS | macOS hosts must enable Remote Login first ([host setup](docs/host-preparation.md)) |
-| **Agent runtimes** | OpenClaw ✅, Hermes ✅, ZeroClaw ✅, Claude Code ✅ | Claude Code has on-demand CLI and GUI chat (no daemon or native web UI); IronClaw planned |
+| **Agent runtimes** | OpenClaw ✅, Hermes ✅, ZeroClaw ✅, Claude Code ✅, Codex ✅, Pi ✅ | Claude Code, Codex, and Pi are install-only (no daemon or native web UI); Claude Code, Codex, and Pi have on-demand CLI/GUI chat; IronClaw planned |
 | **Inference providers** | Anthropic, OpenAI, OpenRouter, Ollama | Claude Code accepts an Anthropic API key or explicitly supplied OAuth token |
 | **Messaging channels** | Discord, Slack | OpenClaw only |
 | **Container runtime** | None required | No Docker, no Kubernetes — SSH + Ansible |
@@ -61,11 +61,14 @@ A Clawrium **agent** is a general-purpose AI assistant that runs on a host in yo
 - **[Hermes](https://github.com/NousResearch/hermes-agent)** ✅ (Nous Research) - OpenAI-compatible local API
 - **[ZeroClaw](https://github.com/zeroclaw-labs/zeroclaw)** ✅ - Lightweight assistant for resource-constrained hosts
 - **[Claude Code](https://github.com/anthropics/claude-code)** ✅ - Isolated, install-only command environment; see [Claude Code Support](docs/agent-support/claude.md)
+- **[Codex](https://github.com/openai/codex)** ✅ - Isolated, install-only Codex CLI environment with private OAuth activation; see [Codex Support](docs/agent-support/codex.md)
+- **[Pi](https://github.com/earendil-works/pi)** ✅ - Isolated, install-only Pi coding-agent environment; see [Pi Support](docs/agent-support/pi.md)
 - **[IronClaw](https://github.com/nearai/ironclaw)** _(planned)_ - High-performance assistant for demanding workloads
 
 Clawrium manages installation and configuration for every supported agent, and
 daemon lifecycle operations for agent types that provide a managed daemon.
-Claude Code intentionally remains an install-only, no-daemon command environment.
+Claude Code, Codex, and Pi intentionally remain install-only, no-daemon
+command environments.
 
 ## Who this is for
 
@@ -93,7 +96,7 @@ It is _not_ a hosted platform. There's no dashboard, no SaaS, no account signup.
     <img src="https://img.youtube.com/vi/F8AVpxsZTOA/maxresdefault.jpg" alt="Watch the Clawrium GUI walkthrough on YouTube" width="75%">
   </a>
   <br>
-  <em>75-second walkthrough of every tab in <code>clawctl gui</code> — Dashboard, Agents, Topology, Providers, Skills, Integrations, Settings</em>
+  <em>75-second walkthrough of every tab in the <code>clawctl server</code> web dashboard — Dashboard, Agents, Topology, Providers, Skills, Integrations, Settings</em>
 </p>
 
 ### Install & Run
@@ -174,7 +177,7 @@ clawctl agent get
 clawctl agent chat my-assistant
 
 # Or open the local web dashboard
-clawctl gui
+clawctl server start
 ```
 
 **You should see:** A running agent in `clawctl agent get` output with status `running`.
@@ -204,6 +207,8 @@ Ubuntu and macOS are in the test matrix — both as the control machine and as t
 [Hermes](https://github.com/NousResearch/hermes-agent) (Nous Research) is supported in `🚧 In Development` status — install, configure, and a local OpenAI-compatible HTTP API on `127.0.0.1:8642` are wired end-to-end. `clawctl agent chat` and external messaging gateways are not yet supported for hermes. See the [Hermes Support Matrix](https://ric03uec.github.io/clawrium/docs/agent-support/hermes) for details.
 
 Additional agent types are planned.
+
+[Claude Code](docs/agent-support/claude.md), [Codex](docs/agent-support/codex.md), and [Pi](docs/agent-support/pi.md) are install-only command environments: Clawrium installs a pinned, isolated per-agent CLI and supports on-demand `clawctl agent chat` (CLI and GUI) and finite `clawctl agent exec` commands without a daemon, gateway, or native web UI.
 
 ### 3. Is Claude Code authentication supported?
 

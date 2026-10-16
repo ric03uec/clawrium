@@ -23,6 +23,7 @@ Clawrium supports multiple agent types, each designed for different use cases. T
 |-------|-------------|--------|
 | **[Claude Code](claude.md)** | Isolated per-agent Claude Code environment with on-demand CLI and GUI chat; no daemon or native web UI | ✅ Supported contract |
 | **[Codex](codex.md)** | Isolated per-agent Codex environment with OAuth and on-demand CLI and GUI chat; no daemon or native web UI | ✅ Supported contract |
+| **[Pi](pi.md)** | Isolated per-agent Pi coding-agent environment with scoped provider provisioning (OpenRouter, Bedrock SSO, or Codex OAuth) and on-demand CLI and GUI chat; no daemon or native web UI | ✅ Supported contract |
 
 ## Legend
 
@@ -35,18 +36,18 @@ Clawrium supports multiple agent types, each designed for different use cases. T
 
 ## Quick Comparison
 
-| Aspect | OpenClaw | Hermes | ZeroClaw | Claude Code | Codex |
-|--------|:--------:|:------:|:--------:|:-----------:|:-----:|
-| **Status** | ✅ Production Ready | 🚧 In Development | 🚧 In Development | ✅ Install-only | ✅ Install-only |
-| **Transport** | Native daemon | Local OpenAI-compatible HTTP API (`127.0.0.1:8642`) | CLI process | Per-agent CLI environment | Per-agent CLI environment |
-| **`clawctl agent chat <name>` support** | ✅ | ✅ (OpenAI-compatible HTTP backend) | 🚧 | ✅ (finite CLI backend) | ✅ (finite CLI backend) |
-| **Multi-Provider** | ✅ (OpenAI, Anthropic, OpenRouter, Bedrock, Vertex, ZAI, Ollama) | ✅ (OpenRouter, Anthropic, OpenAI, Ollama / custom) | 🚧 (OpenAI, Anthropic, Ollama planned) | ❌ — one OAuth or Anthropic API-key credential | ❌ — one `codex-oauth` credential |
-| **Memory model** | Daily files + identity files | Two fixed files: `MEMORY.md` (≤ 2200 chars), `USER.md` (≤ 1375 chars) | ❌ | ❌ | ❌ |
-| **Identity management** | clawctl-managed `SOUL.md` / `IDENTITY.md` | Hermes-managed `SOUL.md` / `AGENTS.md` inside `~/.hermes/` (accessible via `clawctl agent memory`) | ❌ | Project-owned `.claude` settings untouched | Project-owned Codex state |
-| **Messaging gateways** | Discord ✅, Slack 🚧, Web 🚧 | Discord ✅, Slack/Telegram/WhatsApp/Signal/email/... 📋 deferred | ❌ | ❌ | ❌ |
-| **External integrations** | GitHub 🚧, Jira 🚧 | 📋 Deferred | ❌ | ❌ | ❌ |
-| **Onboarding wizard** | ✅ 4-stage | ✅ 4-stage (identity auto-skipped) | 🚧 2-stage | ❌ — bounded configure/sync only | ❌ — bounded configure/sync only |
-| **Resource usage** | Moderate | Moderate-to-high (uv venv + npm + playwright) | Low | Low until an operator runs a command | Low until an operator runs a command |
+| Aspect | OpenClaw | Hermes | ZeroClaw | Claude Code | Codex | Pi |
+|--------|:--------:|:------:|:--------:|:-----------:|:-----:|:--:|
+| **Status** | ✅ Production Ready | 🚧 In Development | 🚧 In Development | ✅ Install-only | ✅ Install-only | ✅ Install-only |
+| **Transport** | Native daemon | Local OpenAI-compatible HTTP API (`127.0.0.1:8642`) | CLI process | Per-agent CLI environment | Per-agent CLI environment | Per-agent CLI environment |
+| **`clawctl agent chat <name>` support** | ✅ | ✅ (OpenAI-compatible HTTP backend) | 🚧 | ✅ (finite CLI backend) | ✅ (finite CLI backend) | ✅ (finite CLI backend) |
+| **Multi-Provider** | ✅ (OpenAI, Anthropic, OpenRouter, Bedrock, Vertex, ZAI, Ollama) | ✅ (OpenRouter, Anthropic, OpenAI, Ollama / custom) | 🚧 (OpenAI, Anthropic, Ollama planned) | ❌ — one OAuth or Anthropic API-key credential | ❌ — one `codex-oauth` credential | ❌ — one provider at a time (OpenRouter, Bedrock, or Codex OAuth) |
+| **Memory model** | Daily files + identity files | Two fixed files: `MEMORY.md` (≤ 2200 chars), `USER.md` (≤ 1375 chars) | ❌ | ❌ | ❌ | ❌ |
+| **Identity management** | clawctl-managed `SOUL.md` / `IDENTITY.md` | Hermes-managed `SOUL.md` / `AGENTS.md` inside `~/.hermes/` (accessible via `clawctl agent memory`) | ❌ | Project-owned `.claude` settings untouched | Project-owned Codex state | Project-owned Pi state |
+| **Messaging gateways** | Discord ✅, Slack 🚧, Web 🚧 | Discord ✅, Slack ✅, Telegram/WhatsApp/Signal/email/... 📋 deferred | ❌ | ❌ | ❌ | ❌ |
+| **External integrations** | GitHub 🚧, Jira 🚧 | 📋 Deferred | ❌ | ❌ | ❌ | ❌ |
+| **Onboarding wizard** | ✅ 4-stage | ✅ 4-stage (identity auto-skipped) | 🚧 2-stage | ❌ — bounded configure/sync only | ❌ — bounded configure/sync only | ❌ — bounded configure/sync only |
+| **Resource usage** | Moderate | Moderate-to-high (uv venv + npm + playwright) | Low | Low until an operator runs a command | Low until an operator runs a command | Low until an operator runs a command |
 
 ## Choosing an Agent
 
@@ -84,6 +85,13 @@ Clawrium supports multiple agent types, each designed for different use cases. T
 - You do not need a Clawrium-managed gateway, daemon, or native web UI
 - You need Clawrium to own only the per-agent account, bounded global settings,
   selected credential environment, and installation prefix
+
+**Use Pi when:**
+
+- You need an isolated, pinned Pi coding-agent installation on a fleet host
+- You will chat on demand through `clawctl agent chat <name>` or the GUI Chat tab against one attached provider (OpenRouter, Bedrock SSO, or Codex OAuth)
+- You will run finite native commands through `clawctl agent exec <name> -- <args...>`
+- You do not need a Clawrium-managed gateway, daemon, or native web UI
 
 ## Adding New Agents
 
