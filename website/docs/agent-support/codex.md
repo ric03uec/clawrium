@@ -56,7 +56,8 @@ start a fresh native thread. The finite process is timeout-bounded; malformed
 JSONL, nonzero exits, and authentication failures produce safe chat errors
 without relaying prompt text, credentials, remote stderr, or paths.
 
-The **Chat** tab in `clawctl gui` uses this exact backend. Browser conversations
+The **Chat** tab in the web dashboard ([`clawctl server`](/docs/reference/cli/server))
+uses this exact backend. Browser conversations
 have independent native-thread state; **New chat** starts fresh. The GUI does
 not transfer credentials to a browser and generic SSE errors expose no remote
 diagnostic details.

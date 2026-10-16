@@ -55,6 +55,11 @@ A Clawrium **agent** is a general-purpose AI assistant that runs on a machine in
 - [**Hermes**](https://github.com/NousResearch/hermes-agent) ✅ (Nous Research) - Install, configure, and OpenAI-compatible API
 - [**ZeroClaw**](https://github.com/zeroclaw-labs/zeroclaw) ✅ - Lightweight assistant for resource-constrained devices
 
+**Install-only (no daemon, no native web UI; on-demand CLI/GUI chat):**
+- [**Claude Code**](/docs/agent-support/claude) ✅ - Isolated per-agent command environment with one Claude OAuth or Anthropic API-key credential
+- [**Codex**](/docs/agent-support/codex) ✅ - Isolated per-agent Codex CLI environment with private Codex OAuth activation
+- [**Pi**](/docs/agent-support/pi) ✅ - Isolated per-agent Pi coding-agent environment with one OpenRouter, Bedrock SSO, or Codex OAuth provider
+
 **Planned:**
 - **IronClaw** - High-performance assistant for demanding workloads
 
@@ -172,7 +177,7 @@ Clawrium is tested end-to-end on **Ubuntu** and **macOS** — both as the contro
 
 ### Which agents are supported today?
 
-[OpenClaw](https://github.com/openclaw/openclaw), [Hermes](https://github.com/NousResearch/hermes-agent), and [ZeroClaw](https://github.com/zeroclaw-labs/zeroclaw) are fully supported end-to-end. IronClaw is planned. See the [Support Matrix](https://github.com/ric03uec/clawrium#support-matrix) on the GitHub README for the canonical status table.
+[OpenClaw](https://github.com/openclaw/openclaw), [Hermes](https://github.com/NousResearch/hermes-agent), and [ZeroClaw](https://github.com/zeroclaw-labs/zeroclaw) are fully supported end-to-end. IronClaw is planned. [Claude Code](/docs/agent-support/claude), [Codex](/docs/agent-support/codex), and [Pi](/docs/agent-support/pi) ship as install-only command environments with on-demand chat and finite exec, no daemon. See the [Support Matrix](https://github.com/ric03uec/clawrium#support-matrix) on the GitHub README for the canonical status table.
 
 ### Is Claude subscription supported?
 

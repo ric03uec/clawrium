@@ -85,7 +85,7 @@ Click any agent to land on its detail page. The header shows status, host, model
 
 ![Agent detail page with chat tab active and "Start a conversation" prompt](/img/gui/agent-detail.png)
 
-- **Chat** streams responses from the agent (OpenAI-compatible HTTP for hermes, WebSocket for openclaw — all proxied server-side; credentials never reach the browser).
+- **Chat** streams responses from the agent (OpenAI-compatible HTTP for hermes, WebSocket for openclaw, and finite on-demand CLI processes for claude, codex, and pi — all proxied server-side; credentials never reach the browser).
 - **Configuration** mirrors `clawctl agent show <name>`: provider, gateway URL, device ID, onboarding state, version.
 - **Memory** lets you read and edit the agent's memory files in place (saves over SSH).
 - **Logs** tails `journalctl --user -u <agent-type>-<agent-name>` from the host.

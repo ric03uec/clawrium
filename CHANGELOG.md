@@ -44,6 +44,8 @@ cut. The `itx-release` skill archives this section into a new
 
 ### Documentation
 
+- Add Pi (install-only) agent documentation: new `docs/agent-support/pi.md` plus its website mirror covering the no-daemon install contract, one-provider-at-a-time provisioning (OpenRouter, AWS Identity Center Bedrock SSO, or Codex OAuth via `agent provider login`), on-demand CLI/GUI chat, and exec/deletion boundaries (#1032, #1038, #1039, #1040); the Pi row and Quick Comparison column in the agent-support index (both trees), the site sidebar, and Codex/Pi install-only sections and create examples in the `clawctl agent` CLI reference (#1034, #1037).
+- Update the README and website intro agent lists for the install-only Codex and Pi agents (#1032, #1034), correct the two remaining `clawctl gui` references left over from the v26.7.2 rename to `clawctl server`, fix the website Quick Comparison table's hermes messaging cell (Slack is clawctl-managed, not deferred) and the five website table rows still missing their Codex cell, and extend the web-dashboard Chat backends note to the claude/codex/pi finite CLI processes (#1050, #1065).
 - Document the Codex real-host lifecycle and authenticated Linux CLI/GUI UAT, including the remaining macOS and live token-refresh limitations (#1031).
 - Document Pi Bedrock detach and provider-switch cache-cleanup boundaries, including the separate upstream AWS session-revocation step (#1039).
 - Document fail-closed recovery steps for an interrupted Codex OAuth activation without exposing native auth credentials (#1036).

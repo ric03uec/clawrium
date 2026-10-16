@@ -154,7 +154,8 @@ suggest `clawctl agent sync <name>`; malformed Claude CLI JSON and non-auth
 command failures are surfaced as chat errors without echoing credential-bearing
 stderr.
 
-The **Chat** tab on the agent page in `clawctl gui` uses this same backend — it
+The **Chat** tab on the agent page in the web dashboard
+([`clawctl server`](../reference/cli/server.md)) uses this same backend — it
 does not create a gateway, tunnel, paired device, or a second Claude invocation
 path. The tab keeps a browser-conversation session key so later turns resume
 the same Claude session; select **New chat** to cancel any pending turn and

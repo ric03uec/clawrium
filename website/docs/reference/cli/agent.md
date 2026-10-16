@@ -6,7 +6,7 @@ keywords: [cli, agent, command reference, configure, install, start, stop]
 
 # clawctl agent
 
-Manage agent installation and configuration, plus lifecycle operations for types that provide a managed daemon. Claude Code is install-only; see [Claude Code: no-daemon command environment](#claude-code-no-daemon-command-environment) before using daemon commands.
+Manage agent installation and configuration, plus lifecycle operations for types that provide a managed daemon. Claude Code, Codex, and Pi are install-only; see [Claude Code: no-daemon command environment](#claude-code-no-daemon-command-environment), [Codex: no-daemon command environment](#codex-no-daemon-command-environment), and [Pi: no-daemon command environment](#pi-no-daemon-command-environment) before using daemon commands.
 
 ## Synopsis
 
@@ -28,9 +28,9 @@ clawctl agent create <agent-name> --type <agent-type> --host <host> [options]
 - `agent-name` - Name for the new agent instance (positional, required)
 
 **Options:**
-- `--type`, `-t <agent-type>` - Agent type, e.g. `openclaw`, `zeroclaw`, `hermes`, `claude` (required)
+- `--type`, `-t <agent-type>` - Agent type, e.g. `openclaw`, `zeroclaw`, `hermes`, `claude`, `codex`, `pi` (required)
 - `--host`, `-H <hostname>` - Target host, name or alias (required)
-- `--provider`, `-P <name>` - Initial provider to attach (required for `openclaw` since v26.7.3; see below)
+- `--provider`, `-P <name>` - Initial provider to attach (required for `openclaw` since v26.7.3; not supported for `pi` at install time; see below)
 - `--yes`, `-y` - Skip confirmation prompts
 - `--force`, `-f` - Reinstall even if the same version is already present
 - `--cleanup-failed` - Remove a failed installation before retrying
@@ -50,11 +50,19 @@ clawctl agent create zc-edge --type zeroclaw --host pi4
 # Install Claude Code as an isolated, no-daemon command environment
 clawctl agent create claude-work --type claude --host lab1
 
+# Install Codex as an isolated, no-daemon command environment
+clawctl agent create codex-work --type codex --host lab1
+
+# Install Pi as an isolated, no-daemon command environment (no --provider)
+clawctl agent create pi-work --type pi --host lab1
+
 # Retry after a failed install
 clawctl agent create opc-work --type openclaw --host lab1 --provider clm-openrouter --cleanup-failed
 ```
 
 > **`--provider` is mandatory for openclaw.** Since v26.7.3, every openclaw instance runs inside an NVIDIA NemoClaw sandbox, and the NemoClaw onboarding flow requires a provider at install time. Without `--provider`, the command exits with a hint to list available providers via `clawctl provider registry get`. Other agent types (hermes, zeroclaw) still use the split create → configure lifecycle where provider selection happens during `clawctl agent configure`.
+>
+> **`pi` does not accept `--provider` at install time.** Create Pi first, then attach exactly one provider (OpenRouter, AWS Identity Center Bedrock SSO, or `openai-codex`) and run `clawctl agent sync <name>`.
 
 **What happens:**
 1. Verifies host compatibility
@@ -104,6 +112,76 @@ finite, on-demand Claude CLI process. `agent open`, `start`, `stop`, `restart`,
 and `logs` are not Claude Code operations. Use `agent shell` only for another
 terminating shell expression that needs pipes or redirects. See [Claude Code
 Support](../../agent-support/claude.md) for credential safety, chat behavior,
+and removal ownership.
+
+---
+
+### Codex: no-daemon command environment
+
+`codex` is an installed, per-agent Codex CLI environment, not a daemon.
+`clawctl agent create <name> --type codex --host <host>` installs the pinned
+`@openai/codex` package into the dedicated account's owned `~/.local/codex`
+prefix but never starts Codex, a service, gateway, listener, tunnel, web UI,
+persistent chat process, or pairing flow.
+
+Authenticate with a selection-only `codex-oauth` provider: create it
+(`clawctl provider registry create local-codex-oauth --type codex-oauth`),
+attach it to the Codex agent, and `clawctl agent sync <name>`. Attach imports
+only the controller's native file-backed Codex login into the agent's encrypted
+instance secrets; sync activates it as private `~/.codex/auth.json` under the
+dedicated account. Routine configure/sync preserves a valid remote document
+because Codex may refresh it in place; an explicit re-attach replaces it.
+
+`agent chat` is supported as a finite, on-demand Codex process with native
+thread continuation, and the GUI Chat tab uses the same backend. Run a finite
+native Codex command with:
+
+```bash
+clawctl agent exec <name> -- --version
+```
+
+`agent exec` runs the dedicated agent's pinned Codex binary with a finite
+runtime bound and a private `CODEX_HOME`; `agent shell` is available for
+terminating shell expressions. `agent open`, `start`, `stop`, `restart`, and
+`logs` are not Codex operations. See [Codex
+Support](../../agent-support/codex.md) for OAuth safety, chat behavior, and
+removal ownership.
+
+---
+
+### Pi: no-daemon command environment
+
+`pi` is an installed, per-agent Pi coding-agent environment, not a daemon.
+`clawctl agent create <name> --type pi --host <host>` installs the pinned
+`@mariozechner/pi-coding-agent` package into the dedicated account's owned
+`~/.local/pi` prefix but never starts Pi, a service, gateway, listener,
+tunnel, web UI, or persistent chat process. The host needs Node.js 20.6 or
+later.
+
+Pi supports exactly one attached provider — an existing **OpenRouter**
+provider, an **AWS Identity Center Bedrock SSO** provider, or a single
+**`openai-codex`** provider (native interactive OAuth login, no API key).
+`--provider` is not accepted at install time; attach the provider after
+create, then run `clawctl agent sync <name>` to activate it:
+
+```bash
+clawctl agent provider attach <provider> --agent <name>
+clawctl agent sync <name>
+```
+
+`agent chat` is supported as a finite, on-demand Pi process with session
+continuation, and the GUI Chat tab uses the same backend. Run a finite native
+Pi command with:
+
+```bash
+clawctl agent exec <name> -- --version
+```
+
+`agent exec` runs the dedicated agent's pinned Pi binary with a 120-second
+runtime bound and the provisioned credential environment; `agent shell` is
+available for terminating shell expressions. `agent open`, `start`, `stop`,
+`restart`, and `logs` are not Pi operations. See [Pi
+Support](../../agent-support/pi.md) for provider provisioning, chat behavior,
 and removal ownership.
 
 ---
