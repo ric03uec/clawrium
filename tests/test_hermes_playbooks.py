@@ -669,6 +669,23 @@ def test_hermes_configure_verifies_discord_bot_token_when_enabled(
     assert "config.channels.discord.enabled" in when_str
 
 
+def test_hermes_macos_install_is_retry_safe_and_uses_current_ui_layout():
+    """A prior failed install must resume without stale v2026.5.7 tasks."""
+    playbook = _hermes_playbook("install_macos")
+    tasks = _tasks(playbook)
+    user_task = _task_by_name(playbook, "Create agent user record via dscl")
+    assert user_task is not None
+    assert user_task.get("when") == '(agent_uid_existing.stdout | trim) == ""'
+
+    install_task = _task_by_name(playbook, "Install Hermes runtime (non-interactive)")
+    assert install_task is not None
+    assert "async" not in install_task and "poll" not in install_task
+
+    names = [task.get("name", "") for task in tasks]
+    assert not any("ink-bundle.js" in name for name in names)
+
+
+
 def test_hermes_configure_verifies_discord_allowlist_when_enabled(
     hermes_configure_playbook_text,
 ):

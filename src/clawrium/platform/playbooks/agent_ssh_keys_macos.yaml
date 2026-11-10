@@ -57,7 +57,7 @@
       ansible.builtin.fail:
         msg: "agent SSH identity is occupied, incomplete, or unsafe; recover it manually"
       when: >-
-        (agent_ssh_key_stats.results | selectattr('stat.islnk') | list | length > 0) or
+        (agent_ssh_key_stats.results | selectattr('stat.islnk', 'defined') | selectattr('stat.islnk') | list | length > 0) or
         ((not controller_pair_exists | bool) and
          (agent_ssh_key_stats.results | selectattr('stat.exists') | list | length > 0))
       no_log: true

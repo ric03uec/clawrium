@@ -72,6 +72,7 @@
         - { key: "PrimaryGroupID", value: "20" }
         - { key: "NFSHomeDirectory", value: "/Users/{{ agent_name }}" }
       changed_when: false  # dscl -create is idempotent and silent
+      when: (agent_uid_existing.stdout | trim) == ""
 
     - name: Ensure /Users/<agent> home directory exists with correct ownership
       ansible.builtin.file:
@@ -186,8 +187,6 @@
         HERMES_HOME: "/Users/{{ agent_name }}/.hermes"
         HOME: "/Users/{{ agent_name }}"
         PATH: "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
-      async: 1800
-      poll: 30
       when: not hermes_already_installed
 
     - name: Clean up installer script
@@ -320,24 +319,6 @@
       register: hermes_ui_tui_build
       changed_when: "'esbuild' in (hermes_ui_tui_build.stdout | default(''))"
       failed_when: hermes_ui_tui_build.rc != 0
-
-    - name: Alias entry-exports.js to ink-bundle.js (upstream filename drift workaround)
-      ansible.builtin.copy:
-        src: "/Users/{{ agent_name }}/.hermes/code/ui-tui/packages/hermes-ink/dist/entry-exports.js"
-        dest: "/Users/{{ agent_name }}/.hermes/code/ui-tui/packages/hermes-ink/dist/ink-bundle.js"
-        remote_src: true
-        owner: "{{ agent_name }}"
-        group: staff
-        mode: "0644"
-
-    - name: Touch ink-bundle.js so _hermes_ink_bundle_stale sees a fresh mtime
-      ansible.builtin.file:
-        path: "/Users/{{ agent_name }}/.hermes/code/ui-tui/packages/hermes-ink/dist/ink-bundle.js"
-        state: touch
-        owner: "{{ agent_name }}"
-        group: staff
-        mode: "0644"
-      changed_when: false
 
     - name: Touch ui-tui/dist/entry.js so _tui_build_needed sees a fresh mtime
       ansible.builtin.file:

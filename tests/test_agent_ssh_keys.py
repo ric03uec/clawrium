@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+from importlib.resources import files
 from types import SimpleNamespace
+
+import pytest
+import yaml
 
 
 def _host() -> dict:
@@ -88,3 +92,16 @@ def test_preflight_failure_never_generates_controller_key(monkeypatch, isolated_
     else:
         raise AssertionError("unsafe remote state must fail")
     assert get_agent_private_key("stable-host-id", "agent-one") is None
+
+
+@pytest.mark.parametrize("name", ("agent_ssh_keys.yaml", "agent_ssh_keys_macos.yaml"))
+def test_key_playbook_allows_missing_identity_paths(name):
+    """Absent remote key files are normal on first provisioning."""
+    playbook = files("clawrium.platform.playbooks") / name
+    tasks = yaml.safe_load(playbook.read_text())[0]["tasks"]
+    guard = next(
+        task
+        for task in tasks
+        if task["name"] == "Refuse unsafe or orphaned remote identity"
+    )
+    assert "selectattr('stat.islnk', 'defined')" in guard["when"]
