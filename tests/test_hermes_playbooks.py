@@ -710,3 +710,19 @@ def test_hermes_configure_verifies_discord_allowlist_when_enabled(
     assert isinstance(when, list)
     when_str = " ".join(str(c) for c in when)
     assert "config.channels.discord.enabled" in when_str
+
+
+def test_hermes_macos_install_exposes_local_bin_to_bash_sessions():
+    """SSH users must be able to invoke the agent's Hermes launcher."""
+    playbook = _hermes_playbook("install_macos")
+    bashrc_task = _task_by_name(playbook, "Put Hermes on the agent Bash PATH")
+    profile_task = _task_by_name(playbook, "Load agent Bash config for login shells")
+
+    assert bashrc_task is not None
+    assert bashrc_task["ansible.builtin.lineinfile"]["line"] == (
+        'export PATH="$HOME/.local/bin:$PATH"'
+    )
+    assert profile_task is not None
+    assert profile_task["ansible.builtin.lineinfile"]["line"] == (
+        '[ -f "$HOME/.bashrc" ] && . "$HOME/.bashrc"'
+    )

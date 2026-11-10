@@ -34,7 +34,7 @@ cut. The `itx-release` skill archives this section into a new
 
 ### Fixed
 
-- Make macOS Hermes installation retry-safe after an interrupted install, avoid an Ansible async-wrapper permission failure, and remove obsolete upstream TUI bundle handling.
+- Make macOS Hermes installation retry-safe after an interrupted install, avoid an Ansible async-wrapper permission failure, remove obsolete upstream TUI bundle handling, and expose the Hermes launcher in agent Bash sessions.
 - Allow first-time agent SSH key provisioning when remote identity files do not yet exist.
 
 - Allow an explicitly confirmed local-only hard delete when remote agent cleanup fails, while warning that remote service and data need manual cleanup (#1052).

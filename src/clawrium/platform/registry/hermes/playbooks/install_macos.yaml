@@ -82,6 +82,24 @@
         group: staff
         mode: "0755"
 
+    - name: Put Hermes on the agent Bash PATH
+      ansible.builtin.lineinfile:
+        path: "/Users/{{ agent_name }}/.bashrc"
+        line: 'export PATH="$HOME/.local/bin:$PATH"'
+        create: true
+        owner: "{{ agent_name }}"
+        group: staff
+        mode: "0600"
+
+    - name: Load agent Bash config for login shells
+      ansible.builtin.lineinfile:
+        path: "/Users/{{ agent_name }}/.bash_profile"
+        line: '[ -f "$HOME/.bashrc" ] && . "$HOME/.bashrc"'
+        create: true
+        owner: "{{ agent_name }}"
+        group: staff
+        mode: "0600"
+
     # ----- Version-aware skip -----
     - name: Discover hermes binary at agent's user-local install path
       ansible.builtin.stat:
