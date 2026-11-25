@@ -17,7 +17,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-14]
+        os: [ubuntu-latest, macos-15]
         python-version: ["3.11", "3.12"]
     runs-on: ${{ matrix.os }}
 
@@ -70,7 +70,7 @@ jobs:
         run: make test-cov
 
       - name: Run Python tests (macOS — Mac-touching tests only)
-        if: matrix.os == 'macos-14'
+        if: matrix.os == 'macos-15'
         run: make test-macos
 
       - name: Run JS tests

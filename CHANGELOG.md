@@ -36,6 +36,8 @@ cut. The `itx-release` skill archives this section into a new
 
 ### Fixed
 
+- Preserve the exact Codex OAuth credential bytes during activation so the stored fingerprint matches the installed document.
+
 - Allow an explicitly confirmed local-only hard delete when remote agent cleanup fails, while warning that remote service and data need manual cleanup (#1052).
 - Accept Codex CLI 0.160.1 ChatGPT OAuth files that include `OPENAI_API_KEY: null` while rejecting API-key credentials, and allow on-demand Codex chat from its isolated non-Git home (#1031).
 - Reject incomplete or failed native Codex JSONL turns instead of presenting truncated output as a successful chat response (#1037).

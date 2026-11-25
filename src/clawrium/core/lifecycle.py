@@ -4,8 +4,9 @@ This module handles start, stop, and restart operations for agent instances
 running on remote hosts via systemd service management.
 """
 
-import json
+import base64
 import hashlib
+import json
 import logging
 import os
 import re
@@ -2388,7 +2389,11 @@ def _configure_codex_credentials(
                     "ansible_ssh_private_key_file": str(ssh_key),
                 }}, "vars": {
                     "agent_name": unix_agent_name,
-                    "codex_oauth_credentials": credentials,
+                    # Keep credential contents opaque to Ansible's recursive
+                    # templating; the target template decodes them exactly once.
+                    "codex_oauth_credentials_b64": base64.b64encode(
+                        credentials.encode("utf-8")
+                    ).decode("ascii"),
                     "codex_activation_fingerprint": hashlib.sha256(
                         credentials.encode("utf-8")
                     ).hexdigest(),

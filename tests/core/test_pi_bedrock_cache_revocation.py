@@ -491,20 +491,25 @@ def test_remote_cache_cleanup_executes_exact_wrapper_argv(os_family, pi_home):
 
 
 @pytest.mark.parametrize("os_family", ["linux", "darwin"])
-def test_partial_cache_failure_clears_sso_but_retains_cli_sentinel(os_family, pi_home):
+def test_partial_cache_failure_clears_sso_and_does_not_follow_cli_symlink(os_family, pi_home):
     sso = pi_home / ".aws/sso/cache/bearer"
-    cli_sentinel = pi_home / ".aws/cli/cache/sentinel"
+    cli_file = pi_home / ".aws/cli/cache/regular"
     cli_hostile = pi_home / ".aws/cli/cache/hostile"
-    for path in (sso, cli_sentinel):
+    outside_sentinel = pi_home / "outside/keep"
+    for path in (sso, cli_file, outside_sentinel):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("cache")
-    cli_hostile.symlink_to(pi_home.parent, target_is_directory=True)
+    cli_hostile.symlink_to(outside_sentinel.parent, target_is_directory=True)
 
     result = _run_cleanup(os_family, pi_home)
 
     assert result.returncode != 0
     assert not sso.exists()
-    assert cli_sentinel.read_text() == "cache"
+    assert cli_hostile.is_symlink()
+    assert outside_sentinel.read_text() == "cache"
+    # Regular entries may be removed before the hostile entry is encountered.
+    if cli_file.exists():
+        assert cli_file.read_text() == "cache"
 
 
 def test_openrouter_sync_revokes_aws_caches_before_replacing_bedrock(monkeypatch):
@@ -558,13 +563,16 @@ def test_real_partial_cache_failure_stops_sync_and_revoke_before_managed_mutatio
         home = Path(temporary_home)
         agent_name = home.name
         sso = home / ".aws/sso/cache/bearer"
-        cli_hostile = home / ".aws/cli/cache/00-hostile"
-        cli_sentinel = home / ".aws/cli/cache/zz-sentinel"
+        cli_hostile = home / ".aws/cli/cache/hostile"
+        cli_file = home / ".aws/cli/cache/regular"
+        outside_sentinel = home / "outside/keep"
         sso.parent.mkdir(parents=True)
         sso.write_text("cache")
-        cli_sentinel.parent.mkdir(parents=True)
-        cli_sentinel.write_text("cache")
-        cli_hostile.symlink_to(home.parent, target_is_directory=True)
+        cli_file.parent.mkdir(parents=True)
+        cli_file.write_text("cache")
+        outside_sentinel.parent.mkdir()
+        outside_sentinel.write_text("must survive")
+        cli_hostile.symlink_to(outside_sentinel.parent, target_is_directory=True)
         client = _ExecutingCleanupClient()
         monkeypatch.setattr(
             "clawrium.core.lifecycle_canonical._open_ssh", lambda _: client
@@ -606,7 +614,9 @@ def test_real_partial_cache_failure_stops_sync_and_revoke_before_managed_mutatio
 
         assert not sso.exists()
         assert cli_hostile.is_symlink()
-        assert cli_sentinel.read_text() == "cache"
+        assert outside_sentinel.read_text() == "must survive"
+        if cli_file.exists():
+            assert cli_file.read_text() == "cache"
         assert len(client.commands) == 1
         assert "clawrium-pi-env" not in client.commands[0][0]
         assert client.closed is True
