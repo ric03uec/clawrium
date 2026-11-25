@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import getpass
 import grp
 import hashlib
@@ -143,9 +144,10 @@ def test_activation_playbook_executes_replace_preserve_and_restore(
             .replace("group: staff", f'group: "{grp.getgrgid(os.getgid()).gr_name}"')
         )
     playbook.write_text(source_text)
+    shutil.copyfile(source.parent / "auth.json.j2", tmp_path / "auth.json.j2")
     inventory = tmp_path / "inventory"
     inventory.write_text("localhost ansible_connection=local ansible_become=false\n")
-    selected = render_codex_oauth_credentials(_document("selected-access"))
+    selected = render_codex_oauth_credentials(_document("selected-access{{ 7 * 7 }}{% test %}"))
     refreshed = render_codex_oauth_credentials(_document("refreshed-access"))
 
     def run(
@@ -155,7 +157,7 @@ def test_activation_playbook_executes_replace_preserve_and_restore(
         variables = tmp_path / "variables.json"
         variables.write_text(json.dumps({
             "agent_name": agent_name,
-            "codex_oauth_credentials": selected,
+            "codex_oauth_credentials_b64": base64.b64encode(selected.encode()).decode(),
             "codex_activation_fingerprint": hashlib.sha256(selected.encode()).hexdigest(),
             "codex_activation_id": activation_id if replace else "",
             "codex_replace_auth": replace,
@@ -167,11 +169,16 @@ def test_activation_playbook_executes_replace_preserve_and_restore(
         assert result.returncode == expected_returncode, result.stderr
         assert "selected-access" not in result.stdout + result.stderr
         assert "refreshed-access" not in result.stdout + result.stderr
+        assert base64.b64encode(selected.encode()).decode() not in result.stdout + result.stderr
         return result.stdout
 
     run(replace=True)
     auth_path = sandbox_home / agent_name / ".codex" / "auth.json"
-    assert auth_path.read_text() == selected
+    assert auth_path.read_bytes() == selected.encode("utf-8")
+    receipt_path = auth_path.with_name(".clawrium-oauth-fingerprint")
+    assert receipt_path.read_text().strip().endswith(
+        ":" + hashlib.sha256(auth_path.read_bytes()).hexdigest()
+    )
     assert auth_path.stat().st_mode & 0o777 == 0o600
 
     auth_path.write_text(refreshed)
@@ -278,7 +285,7 @@ def test_activation_reconciles_before_read_and_consumes_explicit_replacement(
     assert captured["codex_replace_auth"] is True
     assert captured["codex_activation_id"] == "pending:0123456789abcdef0123456789abcdef"
     assert captured["codex_activation_fingerprint"] == hashlib.sha256(
-        captured["codex_oauth_credentials"].encode()
+        base64.b64decode(captured["codex_oauth_credentials_b64"])
     ).hexdigest()
     assert len(cleanup_paths) == 2
     assert cleanup_paths[0] == cleanup_paths[1]

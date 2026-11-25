@@ -32,7 +32,11 @@ cut. The `itx-release` skill archives this section into a new
 
 ### Changed
 
+- Refresh the GUI app shell and navigation, with a hosts placeholder and a dedicated MCP servers preview page. Existing Skills and Topology views remain available from the sidebar footer during the transition (#1075).
+
 ### Fixed
+
+- Preserve the exact Codex OAuth credential bytes during activation so the stored fingerprint matches the installed document.
 
 - Allow an explicitly confirmed local-only hard delete when remote agent cleanup fails, while warning that remote service and data need manual cleanup (#1052).
 - Accept Codex CLI 0.160.1 ChatGPT OAuth files that include `OPENAI_API_KEY: null` while rejecting API-key credentials, and allow on-demand Codex chat from its isolated non-Git home (#1031).

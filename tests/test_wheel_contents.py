@@ -71,6 +71,10 @@ def test_wheel_includes_frontend_index(wheel_names: set[str]) -> None:
     )
 
 
+def test_wheel_includes_codex_auth_template(wheel_names: set[str]) -> None:
+    assert "clawrium/platform/registry/codex/playbooks/auth.json.j2" in wheel_names
+
+
 def test_wheel_includes_next_static_assets(wheel_names: set[str]) -> None:
     """Without `_next/`, every route would render HTML that 404s all its JS/CSS."""
     has_next_dir = any(

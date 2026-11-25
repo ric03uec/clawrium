@@ -16,8 +16,8 @@
     - name: Validate private Codex OAuth document
       ansible.builtin.assert:
         that:
-          - codex_oauth_credentials is string
-          - codex_oauth_credentials | length > 0
+          - codex_oauth_credentials_b64 is string
+          - codex_oauth_credentials_b64 | length > 0
           - codex_activation_fingerprint is match('^[0-9a-f]{64}$')
           - not codex_replace_auth or codex_activation_id is match('^pending:[0-9a-f]{32}$')
       no_log: true
@@ -95,8 +95,8 @@
 
     - name: Atomically activate selected Codex OAuth document
       become_user: "{{ agent_name }}"
-      ansible.builtin.copy:
-        content: "{{ codex_oauth_credentials }}"
+      ansible.builtin.template:
+        src: auth.json.j2
         dest: "/Users/{{ agent_name }}/.codex/auth.json"
         mode: "0600"
         unsafe_writes: false
