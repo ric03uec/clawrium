@@ -41,6 +41,34 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+.app-root {
+  display: grid;
+  grid-template-columns: 248px minmax(0, 1fr);
+  height: 100vh;
+}
+
+.app-root:has(.sidebar-collapsed) { grid-template-columns: 128px minmax(0, 1fr); }
+.app-sidebar { position: sticky; top: 0; height: 100vh; overflow-y: auto; }
+.app-sidebar-brand, .app-header { height: 72px; flex-shrink: 0; border-bottom: 1px solid var(--border-default); }
+.sidebar-collapsed .app-sidebar-brand, .sidebar-collapsed nav, .sidebar-collapsed .sidebar-footer { display: none; }
+.sidebar-toggle { padding: 0.75rem; text-align: left; color: var(--text-secondary); font-size: 0.75rem; }
+.app-main { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.app-header { flex: none; }
+.app-page { flex: 1; min-width: 0; overflow: auto; padding: 2rem; }
+.app-footer { display: flex; gap: 1rem; padding: 1rem 2rem; border-top: 1px solid var(--border-default); color: var(--text-secondary); font-size: 0.75rem; }
+
+@media (max-width: 600px) {
+  .app-root, .app-root:has(.sidebar-collapsed) {
+    display: flex;
+    flex-direction: column;
+    height: auto;
+    min-height: 100vh;
+  }
+  .app-sidebar { position: static; height: auto; max-height: 50vh; }
+  .app-main { flex: 1; }
+  .app-page { overflow: visible; padding: 1.25rem; }
+}
+
 /* Scrollbar styling */
 ::-webkit-scrollbar {
   width: 6px;

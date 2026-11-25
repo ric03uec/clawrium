@@ -98,7 +98,7 @@ describe("Sidebar", () => {
     expect(img?.getAttribute("aria-hidden")).toBe("true");
   });
 
-  it("preserves the canonical link order Dashboard → Agents → Topology → Providers → Skills → Integrations → Settings", async () => {
+  it("preserves the primary navigation order", async () => {
     // ATX-4 W3: the previous ordering test only checked four labels and
     // missed the new Agents row entirely. Lock in the full main-nav
     // sequence plus the footer Settings link, in document order.
@@ -106,13 +106,12 @@ describe("Sidebar", () => {
     const expected = [
       "Dashboard",
       "Agents",
-      "Topology",
+      "Hosts",
       "Providers",
-      "Skills",
       "Integrations",
-      "Settings",
+      "MCP servers",
     ];
-    const labels = screen
+    const labels = within(screen.getByRole("navigation", { name: "Main navigation" }))
       .getAllByRole("link")
       .map((el) => el.textContent?.trim())
       .filter((t) => t && expected.includes(t));
@@ -171,6 +170,14 @@ describe("Sidebar", () => {
     await waitFor(() => {
       expect(screen.getByText("v1.2.3")).toBeInTheDocument();
     });
+  });
+
+  it("uses a supplied version without another request", () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    render(<Sidebar version="2.3.4" />);
+    expect(screen.getByText("v2.3.4")).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("leaves the footer empty (no crash) when the fetch rejects", async () => {
@@ -288,9 +295,9 @@ describe("Sidebar", () => {
 
   // W4: Stub rows render as <button> (not <a>) and clicking them opens
   // the ComingSoonModal with the matching feature name + upvote URL.
-  it("renders MCPs / Scheduled Jobs / Agent Builder as buttons, not links", async () => {
+  it("renders Scheduled Jobs / Agent Builder as buttons, not links", async () => {
     await renderAndFlush();
-    for (const label of ["MCPs", "Scheduled Jobs", "Agent Builder"]) {
+    for (const label of ["Scheduled Jobs", "Agent Builder"]) {
       expect(
         screen.getByRole("button", { name: `${label} — coming soon` }),
       ).toBeInTheDocument();
@@ -298,20 +305,10 @@ describe("Sidebar", () => {
     }
   });
 
-  it("clicking MCPs opens the coming-soon modal targeting issue #698", async () => {
+  it("links MCP servers to its dedicated page", async () => {
     await renderAndFlush();
-    fireEvent.click(
-      screen.getByRole("button", { name: "MCPs — coming soon" }),
-    );
-    const dialog = await screen.findByRole("dialog");
-    expect(within(dialog).getByText("MCPs — coming soon")).toBeVisible();
-    const upvote = within(dialog).getByRole("link", {
-      name: "Upvote MCPs on GitHub",
-    });
-    expect(upvote).toHaveAttribute(
-      "href",
-      "https://github.com/ric03uec/clawrium/issues/698",
-    );
+    expect(screen.getByRole("link", { name: "MCP servers" })).toHaveAttribute("href", "/mcp-servers");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
   it("clicking Scheduled Jobs opens the modal targeting issue #699", async () => {
@@ -360,7 +357,7 @@ describe("Sidebar", () => {
   it("restores focus to the triggering stub button on modal close", async () => {
     await renderAndFlush();
     const trigger = screen.getByRole("button", {
-      name: "MCPs — coming soon",
+      name: "Scheduled Jobs — coming soon",
     });
     fireEvent.click(trigger);
     const dialog = await screen.findByRole("dialog");

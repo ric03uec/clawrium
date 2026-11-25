@@ -32,6 +32,8 @@ cut. The `itx-release` skill archives this section into a new
 
 ### Changed
 
+- Refresh the GUI app shell and navigation, with a hosts placeholder and a dedicated MCP servers preview page. Existing Skills and Topology views remain available from the sidebar footer during the transition (#1075).
+
 ### Fixed
 
 - Allow an explicitly confirmed local-only hard delete when remote agent cleanup fails, while warning that remote service and data need manual cleanup (#1052).

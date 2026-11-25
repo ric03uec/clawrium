@@ -25,16 +25,11 @@ type NavItem = NavLinkItem | NavStubItem;
 const NAV_ITEMS: NavItem[] = [
   { kind: "link", label: "Dashboard", href: "/" },
   { kind: "link", label: "Agents", href: "/agents" },
-  { kind: "link", label: "Topology", href: "/topology" },
+  { kind: "link", label: "Hosts", href: "/hosts" },
   { kind: "link", label: "Providers", href: "/providers" },
-  { kind: "link", label: "Skills", href: "/skills" },
+
   { kind: "link", label: "Integrations", href: "/integrations" },
-  {
-    kind: "stub",
-    label: "MCPs",
-    body: "MCP (Model Context Protocol) support isn't available in Clawrium yet. It's on the roadmap — your upvote on GitHub helps us prioritize.",
-    upvoteUrl: "https://github.com/ric03uec/clawrium/issues/698",
-  },
+  { kind: "link", label: "MCP servers", href: "/mcp-servers" },
   {
     kind: "stub",
     label: "Scheduled Jobs",
@@ -72,9 +67,11 @@ function SettingsIcon({ className }: { className?: string }) {
   );
 }
 
-export function Sidebar() {
+export function Sidebar({ version: sharedVersion }: { version?: string } = {}) {
   const pathname = usePathname();
-  const [version, setVersion] = useState<string | null>(null);
+  const [localVersion, setVersion] = useState<string | null>(null);
+  const version = sharedVersion ?? localVersion;
+  const [collapsed, setCollapsed] = useState(false);
   const [openStub, setOpenStub] = useState<NavStubItem | null>(null);
   // Holds the button that opened the modal, so we can return focus to it
   // when the modal closes (WCAG 2.4.3 — keyboard users would otherwise
@@ -97,6 +94,7 @@ export function Sidebar() {
   }, []);
 
   useEffect(() => {
+    if (sharedVersion !== undefined) return;
     const ctrl = new AbortController();
     fetch("/api/settings/version", { signal: ctrl.signal })
       .then((r) => r.json())
@@ -105,7 +103,7 @@ export function Sidebar() {
         if (err?.name !== "AbortError") setVersion("");
       });
     return () => ctrl.abort();
-  }, []);
+  }, [sharedVersion]);
 
   const linkRowClasses = (active: boolean) =>
     `block w-full text-left px-5 py-2.5 text-sm font-medium transition-colors ${
@@ -123,15 +121,15 @@ export function Sidebar() {
   const settingsActive = isItemActive(pathname, "/settings");
 
   return (
-    <aside className="fixed left-0 top-0 bottom-0 w-sidebar bg-panel border-r border-default flex flex-col">
-      <div className="px-5 py-6 border-b border-default">
+    <aside className={`app-sidebar bg-panel border-r border-default flex flex-col${collapsed ? " sidebar-collapsed" : ""}`}>
+      <div className="app-sidebar-brand px-5 flex items-center">
         {/* inline-flex flex-col items-stretch shrink-wraps to the top-row
             width (logo + "Clawrium"), so the tagline below is bounded by
             that same width regardless of sidebar width. */}
         <div className="inline-flex flex-col items-stretch">
           <Link
             href="/"
-            className="flex items-center gap-3 font-semibold text-2xl text-emerald-900 hover:text-emerald-950 transition-colors"
+            className="flex items-center gap-2 font-semibold text-lg text-emerald-900 hover:text-emerald-950 transition-colors"
           >
             {/* Logo is decorative — accessible name is supplied by the
                 wordmark <span> below. Without alt="" + aria-hidden, screen
@@ -141,7 +139,7 @@ export function Sidebar() {
               src="/clawrium-logo.png"
               alt=""
               aria-hidden="true"
-              className="h-14 w-14 object-contain"
+              className="h-8 w-8 object-contain"
             />
             <span>Clawrium</span>
           </Link>
@@ -150,7 +148,7 @@ export function Sidebar() {
               fixes at the top row's width), so logo+Clawrium and the tagline
               share identical left/right edges. */}
           <p
-            className="mt-2 text-base font-medium text-primary-text"
+            className="text-xs font-medium text-primary-text"
             style={{ textAlign: "justify", textAlignLast: "justify" }}
           >
             Agent Fleet Manager
@@ -179,19 +177,19 @@ export function Sidebar() {
 
           const isActive = isItemActive(pathname, item.href);
           return (
-            <Link
-              key={`link:${item.href}`}
-              href={item.href}
-              aria-current={isActive ? "page" : undefined}
-              className={linkRowClasses(isActive)}
-            >
-              {item.label}
-            </Link>
+            <div key={`link:${item.href}`}>
+              {item.href === "/" && <p className="px-5 pt-2 text-xs uppercase text-muted">Main</p>}
+              {item.href === "/providers" && <p className="px-5 pt-4 text-xs uppercase text-muted">Configuration</p>}
+              <Link href={item.href} aria-current={isActive ? "page" : undefined} className={linkRowClasses(isActive)}>
+                {item.label}
+              </Link>
+            </div>
           );
         })}
       </nav>
 
-      <div className="px-5 py-4 border-t border-default space-y-3">
+      <div className="sidebar-footer px-5 py-4 border-t border-default space-y-3">
+        <div className="flex gap-3 text-xs text-secondary"><Link href="/topology">Topology</Link><Link href="/skills">Skills</Link></div>
         <ul className="space-y-1">
           <li>
             <Link
@@ -216,6 +214,9 @@ export function Sidebar() {
         </div>
       </div>
 
+      <button type="button" className="sidebar-toggle" aria-expanded={!collapsed} onClick={() => setCollapsed((current) => !current)}>
+        {collapsed ? "Expand sidebar" : "Collapse sidebar"}
+      </button>
       <ComingSoonModal
         open={openStub !== null}
         onClose={closeStub}
