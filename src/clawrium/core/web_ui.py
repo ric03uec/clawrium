@@ -124,8 +124,8 @@ def _build_ssh_config(host: dict[str, Any]) -> dict[str, Any]:
     """Extract SSH connection params from a host record.
 
     Identity is resolved via `get_host_private_key(key_id)` — matching the
-    convention in skills_apply.py, lifecycle.py, install.py, reset.py, and
-    health.py. Real `hosts.json` records do not carry an inline `ssh_key`
+    convention in lifecycle.py, install.py, reset.py, and health.py. Real
+    `hosts.json` records do not carry an inline `ssh_key`
     path; the key lives under `~/.config/clawrium/keys/<key_id>/` and the
     lookup must go through `core.keys`.
     """

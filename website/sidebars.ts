@@ -41,16 +41,6 @@ const sidebars: SidebarsConfig = {
     'web-dashboard',
     {
       type: 'category',
-      label: 'Skills',
-      collapsed: true,
-      items: [
-        'skills/intro',
-        'skills/local',
-        'skills/authoring',
-      ],
-    },
-    {
-      type: 'category',
       label: 'Scenarios',
       collapsed: true,
       items: [

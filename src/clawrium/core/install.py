@@ -636,7 +636,7 @@ def run_installation(
     # is removed — every openclaw is sandboxed by NemoClaw. Legacy bare
     # records must be `clawctl agent remove` + re-created (see
     # `docs/releases/26.7.3/CHANGELOG.md`).
-    # #816: Capture provider/channel/integration/skill attachments BEFORE
+    # #816: Capture provider/channel/integration attachments BEFORE
     # set_installing() overwrites the agent record. These are stable
     # user config (attach lists at the top of the agent record); they
     # must survive both the success and failure paths of a re-install
@@ -790,7 +790,7 @@ def run_installation(
             # UNLESS cleanup_failed=True, then we force a fresh install
             if chosen_name[0] in h.get("agents", {}) and not cleanup_failed:
                 preserved_onboarding[0] = h["agents"][chosen_name[0]].get("onboarding")
-                # #816: capture provider/channel/integration/skill attach
+                # #816: capture provider/channel/integration attach
                 # lists too — they live at the top of the agent record and
                 # would otherwise be wiped by the wholesale overwrite below.
                 # Unlike onboarding (which is only restored on ansible
@@ -805,7 +805,6 @@ def run_installation(
                     "providers": _existing_record.get("providers"),
                     "channels": _existing_record.get("channels"),
                     "integrations": _existing_record.get("integrations"),
-                    "skills": _existing_record.get("skills"),
                 }
                 # Round 2 W4: scope to claws that store credentials in
                 # `config.gateway`. The restore branch in set_installed() is
@@ -1593,7 +1592,7 @@ def run_installation(
                 if preserved_onboarding[0]:
                     h["agents"][agent_name]["onboarding"] = preserved_onboarding[0]
 
-                # #816: restore provider/channel/integration/skill attach
+                # #816: restore provider/channel/integration attach
                 # lists captured before the record was wiped. Any key that
                 # was `None` (i.e. absent on the previous record) is
                 # skipped to keep the shape identical to a fresh install.
@@ -1798,7 +1797,7 @@ def run_installation(
 
             # #816: restore attach lists on the failure path too. A failed
             # upgrade is not the operator's cue to lose their provider,
-            # channel, integration, and skill attachments — retrying the
+            # channel, and integration attachments — retrying the
             # upgrade (or reverting) must see the same attach state that
             # was on disk before the wipe.
             if preserved_attachments[0]:

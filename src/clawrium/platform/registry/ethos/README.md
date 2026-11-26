@@ -14,7 +14,6 @@ ethos/
 │   ├── stop.yaml                # Stop + disable unit; preserves ~/.ethos/
 │   ├── remove.yaml              # Full teardown: unit, ~/.ethos/, npm pkg, agent user
 │   ├── exec.yaml                # Passthrough: run ethos CLI as agent user
-│   ├── skills_apply.yaml        # Reconcile ~/.ethos/skills/clawrium/ with desired state
 │   ├── memory_info.yaml         # Stat MEMORY.md / USER.md / SOUL.md
 │   ├── memory_read.yaml         # Read a memory file
 │   ├── memory_write.yaml        # Overwrite a memory file
@@ -108,10 +107,6 @@ Ethos memory is stored as markdown files under the default personality directory
 
 `clawctl agent memory show/edit/delete` dispatches to `memory_*.yaml` playbooks against this path.
 
-## Skills
-
-Skills are materialized under `~/.ethos/skills/clawrium/` (one directory per skill, with a `SKILL.md` inside). Only the `clawrium/` namespace is managed; other skill namespaces are never touched. The `skills_apply.yaml` playbook reconciles desired state idempotently: installs new skills, prunes removed skills.
-
 ## Service user model
 
 The Linux user created at install (`agent_name`) is the service user. `ETHOS_STATE_DIR` is set to `/home/<agent_name>/.ethos` in the systemd unit so ethos reads its data from there regardless of `$HOME`. This means agent names are also Linux usernames — they must satisfy `^[a-z][a-z0-9_-]{0,31}$`.
@@ -143,7 +138,6 @@ The Linux user created at install (`agent_name`) is the service user. `ETHOS_STA
 | **Providers** | OpenRouter, Anthropic, OpenAI | OpenRouter, Anthropic, OpenAI | any OpenAI-compat URL | OpenAI-compat |
 | **Channels** | CLI, Discord, Slack, Telegram | CLI, Discord, Slack | CLI, Discord | CLI, web, WhatsApp, Slack, Discord, Telegram |
 | **Memory** | `~/.ethos/personalities/default/` | `~/.hermes/memories/` + `~/.hermes/SOUL.md` | `~/.zeroclaw/workspace/` | `~/.openclaw/workspace/memory/` |
-| **Skills** | `~/.ethos/skills/clawrium/` | `~/.hermes/skills/clawrium/` | `~/.zeroclaw/workspace/skills/` | `~/.openclaw/skills/` |
 | **Personality config** | `SOUL.md` + `toolset.yaml` + `config.yaml` (per-personality dir) | managed by hermes upstream | 7 workspace MD files | `SOUL.md` + `IDENTITY.md` |
 | **restart.yaml** | no (not needed — no bearer rotation) | no | yes (re-pairs gateway bearer) | no |
 | **linger (remove)** | not needed | `loginctl disable-linger` on remove | not needed | not needed |

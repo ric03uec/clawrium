@@ -185,21 +185,26 @@ class TestReinstallPreservesOnboarding:
     def test_reinstall_preserves_attachments(
         self, host_with_ready_agent, monkeypatch
     ):
-        """#816: provider/channel/integration/skill attach lists survive a re-install.
+        """#816: provider/channel/integration attach lists survive a re-install.
 
         Reproduces the `clawctl_upgrade_strips_attachments` regression
         observed on wolf-i (2026-06-18 and again 2026-07-01). Prior to
         the fix in `install.py`, the wholesale record overwrite in
-        `set_installing` cleared providers/channels/integrations/skills
+        `set_installing` cleared providers/channels/integrations
         even though onboarding was preserved.
         """
-        # Seed attach lists onto the existing agent record.
+        # Seed attach lists onto the existing agent record. Include a
+        # legacy `skills` key to pin the #1072 behavior: after the
+        # skills subsystem removal, re-install must preserve the three
+        # surviving attach classes AND drop the dead `skills` key from
+        # the resulting record (documented in `CHANGELOG.md` under the
+        # #1072 BREAKING entry).
         host = get_host("192.168.1.100")
         agent_rec = host["agents"]["work"]
         agent_rec["providers"] = ["clawrium-gtm-litellm"]
         agent_rec["channels"] = ["discord-wolf-i"]
         agent_rec["integrations"] = ["wolf-brave"]
-        agent_rec["skills"] = ["tdd"]
+        agent_rec["skills"] = ["tdd"]  # legacy field; expected to be dropped
         # Persist via the isolated hosts.json path used by other tests
         # in this file.
         (host_with_ready_agent / "hosts.json").write_text(json.dumps([host], indent=2))
@@ -216,7 +221,12 @@ class TestReinstallPreservesOnboarding:
         assert post["providers"] == ["clawrium-gtm-litellm"]
         assert post["channels"] == ["discord-wolf-i"]
         assert post["integrations"] == ["wolf-brave"]
-        assert post["skills"] == ["tdd"]
+        # #1072: the legacy `skills` key is NOT carried through the
+        # preserve/restore snapshot. The subsystem was removed in the
+        # same release, so the key is dead data on the new record.
+        assert "skills" not in post, (
+            "legacy skills attach must not be restored after #1072 removal"
+        )
 
     def test_failed_reinstall_preserves_attachments(
         self, host_with_ready_agent, monkeypatch

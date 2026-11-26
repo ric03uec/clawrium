@@ -271,74 +271,6 @@ export const api = {
   // Agent Logs
   getAgentLogs: (key: string, lines = 100) =>
     request<LogsResponse>(`/agents/${key}/logs?lines=${lines}`),
-
-  // Skills catalog (read-only browse — Phase 4)
-  getSkills: () => request<SkillsCatalog>("/skills"),
-  getSkill: (registry: string, name: string) =>
-    // encodeURIComponent on both segments. The backend rejects anything
-    // outside `^[a-z0-9][a-z0-9_-]*$`, so currently this is a no-op,
-    // but the safety shouldn't depend on a non-local invariant.
-    request<SkillDetail>(
-      `/skills/${encodeURIComponent(registry)}/${encodeURIComponent(name)}`,
-    ),
-
-  // Per-agent skills (Phase 5). Same encodeURIComponent guard as
-  // getSkill above — defense in depth on top of the backend's
-  // identifier regex.
-  getAgentSkills: (key: string) =>
-    request<AgentSkills>(`/agents/${encodeURIComponent(key)}/skills`),
-  installAgentSkill: (key: string, registry: string, name: string) =>
-    request<AgentSkillMutationResponse>(
-      `/agents/${encodeURIComponent(key)}/skills/${encodeURIComponent(
-        registry,
-      )}/${encodeURIComponent(name)}`,
-      { method: "POST" },
-    ),
-  removeAgentSkill: (key: string, registry: string, name: string) =>
-    request<AgentSkillMutationResponse>(
-      `/agents/${encodeURIComponent(key)}/skills/${encodeURIComponent(
-        registry,
-      )}/${encodeURIComponent(name)}`,
-      { method: "DELETE" },
-    ),
-
-  // Phase C: per-agent local skill lifecycle
-  getLocalAgentSkill: (key: string, name: string) =>
-    request<{ agent_name: string; skill_name: string; content: string }>(
-      `/agents/${encodeURIComponent(key)}/skills/local/${encodeURIComponent(name)}`,
-    ),
-  addAgentSkill: (
-    key: string,
-    payload: {
-      input_mode: "template" | "file" | "inline";
-      registry?: string;
-      name?: string;
-      content?: string;
-      description?: string;
-      body?: string;
-    },
-  ) =>
-    request<AddLocalSkillResponse>(
-      `/agents/${encodeURIComponent(key)}/skills`,
-      { method: "POST", body: JSON.stringify(payload) },
-    ),
-  editAgentSkill: (key: string, name: string, content: string) =>
-    request<AddLocalSkillResponse>(
-      `/agents/${encodeURIComponent(key)}/skills/local/${encodeURIComponent(name)}`,
-      { method: "PUT", body: JSON.stringify({ content }) },
-    ),
-  removeLocalAgentSkill: (key: string, name: string) =>
-    request<AddLocalSkillResponse>(
-      `/agents/${encodeURIComponent(key)}/skills/local/${encodeURIComponent(name)}`,
-      { method: "DELETE" },
-    ),
-
-  // Phase C: user overlay catalog write
-  addOverlaySkill: (registry: string, name: string, content: string) =>
-    request<AddOverlaySkillResponse>("/skills", {
-      method: "POST",
-      body: JSON.stringify({ registry, name, content }),
-    }),
 };
 
 // Type imports (re-exported from types.ts for convenience)
@@ -371,10 +303,4 @@ import type {
   IntegrationTypesMap,
   IntegrationCreate,
   IntegrationCredentialsUpdate,
-  SkillsCatalog,
-  SkillDetail,
-  AgentSkills,
-  AgentSkillMutationResponse,
-  AddLocalSkillResponse,
-  AddOverlaySkillResponse,
 } from "./types";

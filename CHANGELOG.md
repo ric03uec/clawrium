@@ -14,6 +14,7 @@ cut. The `itx-release` skill archives this section into a new
 
 ### BREAKING
 
+- Removed the Clawrium skills subsystem — `clawctl skill`, `clawctl agent skill`, the GUI **Skills** tab, every `src/clawrium/core/skills*.py` module, every per-claw `skills_apply.yaml` playbook, the `skills/` catalog, the `docs/skills/` documentation tree, and the related tests. Skills management moves fully onto the agent host, operated outside Clawrium. No migration runs — any skills state left under `~/.config/clawrium/agents/<name>/skills*` and any `skills` directory on the agent host (e.g. `~/.hermes/skills/clawrium/`) is ignored by the upgraded `clawctl` and can be manually removed at the operator's discretion. The legacy `agents.<name>.skills` key in `hosts.json` is likewise dead data and is dropped from the agent record on the next `clawctl agent install` / upgrade; operators who still need the attachment list can read it from a pre-upgrade backup of `hosts.json`. Operators who relied on managed skills reapply them directly on the host (#1072).
 - Config-directory initialization now refuses symlinked path components, config directories owned by another user, and group/world-writable config leaves or non-sticky ancestors to prevent path-redirection attacks. `sudo XDG_CONFIG_HOME=/home/user/.config clawctl` now fails: run as the intended non-root operator, or set `XDG_CONFIG_HOME` to a root-owned private real path; no automated migration is available (#1046).
 
 ### Added

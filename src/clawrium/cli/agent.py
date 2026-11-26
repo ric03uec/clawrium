@@ -17,7 +17,6 @@ from rich.console import Console
 from rich.markup import escape as rich_escape
 from rich.panel import Panel
 
-from clawrium.cli.agent_skill import agent_skill_app
 from clawrium.cli.install import install as install_command
 from clawrium.cli.output._sanitize import sanitize, sanitize_passthrough
 from clawrium.cli.status import status as status_command
@@ -2657,4 +2656,3 @@ def registry_show(
 
 
 agent_app.add_typer(registry_app, name="registry")
-agent_app.add_typer(agent_skill_app, name="skill")

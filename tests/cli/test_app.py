@@ -27,7 +27,6 @@ EXPECTED_TOP_LEVEL = [
     "provider",
     "channel",
     "integration",
-    "skill",
 ]
 
 
@@ -54,7 +53,6 @@ def test_root_help_lists_every_group() -> None:
         "provider",
         "channel",
         "integration",
-        "skill",
     ],
 )
 def test_group_help_exits_zero(group: str) -> None:
@@ -67,7 +65,7 @@ def test_pattern_a_registry_subgroup_exposed() -> None:
     # `mcp` was removed in #838 — Slack MCP is now a first-class
     # integration type via `clawctl integration registry create --type
     # slack-*`. Generic MCP-server support is tracked in #844.
-    for noun in ("provider", "channel", "integration", "skill"):
+    for noun in ("provider", "channel", "integration"):
         result = runner.invoke(app, [noun, "--help"])
         assert result.exit_code == 0
         assert "registry" in result.output, f"{noun}: registry subgroup missing"

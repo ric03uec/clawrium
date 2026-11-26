@@ -88,7 +88,6 @@ def test_ethos_playbooks_exist():
         "stop",
         "remove",
         "exec",
-        "skills_apply",
         "memory_read",
         "memory_write",
         "memory_info",

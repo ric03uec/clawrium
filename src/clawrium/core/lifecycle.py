@@ -37,9 +37,47 @@ from clawrium.core.secrets import (
     remove_instance_secrets,
     set_instance_secret,
 )
-from clawrium.core.skills_state import cleanup_agent_state
 
 logger = logging.getLogger(__name__)
+
+_AGENT_NAME_RE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
+
+
+def _validate_agent_name(agent_name: str) -> None:
+    if not isinstance(agent_name, str) or not _AGENT_NAME_RE.match(agent_name):
+        raise LifecycleError(
+            f"Invalid agent name {agent_name!r}. Must match ^[a-z][a-z0-9_-]{{0,31}}$."
+        )
+
+
+def _cleanup_agent_state_dir(agent_name: str) -> bool:
+    """Remove ${config_dir}/agents/<agent_name>/ if present.
+
+    Returns True when the directory existed and was removed. Rejects
+    symlinked targets and paths that escape the config directory.
+    """
+    _validate_agent_name(agent_name)
+    path = get_config_dir() / "agents" / agent_name
+    config_dir = get_config_dir()
+    try:
+        resolved_path = path.resolve()
+        resolved_config = config_dir.resolve()
+    except OSError as error:
+        raise LifecycleError(
+            f"Invalid agent state path for {agent_name!r}: {error}"
+        ) from error
+    if not resolved_path.is_relative_to(resolved_config):
+        raise LifecycleError(
+            f"Agent state path {path} escapes config directory {config_dir}"
+        )
+    if path.is_symlink():
+        raise LifecycleError(
+            f"Agent state path {path} is a symlink, refusing to remove"
+        )
+    if not path.exists():
+        return False
+    shutil.rmtree(path)
+    return True
 
 __all__ = [
     "start_agent",
@@ -3196,8 +3234,8 @@ def configure_agent(
     #
     # zeroclaw config.toml (#583), hermes config.yaml + .env (#622),
     # and openclaw openclaw.json (#756) are all pre-rendered here. The
-    # remaining per-agent templates (skills, identity, exec-approvals,
-    # etc.) still render via Ansible's template module.
+    # remaining per-agent templates (identity, exec-approvals, etc.)
+    # still render via Ansible's template module.
     prerendered_files: dict[str, str] = {}
     if resolved_type == "zeroclaw":
         try:
@@ -3876,10 +3914,7 @@ def hard_delete_agent(hostname: str, agent_key: str) -> None:
     agent_type = record["type"]
     unix_name = record.get("agent_name") or agent_key
     try:
-        # Reuse the existing name validation before constructing either path.
-        from clawrium.core.skills_state import state_file_path
-
-        state_file_path(unix_name)
+        _validate_agent_name(unix_name)
         agents_dir = get_config_dir() / "agents"
         type_dir = agents_dir / agent_type
         workspace = type_dir / unix_name
@@ -3889,7 +3924,7 @@ def hard_delete_agent(hostname: str, agent_key: str) -> None:
             host.get("key_id") or host["hostname"], agent_type, unix_name
         )
         remove_instance_secrets(instance_key)
-        cleanup_agent_state(unix_name)
+        _cleanup_agent_state_dir(unix_name)
         if workspace.exists():
             shutil.rmtree(workspace)
 
@@ -4036,9 +4071,9 @@ def remove_agent(
     except Exception as e:
         logger.warning("Failed to clean up instance secrets for %s: %s", agent_key, e)
 
-    # Clean up agent state directory (skills.json, etc.)
+    # Clean up agent state directory
     try:
-        cleaned = cleanup_agent_state(unix_agent_name)
+        cleaned = _cleanup_agent_state_dir(unix_agent_name)
         if cleaned:
             emit("remove", "Cleaned up agent state directory")
         else:

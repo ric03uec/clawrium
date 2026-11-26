@@ -390,7 +390,7 @@ def test_resolve_ssh_config_falls_back_to_hostname_when_key_id_missing(
     """Legacy host records without `key_id` fall back to looking up by hostname.
 
     Matches the established `key_id = host.get("key_id") or hostname`
-    fallback at skills_apply.py:392 and lifecycle.py:296.
+    fallback at lifecycle.py:296.
     """
     key_file = tmp_path / "xclm_ed25519"
     key_file.write_text("fake")

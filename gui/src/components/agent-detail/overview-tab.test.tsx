@@ -1,18 +1,7 @@
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { describe, expect, it } from "vitest";
 
-import type { AgentDetail, AgentDetailHealth, AgentSkills } from "@/lib/types";
-
-const agentSkillsState: {
-  data: AgentSkills | undefined;
-  isLoading: boolean;
-  error: unknown;
-  refetch: () => void;
-} = { data: undefined, isLoading: false, error: null, refetch: vi.fn() };
-
-vi.mock("@/hooks", () => ({
-  useAgentSkills: () => agentSkillsState,
-}));
+import type { AgentDetail, AgentDetailHealth } from "@/lib/types";
 
 import { OverviewTab } from "./overview-tab";
 
@@ -58,13 +47,9 @@ function makeHealth(
 }
 
 describe("OverviewTab — upgrade-available badge", () => {
-  beforeEach(() => {
-    agentSkillsState.data = { installed: [], available: [] } as unknown as AgentSkills;
-  });
-
   it("renders upgrade-available badge when latest_supported_version > agent.version", () => {
     render(
-      <OverviewTab agent={makeAgent()} agentKey="demo" health={makeHealth()} />,
+      <OverviewTab agent={makeAgent()} health={makeHealth()} />,
     );
     const badge = screen.getByTestId("upgrade-available-badge");
     expect(badge).toBeTruthy();
@@ -76,8 +61,7 @@ describe("OverviewTab — upgrade-available badge", () => {
     render(
       <OverviewTab
         agent={makeAgent({ version: "2026.5.28" })}
-        agentKey="demo"
-        health={makeHealth({ latest_supported_version: "2026.5.28" })}
+health={makeHealth({ latest_supported_version: "2026.5.28" })}
       />,
     );
     expect(screen.queryByTestId("upgrade-available-badge")).toBeNull();
@@ -87,8 +71,7 @@ describe("OverviewTab — upgrade-available badge", () => {
     render(
       <OverviewTab
         agent={makeAgent({ version: "?" })}
-        agentKey="demo"
-        health={makeHealth({ latest_supported_version: "2026.5.28" })}
+health={makeHealth({ latest_supported_version: "2026.5.28" })}
       />,
     );
     expect(screen.queryByTestId("upgrade-available-badge")).toBeNull();
@@ -98,8 +81,7 @@ describe("OverviewTab — upgrade-available badge", () => {
     render(
       <OverviewTab
         agent={makeAgent()}
-        agentKey="demo"
-        health={makeHealth({ latest_supported_version: null })}
+health={makeHealth({ latest_supported_version: null })}
       />,
     );
     expect(screen.queryByTestId("upgrade-available-badge")).toBeNull();
@@ -109,7 +91,7 @@ describe("OverviewTab — upgrade-available badge", () => {
     // Health undefined → latest_supported_version unknown → never show
     // an upgrade badge with the wrong version.
     render(
-      <OverviewTab agent={makeAgent()} agentKey="demo" health={undefined} />,
+      <OverviewTab agent={makeAgent()} health={undefined} />,
     );
     expect(screen.queryByTestId("upgrade-available-badge")).toBeNull();
   });
@@ -119,7 +101,7 @@ describe("OverviewTab — upgrade-available badge", () => {
     // from "confirmed no upgrade" — without it, an outdated agent
     // would silently look up-to-date during the loading window.
     render(
-      <OverviewTab agent={makeAgent()} agentKey="demo" health={undefined} />,
+      <OverviewTab agent={makeAgent()} health={undefined} />,
     );
     expect(screen.getByTestId("upgrade-loading-badge")).toBeTruthy();
   });
@@ -128,8 +110,7 @@ describe("OverviewTab — upgrade-available badge", () => {
     render(
       <OverviewTab
         agent={makeAgent()}
-        agentKey="demo"
-        health={makeHealth({ latest_supported_version: null })}
+health={makeHealth({ latest_supported_version: null })}
       />,
     );
     expect(screen.queryByTestId("upgrade-loading-badge")).toBeNull();

@@ -108,7 +108,6 @@ class AgentSpec:
     provider: Optional[str] = None
     channels: list[str] = field(default_factory=list)
     integrations: list[str] = field(default_factory=list)
-    skills: list[str] = field(default_factory=list)
     version: Optional[str] = None
     config: dict = field(default_factory=dict)
     lifecycle: AgentLifecycle = field(default_factory=AgentLifecycle)

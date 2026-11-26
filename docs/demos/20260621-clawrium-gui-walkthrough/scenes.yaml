@@ -74,16 +74,6 @@ scenes:
       - text: "Providers are the AI backends powering your agents — Anthropic, OpenAI, Bedrock, OpenRouter, and others, each with their default models."
 
   - n: 5
-    title: Skills
-    actions:
-      - click: "aside nav a[href='/skills']"
-      - wait_for_url: "**/skills"
-      - wait_for: "h1"
-    screen_seconds: 8
-    narration:
-      - text: "Skills are reusable behavior bundles. You can install them onto any agent — test-driven workflows, code review, release announcements, and more."
-
-  - n: 6
     title: Integrations
     actions:
       - click: "aside nav a[href='/integrations']"
@@ -93,7 +83,7 @@ scenes:
     narration:
       - text: "Integrations connect your fleet to external channels like Slack and Discord, so agents can post updates or receive commands."
 
-  - n: 7
+  - n: 6
     title: Settings
     actions:
       - click: "aside a[href='/settings']"

@@ -22,14 +22,3 @@ export {
   useUpdateIntegrationCredentials,
   useDeleteIntegration,
 } from "./use-integrations";
-export {
-  useSkills,
-  useSkill,
-  useAgentSkills,
-  useInstallAgentSkill,
-  useRemoveAgentSkill,
-  useAddAgentSkill,
-  useEditAgentSkill,
-  useRemoveLocalAgentSkill,
-  useAddOverlaySkill,
-} from "./use-skills";

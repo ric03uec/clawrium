@@ -1,8 +1,8 @@
 """`clawctl agent describe <name>` — single-agent detail.
 
 Plan §6.7 layout: Name / Kind / Type / Version / Host / Provider /
-Status / Age / Installed + Config + Skills + Integrations + Channels
-+ Onboarding sections.
+Status / Age / Installed + Config + Integrations + Channels +
+Onboarding sections.
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ from clawrium.cli.output._sanitize import sanitize
 def _s(value: object) -> str:
     """Per-field sanitize (ATX iter-1 B1).
 
-    Agent describe is the worst exposure surface — config/identity/skills
+    Agent describe is the worst exposure surface — config/identity
     fields are attacker-reachable via prior `configure` calls. Apply per
     interpolation site; never on the joined block (sanitize collapses
     `\\n` so a single call would compact the whole output to one line).
@@ -76,15 +76,6 @@ def describe(
     lines.append(f"  Identity: {_s(identity)}")
     lines.append(f"  SSH public key: {_s(row['ssh_public_key'] or 'absent')}")
     lines.append(f"  SSH private key: {_s(row['ssh_private_key'])}")
-
-    skills = (config.get("skills") or claw_record.get("skills") or []) or []
-    lines.append("")
-    lines.append(f"Skills ({len(skills)}):")
-    for skill in skills:
-        if isinstance(skill, dict):
-            lines.append(f"  {_s(skill.get('name') or skill.get('ref', '?'))}")
-        else:
-            lines.append(f"  {_s(skill)}")
 
     integrations = config.get("integrations") or claw_record.get("integrations") or {}
     if isinstance(integrations, dict):

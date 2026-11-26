@@ -79,7 +79,7 @@ def test_hermes_spec_from_manifest_excludes_pinned() -> None:
     )
     # Dir-prefix entries are stored without the trailing slash inside
     # the spec; the manifest YAML uses trailing slashes.
-    assert set(spec.excludes_dirs) == {"sessions", "logs", "skills/clawrium"}
+    assert set(spec.excludes_dirs) == {"sessions", "logs"}
 
 
 def test_unknown_agent_type_raises_from_manifest() -> None:
@@ -876,7 +876,6 @@ def test_push_workspace_phase_threads_os_family_to_darwin_hermes(
     assert set(extravars["workspace_excludes_dirs"]) == {
         "sessions",
         "logs",
-        "skills/clawrium",
     }
 
 
@@ -886,10 +885,10 @@ def test_push_workspace_phase_hermes_darwin_filters_full_hostile_set(
     """ATX iter-1 W2 fix: companion to
     `test_push_workspace_phase_threads_os_family_to_darwin_hermes` —
     stage the FULL hostile-file set (every entry in the hermes manifest
-    exclude list, including all three SQLite WAL companions and the
-    `skills/clawrium/` dir-prefix) into the hermes/<agent> workspace
-    slot under a darwin host record, and assert NONE of them surface
-    in `result.files_pushed` or `extravars['workspace_files']`.
+    exclude list, including all three SQLite WAL companions) into the
+    hermes/<agent> workspace slot under a darwin host record, and
+    assert NONE of them surface in `result.files_pushed` or
+    `extravars['workspace_files']`.
 
     The Python-side `_is_excluded` filter is shared with the Linux
     path and covered by `test_workspace_hermes_excludes.py::test_i3_...`
@@ -931,10 +930,6 @@ def test_push_workspace_phase_hermes_darwin_filters_full_hostile_set(
     (ws / "sessions" / "123.json").write_text('{"malicious_session": true}')
     (ws / "logs").mkdir()
     (ws / "logs" / "gateway.log").write_text("MALICIOUS-LOG")
-    (ws / "skills" / "clawrium" / "tdd").mkdir(parents=True)
-    (ws / "skills" / "clawrium" / "tdd" / "SKILL.md").write_text(
-        "MALICIOUS-SKILL"
-    )
 
     captured: dict[str, Any] = {}
 
@@ -979,7 +974,6 @@ def test_push_workspace_phase_hermes_darwin_filters_full_hostile_set(
         "state.db-shm",
         "sessions/123.json",
         "logs/gateway.log",
-        "skills/clawrium/tdd/SKILL.md",
     }
     assert expected_excluded.issubset(set(result.files_excluded)), (
         f"hermes/darwin exclude leak: {expected_excluded - set(result.files_excluded)}"
@@ -1154,8 +1148,6 @@ def test_hermes_workspace_playbook_filters_excludes_per_file() -> None:
     """U22 (hermes subset, #769) / hook-review S — platform-playbooks:
     the hermes playbook MUST re-apply exclude semantics per file via a
     `when:` clause, NOT via a directory-level `find … exclude:` pattern.
-    A `find`-based filter would let `skills/clawrium/<sub>/SKILL.md`
-    slip through tree-walk shortcuts.
     """
     body = _workspace_yaml_body("hermes")
     # `workspace_excluded` is the custom Jinja filter mirroring
@@ -1207,9 +1199,7 @@ def test_hermes_workspace_macos_playbook_present_and_real() -> None:
 def test_hermes_workspace_macos_playbook_filters_excludes_per_file() -> None:
     """#772 (Phase 6) — the hermes macOS playbook MUST re-apply exclude
     semantics per file via the same `workspace_excluded` Jinja filter
-    used by the Linux variant. A directory-level `find … exclude:`
-    pattern would let `skills/clawrium/<sub>/SKILL.md` slip through
-    tree-walk shortcuts (hook-review S — platform-playbooks).
+    used by the Linux variant (hook-review S — platform-playbooks).
 
     Without this per-file `when:` guard, a tampered Python enumeration
     that smuggled `state.db` (or any other exclude entry) into
@@ -1220,10 +1210,10 @@ def test_hermes_workspace_macos_playbook_filters_excludes_per_file() -> None:
     # ATX iter-1 W1 fix: the filter MUST appear in BOTH `when:` clauses
     # — the parent-dir creation task AND the copy task. A regression
     # that dropped the filter from only the parent-dir task (leaving
-    # it on the copy task) would silently create empty `sessions/`,
-    # `logs/`, `skills/clawrium/` shell dirs on the host before
-    # skipping the file copy, leaking the directory structure of
-    # excluded paths even when the file content stays filtered.
+    # it on the copy task) would silently create empty `sessions/`
+    # and `logs/` shell dirs on the host before skipping the file
+    # copy, leaking the directory structure of excluded paths even
+    # when the file content stays filtered.
     occurrences = body.count(
         "workspace_excluded(workspace_excludes_files, workspace_excludes_dirs)"
     )
@@ -1484,32 +1474,6 @@ def render_hermes_v2(name):
         f"U5 scanner failed to catch the f-string refactor pattern: "
         f"harvested keys = {sorted(output_keys)}"
     )
-
-
-def test_skills_apply_targets_subset_of_hermes_excludes() -> None:
-    """U33 (#769, W10 iter-3) — `hermes/playbooks/skills_apply.yaml`
-    writes only under `~/.hermes/skills/clawrium/`. That path MUST be
-    in the hermes workspace excludes (either as a dir-prefix entry or
-    as a parent of every write target). Otherwise an operator drop at
-    `workspace/skills/clawrium/tdd/SKILL.md` would race the
-    skills-apply playbook on every sync.
-    """
-    from clawrium.core.playbook_resolver import resolve_agent_playbook
-
-    skills_apply_path = resolve_agent_playbook(
-        "hermes", "skills_apply", "linux"
-    )
-    body = skills_apply_path.read_text()
-
-    # The reconciler's `skills_root` literal pins the write target. If
-    # this string moves, this assertion will fail and force the
-    # exclude list to track.
-    assert "/.hermes/skills/clawrium" in body
-
-    spec = WorkspaceOverlaySpec.from_manifest("hermes")
-    assert spec is not None
-    # The exclude entry covers every file written under skills/clawrium/.
-    assert "skills/clawrium" in spec.excludes_dirs
 
 
 def test_hermes_install_scaffold_creates_workspace_dir(

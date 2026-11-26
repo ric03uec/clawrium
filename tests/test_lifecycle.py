@@ -2707,8 +2707,6 @@ class TestRemoveClaw:
     def test_removes_agent_state_directory(self, tmp_path: Path):
         """Pre-seed a per-agent state directory and verify remove_agent
         cleans it up (the core fix for #400)."""
-        from clawrium.core.skills_state import write_state
-
         host = {
             "hostname": "192.168.1.100",
             "key_id": "test",
@@ -2730,9 +2728,10 @@ class TestRemoveClaw:
         playbook_path = tmp_path / "test.yaml"
         playbook_path.write_text("---\n- hosts: all\n")
 
-        # Pre-seed the agent state directory with a skills.json
-        write_state("opc-work", ["tdd"])
-        agent_state_dir = tmp_path / "clawrium" / "agents" / "opc-work"
+        # Pre-seed the agent state directory
+        agent_state_dir = tmp_path / "agents" / "opc-work"
+        agent_state_dir.mkdir(parents=True)
+        (agent_state_dir / "state.json").write_text("{}")
         assert agent_state_dir.is_dir()
 
         mock_runner = MagicMock()

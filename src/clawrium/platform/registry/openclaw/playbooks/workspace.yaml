@@ -21,9 +21,8 @@
 #
 # Why no `ansible_user_dir` (B1 iter-3): `become_user` does NOT re-run
 # the `setup` module, so `ansible_user_dir` keeps the SSH-connecting
-# user's home (`/home/xclm`), not the agent user's. The literal
-# `/home/{{ agent_name }}/...` pattern matches what
-# `hermes/playbooks/skills_apply.yaml:27` uses. The assert task below
+# user's home (`/home/xclm`), not the agent user's. Use the literal
+# `/home/{{ agent_name }}/...` pattern instead; the assert task below
 # pins the rendered `workspace_dest_root` to that prefix.
 - hosts: all
   become: yes

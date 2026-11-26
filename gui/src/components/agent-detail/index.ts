@@ -6,6 +6,5 @@ export { OverviewTab } from "./overview-tab";
 export { ChatTab } from "./chat-tab";
 export { ExecTab } from "./exec-tab";
 export { ConfigTab } from "./config-tab";
-export { SkillsTab } from "./skills-tab";
 export { MemoryTab } from "./memory-tab";
 export { LogsTab } from "./logs-tab";

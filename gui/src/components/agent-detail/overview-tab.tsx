@@ -2,24 +2,19 @@
 
 import { AgentDetail, AgentDetailHealth } from "@/lib/types";
 import { AgentLogo, Card } from "@/design-system";
-import { useAgentSkills } from "@/hooks";
 
 interface OverviewTabProps {
   agent: AgentDetail;
-  agentKey: string;
   // #758: live runtime fields (status, uptime, latest_supported_version)
   // arrive separately from the static identity. Undefined while the
   // probe + registry lookup are in flight.
   health: AgentDetailHealth | undefined;
 }
 
-export function OverviewTab({ agent, agentKey, health }: OverviewTabProps) {
-  const { data: skillsData } = useAgentSkills(agentKey);
+export function OverviewTab({ agent, health }: OverviewTabProps) {
   const status = health?.status ?? agent.status;
   // uptime stays on the static endpoint (#758 S5).
   const uptime = agent.uptime;
-
-  const installedSkills = skillsData?.installed ?? [];
 
   return (
     <div className="space-y-4 p-4">
@@ -63,39 +58,6 @@ export function OverviewTab({ agent, agentKey, health }: OverviewTabProps) {
         ) : (
           <p className="text-sm text-muted">
             No provider attached. Configure one on the Providers page.
-          </p>
-        )}
-      </Card>
-
-      {/* Installed skills */}
-      <Card trackingId="agent-detail.overview.skills" padding="md">
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="text-sm font-semibold text-primary-text">
-            Skills
-          </h3>
-          <span className="text-xs text-muted">
-            {installedSkills.length} installed
-          </span>
-        </div>
-        {installedSkills.length > 0 ? (
-          <div className="flex flex-wrap gap-2">
-            {installedSkills.map((skill) => (
-              <span
-                key={skill.ref}
-                className="inline-flex items-center gap-1.5 text-xs bg-panel border border-default rounded-full px-2.5 py-1"
-              >
-                <span className="text-primary-text font-medium">
-                  {skill.registry}/{skill.name}
-                </span>
-                {skill.version && (
-                  <span className="text-muted">v{skill.version}</span>
-                )}
-              </span>
-            ))}
-          </div>
-        ) : (
-          <p className="text-sm text-muted">
-            No skills installed. Add capabilities from the Skills page.
           </p>
         )}
       </Card>

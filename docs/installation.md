@@ -86,7 +86,6 @@ You should see:
 │ provider    Manage inference providers (LLM APIs)                            │
 │ integration Manage external service integrations                             │
 │ channel     Manage chat-channel attachables (Discord, Slack, ...)            │
-│ skill       Browse the skills catalog                                        │
 │ agent       Manage agents in your fleet                                      │
 │ tui         Launch the interactive TUI dashboard                             │
 │ server      Manage the local GUI server (loopback-only, port 36000)          │

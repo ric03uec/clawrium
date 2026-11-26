@@ -281,7 +281,6 @@ def test_compute_idempotent_noop(tmp_path: Path) -> None:
                 providers=["anthropic-main"],
                 channels=["discord-main"],
                 integrations=["gh-main"],
-                skills=[],
             )
         },
     )
@@ -322,7 +321,6 @@ def test_compute_attach_new_channel(tmp_path: Path) -> None:
                 providers=["anthropic-main"],
                 channels=[],
                 integrations=["gh-main"],
-                skills=[],
             )
         },
     )
@@ -374,7 +372,6 @@ def test_compute_detach_removed_integration(tmp_path: Path) -> None:
                 providers=[],
                 channels=[],
                 integrations=["gh-main"],
-                skills=[],
             )
         },
     )

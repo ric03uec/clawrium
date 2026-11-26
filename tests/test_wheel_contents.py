@@ -116,40 +116,6 @@ def test_wheel_frontend_has_all_route_pages(wheel_names: set[str]) -> None:
     )
 
 
-def test_wheel_includes_all_skill_namespaces(wheel_names: set[str]) -> None:
-    """Every namespace under `skills/` must land in `clawrium/_skills/` in the wheel.
-
-    A previous assertion only checked that `clawrium/_skills/` had any entry,
-    which `skills/README.md` alone would satisfy — letting three of four skill
-    namespaces silently drop out of the wheel and break `clawctl skill list`
-    post-install. This test enumerates the source tree so it stays accurate
-    as namespaces are added or removed.
-    """
-    skills_root = REPO_ROOT / "skills"
-    namespaces = sorted(
-        p.name
-        for p in skills_root.iterdir()
-        if p.is_dir() and not p.name.startswith(("_", "."))
-    )
-    assert namespaces, "no skill namespaces found in source tree"
-    missing = [
-        ns
-        for ns in namespaces
-        if not any(n.startswith(f"clawrium/_skills/{ns}/") for n in wheel_names)
-    ]
-    assert not missing, (
-        f"Wheel is missing skill namespaces: {missing}. "
-        "Check `skills` force-include in `[tool.hatch.build.targets.wheel.force-include]`."
-    )
-
-
-def test_wheel_includes_canonical_skill_file(wheel_names: set[str]) -> None:
-    """Pin the canonical clawrium/tdd SKILL.md path called out in AGENTS.md."""
-    assert "clawrium/_skills/clawrium/tdd/SKILL.md" in wheel_names, (
-        "Wheel is missing the canonical `clawrium/tdd` skill referenced in AGENTS.md."
-    )
-
-
 def test_sdist_includes_staged_frontend(tmp_path: Path) -> None:
     """Regression for the sdist→wheel roundtrip: the sdist must carry the staged
     frontend at its source path so the wheel build (which unpacks the sdist) can

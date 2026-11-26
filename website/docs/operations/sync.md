@@ -108,7 +108,7 @@ than a crash, so the diagnostic itself cannot break the dry-run.
 ```text
 $ clawctl agent sync maurice --dry-run --diff
 agent/maurice: validating local state ...
-agent/maurice: pushing config (provider, skills, channels, env) (skipped (dry-run))
+agent/maurice: pushing config (provider, channels, env) (skipped (dry-run))
 agent/maurice: diff error: cannot render: agent 'maurice' has no provider attached;
                run `clawctl agent provider attach <provider> --agent maurice` first
 agent/maurice: dry-run complete; no changes pushed
@@ -163,7 +163,6 @@ Declared attachments:
   providers:    []
   channels:     []
   integrations: []
-  skills:       []
 ```
 
 Sample output (healthy agent):
@@ -177,7 +176,6 @@ Declared attachments:
   providers:    ['openrouter']
   channels:     ['discord-clawrium-d01']
   integrations: ['clawrium-d01-github']
-  skills:       []
 
 Resolved provider:
   name:           openrouter
@@ -243,14 +241,14 @@ scaffold leaves user-dropped files and custom mode bits untouched.
 |---|---|---|
 | openclaw | `~/.openclaw/workspace` | _none_ — disjoint from canonical-rendered paths |
 | zeroclaw | `~/.zeroclaw/workspace` | _none_ — the workspace dir holds operator memory files; canonical render writes elsewhere |
-| hermes | `~/.hermes` | `config.yaml`, `.env`, `auth.json`, `state.db`, `state.db-journal`, `state.db-wal`, `state.db-shm`, `sessions/`, `logs/`, `skills/clawrium/` |
+| hermes | `~/.hermes` | `config.yaml`, `.env`, `auth.json`, `state.db`, `state.db-journal`, `state.db-wal`, `state.db-shm`, `sessions/`, `logs/` |
 
 Hermes is the only agent that **shares its destination root with
 canonical-render output**. Every reserved path above is a Clawrium-
-managed artifact: the renderer writes some, the skills-apply playbook
-writes others, the daemon itself writes the rest. Overlaying any of
-them risks silent data loss — e.g. overlaying `state.db` while the
-daemon holds the WAL open corrupts the SQLite database silently.
+managed artifact: the renderer writes some, the daemon itself writes
+the rest. Overlaying any of them risks silent data loss — e.g.
+overlaying `state.db` while the daemon holds the WAL open corrupts
+the SQLite database silently.
 
 ### Excluded files in practice
 

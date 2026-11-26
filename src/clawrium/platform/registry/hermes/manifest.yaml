@@ -46,11 +46,6 @@ features:
   #                                     files MUST be excluded.
   #   - `sessions/`                   → per-conversation transcripts.
   #   - `logs/`                       → daemon log output.
-  #   - `skills/clawrium/`            → reconciled by hermes
-  #                                     playbooks/skills_apply.yaml.
-  #                                     U33 enforces this is a strict
-  #                                     superset of the skills_apply
-  #                                     write target.
   workspace_overlay:
     destination_root: "~/.hermes"
     excludes:
@@ -63,7 +58,6 @@ features:
       - state.db-shm
       - sessions/
       - logs/
-      - skills/clawrium/
 
 # Secrets configuration.
 # All provider keys are optional: Phase 1 installs the binary in an inert state.

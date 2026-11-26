@@ -16,18 +16,17 @@
 #
 # Hermes is the only agent type with a non-empty exclude list. The
 # destination root `~/.hermes/` is shared with canonical-render output
-# (`.env`, `config.yaml`), reconciled skills under
-# `skills/clawrium/`, and the daemon's own SQLite state (`state.db`
-# + WAL companions). The exclude list reserves every one of those
-# paths. The Python enumerator already filters these before staging,
-# but this playbook re-filters per file against the exclude payload
-# as belt-and-suspenders so a bypass at the Python boundary cannot
-# overwrite renderer / daemon-managed files (hook-review S, plan U5).
+# (`.env`, `config.yaml`) and the daemon's own SQLite state
+# (`state.db` + WAL companions). The exclude list reserves every one
+# of those paths. The Python enumerator already filters these before
+# staging, but this playbook re-filters per file against the exclude
+# payload as belt-and-suspenders so a bypass at the Python boundary
+# cannot overwrite renderer / daemon-managed files (hook-review S,
+# plan U5).
 #
 # Per-file filtering is enforced via the `workspace_excluded` Jinja
 # filter (filter_plugins/clawrium_filters.py) — NOT via a directory-
-# level `find … exclude:` pattern. A directory-level pattern would let
-# `skills/clawrium/<sub>/SKILL.md` slip through via tree-walk shortcuts.
+# level `find … exclude:` pattern.
 # Ansible auto-discovers the adjacent `filter_plugins/` directory, so
 # the same plugin file serves both `workspace.yaml` (Linux) and this
 # macOS variant — no separate plugin copy required.
