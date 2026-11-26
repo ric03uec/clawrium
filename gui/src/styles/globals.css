@@ -46,55 +46,8 @@ body {
   background: var(--background);
 }
 
-.app-root:has(.sidebar-collapsed) {
-  grid-template-columns: 56px minmax(0, 1fr);
-}
-
-.app-sidebar {
-  position: sticky;
-  top: 0;
-  height: 100vh;
-  overflow-y: auto;
-  background: var(--surface-raised);
-}
-
-.app-sidebar-brand,
-.app-header {
-  height: 72px;
-  flex-shrink: 0;
-  border-bottom: 1px solid var(--border);
-}
-
-.sidebar-collapsed .app-sidebar-brand {
-  justify-content: center;
-  padding-inline: 0;
-}
-
-.sidebar-collapsed .sidebar-brand-label,
-.sidebar-collapsed .sidebar-primary-nav,
-.sidebar-collapsed .sidebar-transition-nav,
-.sidebar-collapsed .sidebar-footer-label,
-.sidebar-collapsed .sidebar-version {
-  display: none;
-}
-
-.sidebar-footer {
-  position: sticky;
-  bottom: 0;
-  z-index: 2;
-  margin-top: auto;
-  background: var(--surface-raised);
-}
-
-.sidebar-collapsed .sidebar-footer {
-  margin-top: auto;
-  padding: 0.5rem;
-}
-
-.sidebar-collapsed .sidebar-footer-control {
-  justify-content: center;
-  min-height: 40px;
-  padding: 0.5rem;
+.app-root:has(.ds-app-sidebar[data-collapsed="true"]) {
+  grid-template-columns: 72px minmax(0, 1fr);
 }
 
 .app-main {
@@ -107,7 +60,10 @@ body {
 
 .app-header {
   display: flex;
+  height: 72px;
   flex: none;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--border);
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
@@ -174,42 +130,11 @@ body {
 
 @media (max-width: 600px) {
   .app-root,
-  .app-root:has(.sidebar-collapsed) {
+  .app-root:has(.ds-app-sidebar[data-collapsed="true"]) {
     display: flex;
     flex-direction: column;
     height: auto;
     min-height: 100vh;
-  }
-
-  .app-sidebar {
-    position: static;
-    height: auto;
-    max-height: 50vh;
-  }
-
-  .app-sidebar.sidebar-collapsed {
-    max-height: none;
-    min-height: 56px;
-    flex-direction: row;
-    align-items: center;
-  }
-
-  .sidebar-collapsed .app-sidebar-brand {
-    width: 56px;
-    height: 56px;
-    border-bottom: 0;
-  }
-
-  .sidebar-collapsed .sidebar-footer {
-    display: flex;
-    margin-top: 0;
-    margin-left: auto;
-    padding: 0.25rem 0.5rem;
-    border-top: 0;
-  }
-
-  .sidebar-collapsed .sidebar-footer > * + * {
-    margin-top: 0;
   }
 
   .app-main {

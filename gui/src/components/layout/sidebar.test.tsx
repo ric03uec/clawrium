@@ -46,7 +46,7 @@ describe("Sidebar", () => {
   it("renders the approved primary hierarchy in exact order", async () => {
     await renderAndFlush();
     const nav = screen.getByRole("navigation", { name: "Main navigation" });
-    expect(within(nav).getAllByRole("link").map((link) => link.textContent?.trim())).toEqual([
+    expect(within(nav).getAllByRole("link").map((link) => link.getAttribute("aria-label"))).toEqual([
       "Dashboard",
       "Agents",
       "Hosts",
@@ -71,14 +71,11 @@ describe("Sidebar", () => {
     expect(screen.queryByRole("button", { name: /MCP servers/i })).not.toBeInTheDocument();
   });
 
-  it("keeps Topology and Skills in an explicitly labeled transitional landmark", async () => {
+  it("does not invent navigation outside the issue-approved groups", async () => {
     await renderAndFlush();
-    const primary = screen.getByRole("navigation", { name: "Main navigation" });
-    const transitional = screen.getByRole("navigation", { name: "Transitional navigation" });
-    expect(within(primary).queryByRole("link", { name: "Topology" })).not.toBeInTheDocument();
-    expect(within(primary).queryByRole("link", { name: "Skills" })).not.toBeInTheDocument();
-    expect(within(transitional).getByText("Transitional pages")).toBeInTheDocument();
-    expect(within(transitional).getAllByRole("link").map((link) => link.textContent)).toEqual(["Topology", "Skills"]);
+    expect(screen.queryByText("Transitional pages")).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Topology" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Skills" })).not.toBeInTheDocument();
   });
 
   it.each([
@@ -86,8 +83,6 @@ describe("Sidebar", () => {
     ["/hosts/server-a", "Hosts"],
     ["/mcp-servers", "MCP servers"],
     ["/mcp-servers/example", "MCP servers"],
-    ["/topology", "Topology"],
-    ["/skills/catalog", "Skills"],
   ])("marks %s active on the matching exact or nested route", async (pathname, label) => {
     pathnameRef.current = pathname;
     await renderAndFlush();
@@ -120,7 +115,7 @@ describe("Sidebar", () => {
 
   it("keeps only Settings and GitHub as sidebar footer links", async () => {
     const { container } = await renderAndFlush();
-    const footer = container.querySelector(".sidebar-footer");
+    const footer = container.querySelector(".ds-app-sidebar-footer");
     expect(footer).not.toBeNull();
     expect(within(footer as HTMLElement).getAllByRole("link").map((link) => link.textContent?.trim())).toEqual([
       "Settings",

@@ -1,4 +1,5 @@
 export * from "./agent-logo";
+export * from "./app-sidebar";
 export * from "./button";
 export * from "./card";
 export * from "./data-table";

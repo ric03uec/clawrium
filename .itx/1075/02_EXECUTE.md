@@ -29,6 +29,11 @@ backend description/context-injection work recorded in the parent issue.
   required and authorized for this Clawrium change, while preserving i7n
   ownership/attribution and asserting neither a new license nor an npm
   dependency.
+- Removed the unapproved Transitional Pages sidebar section and centralized the
+  complete sidebar implementation in the reusable design-system `AppSidebar`;
+  application layout code now supplies data only.
+- Rebuilt the staged local frontend and verified the live six-agent Hermes fleet
+  renders the official Hermes mark rather than the stale glyph fallback.
 - Regenerated browser evidence and metadata after all fixes. Metadata describes
   the uncommitted working tree and does not claim a commit SHA.
 

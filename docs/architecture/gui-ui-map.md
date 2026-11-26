@@ -22,7 +22,7 @@
 
 | Element | Location | Contents |
 |---------|----------|----------|
-| **Sidebar** | Left, 248 px expanded | Logo · "Agent Fleet Manager" tagline · grouped primary navigation · explicitly labeled transitional links · Settings · GitHub · collapse/expand control · version |
+| **Sidebar** | Left, 248 px expanded | Logo · "Agent Fleet Manager" tagline · grouped design-system navigation cards · Settings · GitHub · collapse/expand control · version |
 | **Header bar** | Top, 72 px | Fleet workspace context · "Request a feature" link |
 | **App footer** | Bottom | Version · intentional global links such as Documentation |
 
@@ -30,7 +30,7 @@
 
 - **Main** — Dashboard · Agents · Hosts
 - **Configuration** — Providers · Integrations · MCP servers
-- **Transitional pages** — Topology · Skills. These routes remain reachable while later issues own their removal or folding, but they are not part of the approved primary groups.
+Topology and Skills remain addressable routes for existing deep links, but they are not part of the issue #1075 sidebar hierarchy.
 - **Sidebar footer** — Settings · GitHub · collapse/expand · version.
 
 Scheduled Jobs and Agent Builder are not part of this information architecture. MCP servers links to a dedicated follow-up-scope page and does not open a coming-soon modal.

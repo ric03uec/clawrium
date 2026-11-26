@@ -1,7 +1,7 @@
 {
   "issue": 1075,
   "branch": "fix/1075-design-system-completion",
-  "captured_at_utc": "2026-11-26T04:45:05Z",
+  "captured_at_utc": "2026-11-26T05:05:05Z",
   "browser": {
     "engine": "Chromium",
     "playwright": "1.65.1",

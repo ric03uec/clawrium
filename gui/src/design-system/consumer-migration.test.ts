@@ -77,6 +77,7 @@ function jsxAttribute(
 
 const requiredPrimitiveFiles = [
   "agent-logo.tsx",
+  "app-sidebar.tsx",
   "button.tsx",
   "card.tsx",
   "data-table.tsx",
@@ -97,6 +98,7 @@ const requiredPrimitiveFiles = [
 
 const requiredExports = [
   "agent-logo",
+  "app-sidebar",
   "button",
   "card",
   "data-table",
@@ -112,6 +114,7 @@ const requiredExports = [
 
 const trackingContracts: Record<string, string> = {
   "agent-logo.tsx": "agent-logo",
+  "app-sidebar.tsx": "app-sidebar",
   "button.tsx": "button",
   "card.tsx": "card",
   "data-table.tsx": "data-table",
@@ -204,6 +207,16 @@ describe("design-system production migration contracts", () => {
         expect(importsFrom(sourceFile, moduleName), `${path} imports ${moduleName}`).toBe(false);
       }
     }
+  });
+
+  it("keeps application sidebar structure and styling centralized in the design system", () => {
+    const consumers = productionFiles.filter((path) => importsFrom(parse(path), "@/design-system", "AppSidebar"));
+    expect(consumers).toEqual(["src/components/layout/sidebar.tsx"]);
+
+    const adapter = readFileSync(join(root, "src/components/layout/sidebar.tsx"), "utf8");
+    const globals = readFileSync(join(root, "src/styles/globals.css"), "utf8");
+    expect(adapter).not.toContain("ds-app-sidebar-");
+    expect(globals).not.toContain(".ds-app-sidebar-");
   });
 
   it("requires tracking and meaningful eyebrow copy on every expected production PageHeader", () => {

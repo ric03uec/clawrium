@@ -202,3 +202,42 @@
 .ds-tab-btn { margin-bottom: -1px; padding: 10px 16px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--muted-foreground); cursor: pointer; font: 500 14px var(--font-sans); }
 .ds-tab-btn:hover { color: var(--foreground); }
 .ds-tab-btn[data-active="true"] { color: var(--foreground); border-bottom-color: var(--primary); font-weight: 600; }
+
+/* Application sidebar: one canonical shell/navigation implementation. */
+.ds-app-sidebar { position: sticky; top: 0; display: flex; height: 100vh; min-height: 0; flex-direction: column; padding: 0 12px 14px; overflow: hidden; border-right: 1px solid var(--border); background: var(--surface-raised); }
+.ds-app-sidebar-brand { display: flex; height: 72px; flex: 0 0 auto; align-items: center; gap: 10px; margin: 0 -12px 4px; padding: 12px 18px; border-bottom: 1px solid var(--border); color: inherit; }
+.ds-app-sidebar-logo { width: 36px; height: 36px; flex: 0 0 auto; object-fit: contain; }
+.ds-app-sidebar-brand-text { display: flex; min-width: 0; flex-direction: column; gap: 1px; line-height: 1.2; }
+.ds-app-sidebar-brand-title { color: var(--foreground); font-size: 16px; font-weight: 700; letter-spacing: -.015em; }
+.ds-app-sidebar-brand-subtitle { overflow: hidden; color: var(--muted-foreground); font-size: 11px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.ds-app-sidebar-nav { display: flex; min-height: 0; flex: 1 1 auto; flex-direction: column; gap: 4px; padding: 8px 0; overflow-y: auto; }
+.ds-app-sidebar-section { margin: 10px 6px 4px; color: var(--muted-foreground); font-size: 10.5px; font-weight: 650; letter-spacing: .08em; text-transform: uppercase; }
+.ds-app-sidebar-group { display: flex; flex-direction: column; gap: 4px; }
+.ds-app-sidebar-card { display: flex; width: 100%; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid transparent; border-radius: 9px; color: var(--foreground); background: transparent; text-decoration: none; transition: background-color 120ms ease, border-color 120ms ease, box-shadow 120ms ease; }
+.ds-app-sidebar-card:hover { border-color: var(--border); background: var(--accent); box-shadow: var(--shadow-card); }
+.ds-app-sidebar-card[data-active="true"] { border-color: rgb(59 130 246 / 35%); background: var(--accent); box-shadow: 0 0 0 1px rgb(59 130 246 / 12%), var(--shadow-card); }
+.ds-app-sidebar-card-tile { display: inline-flex; width: 30px; height: 30px; flex: 0 0 auto; align-items: center; justify-content: center; border-radius: 7px; background: var(--secondary); color: var(--muted-foreground); transition: background-color 120ms ease, color 120ms ease; }
+.ds-app-sidebar-card:hover .ds-app-sidebar-card-tile, .ds-app-sidebar-card[data-active="true"] .ds-app-sidebar-card-tile { background: var(--primary); color: var(--primary-foreground); }
+.ds-app-sidebar-card-text { display: flex; min-width: 0; flex-direction: column; line-height: 1.2; }
+.ds-app-sidebar-card-title { color: var(--foreground); font-size: 13px; font-weight: 600; letter-spacing: -.005em; }
+.ds-app-sidebar-card[data-active="true"] .ds-app-sidebar-card-title { color: var(--accent-foreground); font-weight: 700; }
+.ds-app-sidebar-card-subtitle { overflow: hidden; color: var(--muted-foreground); font-size: 11px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.ds-app-sidebar-footer { display: flex; flex-direction: column; gap: 3px; margin: 0 -12px -14px; padding: 10px 12px 12px; border-top: 1px solid var(--border); background: var(--surface-raised); }
+.ds-app-sidebar-action { display: flex; width: 100%; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid transparent; border-radius: 9px; color: var(--muted-foreground); background: transparent; font: 500 12.5px var(--font-sans); text-align: left; cursor: pointer; transition: background-color 120ms ease, color 120ms ease; }
+.ds-app-sidebar-action:hover, .ds-app-sidebar-action[data-active="true"] { color: var(--foreground); background: var(--secondary); }
+.ds-app-sidebar-version { padding: 4px 10px 2px; color: var(--muted-foreground); font: 500 10.5px var(--font-sans); letter-spacing: .05em; text-transform: uppercase; }
+.ds-app-sidebar.sidebar-collapsed { padding-inline: 8px; }
+.ds-app-sidebar.sidebar-collapsed .ds-app-sidebar-brand { justify-content: center; margin-inline: -8px; padding-inline: 8px; }
+.ds-app-sidebar.sidebar-collapsed .ds-app-sidebar-brand-text, .ds-app-sidebar.sidebar-collapsed .ds-app-sidebar-card-text, .ds-app-sidebar.sidebar-collapsed .ds-app-sidebar-action-label, .ds-app-sidebar.sidebar-collapsed .ds-app-sidebar-version { display: none; }
+.ds-app-sidebar.sidebar-collapsed .ds-app-sidebar-section { height: 0; margin: 8px 0 4px; overflow: hidden; border-top: 1px solid var(--border); }
+.ds-app-sidebar.sidebar-collapsed .ds-app-sidebar-card, .ds-app-sidebar.sidebar-collapsed .ds-app-sidebar-action { justify-content: center; padding: 8px; }
+.ds-app-sidebar.sidebar-collapsed .ds-app-sidebar-footer { margin-inline: -8px; padding-inline: 8px; }
+
+@media (max-width: 600px) {
+  .ds-app-sidebar { position: static; height: auto; max-height: 70vh; }
+  .ds-app-sidebar.sidebar-collapsed { max-height: none; min-height: 56px; flex-direction: row; align-items: center; padding: 0 8px; }
+  .ds-app-sidebar.sidebar-collapsed .ds-app-sidebar-brand { width: 56px; height: 56px; margin: 0; padding: 8px; border-bottom: 0; }
+  .ds-app-sidebar.sidebar-collapsed .ds-app-sidebar-nav { display: none; }
+  .ds-app-sidebar.sidebar-collapsed .ds-app-sidebar-footer { flex-direction: row; margin: 0 0 0 auto; padding: 4px; border-top: 0; }
+  .ds-app-sidebar.sidebar-collapsed .ds-app-sidebar-action:not(:last-of-type) { display: none; }
+}

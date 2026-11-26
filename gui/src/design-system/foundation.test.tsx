@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import {
   AgentLogo,
+  AppSidebar,
   Button,
   Card,
   Eyebrow,
@@ -81,6 +82,36 @@ describe("design-system foundation", () => {
     for (const [component, name] of expected) {
       expect(container.querySelector(`[data-i7n-component="${component}"][data-i7n-name="${name}"]`)).toBeInTheDocument();
     }
+  });
+
+  it("owns sidebar navigation, active state, and collapse behavior", async () => {
+    const user = userEvent.setup();
+    render(
+      <AppSidebar
+        trackingId="test.sidebar.shell"
+        ariaLabel="Test navigation"
+        brand={{ label: "Test", subtitle: "Fleet", href: "/", logoSrc: "/logo.png" }}
+        groups={[{
+          label: "Main",
+          items: [
+            { label: "Agents", description: "Manage agents", href: "/agents", icon: <span>A</span>, active: true },
+          ],
+        }]}
+        actions={[{ label: "Settings", href: "/settings", icon: <span>S</span> }]}
+        collapseIcons={{ expanded: <span>E</span>, collapsed: <span>C</span> }}
+        version="1.2.3"
+      />,
+    );
+
+    const sidebar = screen.getByRole("complementary", { name: "Test navigation" });
+    expect(sidebar).toHaveAttribute("data-i7n-component", "app-sidebar");
+    expect(screen.getByRole("link", { name: "Agents" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByText("Manage agents")).toBeInTheDocument();
+    expect(screen.getByText("v1.2.3")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Collapse sidebar" }));
+    expect(sidebar).toHaveAttribute("data-collapsed", "true");
+    expect(screen.getByRole("button", { name: "Expand sidebar" })).toHaveAttribute("aria-expanded", "false");
   });
 
   it("handles Button clicks and native disabled behavior", async () => {

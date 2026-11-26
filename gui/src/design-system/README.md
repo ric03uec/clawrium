@@ -19,6 +19,11 @@ Public primitives:
 - `PageHeader`, `TabBar`, `HostCard`, `DataTable`, `AgentLogo`
 - transitive public primitives `Eyebrow` and `StatusLight`
 
+Clawrium-owned canonical extension:
+
+- `AppSidebar` — the single reusable implementation for application-shell
+  navigation, collapse behavior, active cards, brand chrome, and footer actions
+
 Internal closure:
 
 - `ui/button.tsx`, `ui/card.tsx`, `ui/input.tsx`, `ui/table.tsx`
@@ -53,7 +58,10 @@ React 18, Next 14, and Tailwind 3, so this fork deliberately:
 - maps every Clawrium-supported agent type to its official upstream product
   mark. Those additional application assets are documented separately in
   [`public/agents/README.md`](../../public/agents/README.md) and are not claimed
-  as files copied from the pinned i7n snapshot.
+  as files copied from the pinned i7n snapshot;
+- keeps all sidebar markup, card styling, active state, and collapse behavior in
+  `AppSidebar`; `components/layout/sidebar.tsx` only supplies Clawrium's routes,
+  icons, active state, version, and brand data.
 
 The root app layout imports `styles.css` and applies exactly one
 `.iteration-design-system` ancestor on `<body>`. Shell and legacy Tailwind

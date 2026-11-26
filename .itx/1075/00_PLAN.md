@@ -28,8 +28,8 @@ outcomes were not silently added to this GUI completion branch.
    contracts.
 4. Standardize Agents, Providers, Model Catalog, and Integrations inventories on
    `DataTable`, preserving all existing actions and states.
-5. Correct navigation to the issue-approved hierarchy while keeping Skills and
-   Topology as explicitly transitional links.
+5. Correct navigation to the exact issue-approved hierarchy. Topology and
+   Skills remain addressable routes but do not appear in the sidebar.
 6. Add static migration enforcement, production-export browser acceptance,
    deterministic evidence, CI wiring, and final review hardening.
 

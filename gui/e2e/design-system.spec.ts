@@ -226,7 +226,7 @@ test("every primary sidebar route resolves with its heading and active item", as
   }
 });
 
-test("desktop shell collapse is accessible and hidden navigation leaves the focus order", async ({ page }) => {
+test("desktop shell collapse keeps icon navigation accessible", async ({ page }) => {
   await page.goto("/agents");
   await page.keyboard.press("Tab");
   const skipLink = page.getByRole("link", { name: "Skip to main content" });
@@ -240,13 +240,12 @@ test("desktop shell collapse is accessible and hidden navigation leaves the focu
   const toggle = page.getByRole("button", { name: "Collapse sidebar" });
   await toggle.click();
   await expect(page.getByRole("button", { name: "Expand sidebar" })).toHaveAttribute("aria-expanded", "false");
-  await expect(page.getByRole("navigation", { name: "Main navigation" })).toBeHidden();
+  await expect(page.getByRole("navigation", { name: "Main navigation" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Agents", exact: true })).toBeVisible();
+  await expect(page.locator(".ds-app-sidebar-card-text").first()).toBeHidden();
 
-  await page.getByRole("button", { name: "Expand sidebar" }).focus();
-  for (let index = 0; index < 8; index += 1) {
-    await page.keyboard.press("Tab");
-    expect(await page.evaluate(() => Boolean(document.activeElement?.closest(".sidebar-primary-nav")))).toBe(false);
-  }
+  await page.getByRole("link", { name: "Dashboard", exact: true }).focus();
+  await expect(page.getByRole("link", { name: "Dashboard", exact: true })).toBeFocused();
   await assertNoDocumentOverflow(page);
   await evidence(page, "desktop-shell-collapsed.png");
 });

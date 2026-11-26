@@ -38,7 +38,7 @@ lint, build, and diff checks. Recorded checkpoints included 401 tests after 4A,
 
 **Work:** Match the exact approved primary hierarchy, retain MCP and Hosts
 follow-up pages, remove unapproved primary entries/dead coming-soon code, and
-keep Skills/Topology as transitional links.
+leave Skills/Topology addressable only by direct route, outside the sidebar.
 
 **Validation:** sidebar order/active-state/collapse/focus/version tests, full GUI
 unit, lint, build, and diff checks.

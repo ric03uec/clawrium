@@ -33,13 +33,15 @@ describe("visual-system activation contracts", () => {
 
   it("keeps the required shell dimensions and responsive collapsed behavior", () => {
     const globals = readGuiFile("src/styles/globals.css");
+    const styles = readGuiFile("src/design-system/styles.css");
     expect(globals).toMatch(/grid-template-columns:\s*248px minmax\(0, 1fr\)/);
-    expect(globals).toMatch(/\.app-sidebar-brand,\s*\.app-header\s*\{[^}]*height:\s*72px/s);
-    expect(globals).toMatch(/\.app-root:has\(\.sidebar-collapsed\)\s*\{[^}]*grid-template-columns:\s*56px minmax\(0, 1fr\)/s);
-    expect(globals).toMatch(/\.sidebar-collapsed \.sidebar-primary-nav[\s\S]*display:\s*none/);
-    expect(globals).toContain("@media (max-width: 600px)");
-    expect(globals).toMatch(/\.app-sidebar\.sidebar-collapsed\s*\{[^}]*flex-direction:\s*row/s);
-    expect(globals).toMatch(/\.sidebar-footer\s*\{[^}]*position:\s*sticky[^}]*bottom:\s*0/s);
+    expect(globals).toMatch(/\.app-header\s*\{[^}]*height:\s*72px/s);
+    expect(globals).toMatch(/\.app-root:has\(\.ds-app-sidebar\[data-collapsed="true"\]\)\s*\{[^}]*grid-template-columns:\s*72px minmax\(0, 1fr\)/s);
+    expect(styles).toMatch(/\.ds-app-sidebar-brand\s*\{[^}]*height:\s*72px/s);
+    expect(styles).toMatch(/\.ds-app-sidebar\.sidebar-collapsed \.ds-app-sidebar-card-text[^{]*\{\s*display:\s*none/s);
+    expect(styles).toContain("@media (max-width: 600px)");
+    expect(styles).toMatch(/\.ds-app-sidebar\.sidebar-collapsed\s*\{[^}]*flex-direction:\s*row/s);
+    expect(styles).toMatch(/\.ds-app-sidebar-footer\s*\{[^}]*border-top:\s*1px solid var\(--border\)/s);
     expect(globals).toMatch(/\.app-page\s*\{[^}]*padding:\s*2rem/s);
   });
 
