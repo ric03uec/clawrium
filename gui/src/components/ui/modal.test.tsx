@@ -121,6 +121,28 @@ describe("Modal a11y", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
+  it("restores focus to the opener when the dialog unmounts", async () => {
+    const opener = document.createElement("button");
+    opener.textContent = "Open modal";
+    document.body.appendChild(opener);
+    opener.focus();
+
+    const { rerender } = render(
+      <Modal open onClose={vi.fn()} title="t">
+        body
+      </Modal>,
+    );
+    rerender(
+      <Modal open={false} onClose={vi.fn()} title="t">
+        body
+      </Modal>,
+    );
+    await act(async () => Promise.resolve());
+
+    expect(opener).toHaveFocus();
+    opener.remove();
+  });
+
   it("uses the latest onClose closure on subsequent native 'close' events", () => {
     // W2 (latest-closure proof): the onCloseRef pattern means parents
     // can pass a fresh function each render without re-subscribing the

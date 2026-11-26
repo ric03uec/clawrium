@@ -24,24 +24,29 @@ export function MetricsRow() {
   return (
     <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
       <MetricCard
+        trackingId="dashboard.metrics.total-agents"
         label="Total Agents"
         value={fleet?.summary.total ?? 0}
       />
       <MetricCard
+        trackingId="dashboard.metrics.running"
         label="Running"
         value={fleet?.summary.running ?? 0}
         sublabel={fleet ? `of ${fleet.summary.total}` : undefined}
       />
       <MetricCard
+        trackingId="dashboard.metrics.providers"
         label="Providers"
         value={providers?.length ?? 0}
       />
       <MetricCard
+        trackingId="dashboard.metrics.tokens-24h"
         label="Tokens (24h)"
         value={formatTokens(usage?.total_tokens ?? 0)}
         sublabel={`${usage?.total_requests ?? 0} requests`}
       />
       <MetricCard
+        trackingId="dashboard.metrics.cost-24h"
         label="Est. Cost (24h)"
         value={formatCost(usage?.total_cost ?? 0)}
       />

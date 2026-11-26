@@ -1,8 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Card } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
+import { Button, Card, Input, TabBar, getTabId, getTabPanelId } from "@/design-system";
 import { Modal } from "@/components/ui/modal";
 import {
   useAgentSkills,
@@ -166,7 +165,7 @@ function AddSkillModal({
             </code>{" "}
             to apply.
           </p>
-          <Button variant="secondary" onClick={handleClose}>
+          <Button trackingId="agent-detail.skills.close-add" variant="secondary" onClick={handleClose}>
             Close
           </Button>
         </div>
@@ -182,41 +181,38 @@ function AddSkillModal({
           </div>
         ) : null}
 
-        <div
-          className="flex border-b border-default"
-          role="tablist"
+        <TabBar
+          trackingId="agent-detail.skills.add-mode-tabs"
           aria-label="Add skill mode"
-        >
-          {TABS.map((t) => (
-            <button
-              key={t.id}
-              role="tab"
-              aria-selected={tab === t.id}
-              onClick={() => {
-                setTab(t.id);
-                setLocalError(null);
-              }}
-              className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
-                tab === t.id
-                  ? "border-accent text-accent"
-                  : "border-transparent text-muted hover:text-primary-text"
-              }`}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
+          tabs={TABS}
+          value={tab}
+          onValueChange={(value) => {
+            setTab(value as AddTab);
+            setLocalError(null);
+          }}
+        />
 
         {tab === "template" && (
-          <SkillPicker
-            installable={installable}
-            onPick={handleInstallTemplate}
-            pending={isPending}
-          />
+          <div
+            role="tabpanel"
+            id={getTabPanelId("agent-detail.skills.add-mode-tabs", "template")}
+            aria-labelledby={getTabId("agent-detail.skills.add-mode-tabs", "template")}
+          >
+            <SkillPicker
+              installable={installable}
+              onPick={handleInstallTemplate}
+              pending={isPending}
+            />
+          </div>
         )}
 
         {tab === "file" && (
-          <div className="space-y-3">
+          <div
+            className="space-y-3"
+            role="tabpanel"
+            id={getTabPanelId("agent-detail.skills.add-mode-tabs", "file")}
+            aria-labelledby={getTabId("agent-detail.skills.add-mode-tabs", "file")}
+          >
             <p className="text-xs text-muted">
               Paste the full contents of a{" "}
               <code className="bg-surface px-1 rounded">SKILL.md</code> file.
@@ -230,7 +226,7 @@ function AddSkillModal({
               onChange={(e) => setFileContent(e.target.value)}
               aria-label="SKILL.md content"
             />
-            <Button
+            <Button trackingId="agent-detail.skills.add-file"
               variant="primary"
               size="sm"
               onClick={handleAddFile}
@@ -242,7 +238,12 @@ function AddSkillModal({
         )}
 
         {tab === "inline" && (
-          <div className="space-y-3">
+          <div
+            className="space-y-3"
+            role="tabpanel"
+            id={getTabPanelId("agent-detail.skills.add-mode-tabs", "inline")}
+            aria-labelledby={getTabId("agent-detail.skills.add-mode-tabs", "inline")}
+          >
             <p className="text-xs text-muted">
               Create a new skill directly. The skill targets{" "}
               <strong>{agentType}</strong>. Sync to deploy to the agent host.
@@ -254,10 +255,11 @@ function AddSkillModal({
               >
                 Name <span className="text-red-500">*</span>
               </label>
-              <input
+              <Input
+                trackingId="agent-detail.skills.inline-name"
                 id="inline-name"
                 type="text"
-                className="w-full rounded-lg border border-default bg-surface px-3 py-2 text-sm text-primary-text focus:outline-none focus:ring-2 focus:ring-accent"
+                size="sm"
                 placeholder="my-skill"
                 value={inlineName}
                 onChange={(e) => setInlineName(e.target.value)}
@@ -270,10 +272,11 @@ function AddSkillModal({
               >
                 Description
               </label>
-              <input
+              <Input
+                trackingId="agent-detail.skills.inline-description"
                 id="inline-desc"
                 type="text"
-                className="w-full rounded-lg border border-default bg-surface px-3 py-2 text-sm text-primary-text focus:outline-none focus:ring-2 focus:ring-accent"
+                size="sm"
                 placeholder="What this skill does"
                 value={inlineDesc}
                 onChange={(e) => setInlineDesc(e.target.value)}
@@ -294,7 +297,7 @@ function AddSkillModal({
                 onChange={(e) => setInlineBody(e.target.value)}
               />
             </div>
-            <Button
+            <Button trackingId="agent-detail.skills.add-inline"
               variant="primary"
               size="sm"
               onClick={handleAddInline}
@@ -362,7 +365,7 @@ function EditSkillModal({
       title={`Edit skill: ${skillName}`}
       footer={
         <div className="flex items-center gap-2">
-          <Button
+          <Button trackingId="agent-detail.skills.save-edit"
             variant="primary"
             size="sm"
             onClick={handleSave}
@@ -370,7 +373,7 @@ function EditSkillModal({
           >
             {editMutation.isPending ? "Saving…" : "Save"}
           </Button>
-          <Button variant="secondary" size="sm" onClick={onClose}>
+          <Button trackingId="agent-detail.skills.cancel-edit" variant="secondary" size="sm" onClick={onClose}>
             Cancel
           </Button>
         </div>
@@ -483,14 +486,14 @@ export function SkillsTab({ agentKey }: SkillsTabProps) {
     return (
       <div className="p-4" data-testid="skills-tab">
         {liveRegion}
-        <Card padding="md">
+        <Card trackingId="agent-detail.skills.error" padding="md">
           <p className="text-sm text-red-600">
             Failed to load skills for this agent.
           </p>
           <p className="mt-2 text-xs text-muted">
             {error instanceof Error ? error.message : "Unknown error."}
           </p>
-          <Button
+          <Button trackingId="agent-detail.skills.retry"
             variant="secondary"
             size="sm"
             className="mt-3"
@@ -539,7 +542,7 @@ export function SkillsTab({ agentKey }: SkillsTabProps) {
         </div>
       ) : null}
 
-      <Card padding="md">
+      <Card trackingId="agent-detail.skills.installed" padding="md">
         <div className="flex items-center justify-between mb-4">
           <div>
             <h3 className="text-sm font-semibold text-primary-text">
@@ -551,7 +554,7 @@ export function SkillsTab({ agentKey }: SkillsTabProps) {
               ({data.agent_type}).
             </p>
           </div>
-          <Button
+          <Button trackingId="agent-detail.skills.open-add"
             variant="primary"
             size="sm"
             onClick={() => setAddOpen(true)}
@@ -665,7 +668,7 @@ function InstalledRow({
       </div>
       <div className="flex items-center gap-1 shrink-0">
         {isLocal && !confirming ? (
-          <Button
+          <Button trackingId="agent-detail.skills.edit"
             variant="secondary"
             size="sm"
             onClick={onEdit}
@@ -688,7 +691,7 @@ function InstalledRow({
             }}
           >
             <span className="text-xs text-secondary">Remove {row.ref}?</span>
-            <Button
+            <Button trackingId="agent-detail.skills.confirm-remove"
               ref={confirmRef}
               variant="danger"
               size="sm"
@@ -698,7 +701,7 @@ function InstalledRow({
             >
               Confirm
             </Button>
-            <Button
+            <Button trackingId="agent-detail.skills.cancel-remove"
               variant="secondary"
               size="sm"
               onClick={() => setConfirming(false)}
@@ -708,7 +711,7 @@ function InstalledRow({
             </Button>
           </div>
         ) : (
-          <Button
+          <Button trackingId="agent-detail.skills.remove"
             variant="danger"
             size="sm"
             onClick={() => setConfirming(true)}
@@ -768,7 +771,7 @@ function SkillPicker({
               </p>
             ) : null}
           </div>
-          <Button
+          <Button trackingId="agent-detail.skills.install"
             variant="primary"
             size="sm"
             onClick={() => row.registry && row.name && onPick(row.registry, row.name)}

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useRef } from "react";
-import { Button } from "@/components/ui";
+import { Button, Input } from "@/design-system";
 
 interface ExecResult {
   stdout: string;
@@ -90,7 +90,7 @@ export function ExecTab({ agentKey }: ExecTabProps) {
         </div>
 
         <div className="flex gap-2">
-          <input
+          <Input trackingId="agent-detail.exec.command" size="sm"
             type="text"
             value={command}
             onChange={(e) => setCommand(e.target.value)}
@@ -100,7 +100,7 @@ export function ExecTab({ agentKey }: ExecTabProps) {
             disabled={running}
             aria-label="Command to execute"
           />
-          <Button
+          <Button trackingId="agent-detail.exec.run"
             size="sm"
             disabled={!command.trim() || running}
             onClick={handleExec}
@@ -147,7 +147,7 @@ export function ExecTab({ agentKey }: ExecTabProps) {
                 </pre>
               ) : null}
               {result.stderr ? (
-                <pre className="text-xs font-mono text-status-warning whitespace-pre-wrap bg-panel rounded p-2 max-h-48 overflow-auto">
+                <pre className="text-xs font-mono text-status-warning-text whitespace-pre-wrap bg-panel rounded p-2 max-h-48 overflow-auto">
                   {result.stderr}
                 </pre>
               ) : null}

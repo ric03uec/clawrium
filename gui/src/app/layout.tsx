@@ -1,14 +1,14 @@
 import type { Metadata } from "next";
 import "@/styles/globals.css";
+import "@/design-system/styles.css";
 import { Providers } from "./providers";
 import { AppShell } from "@/components/layout";
 
 // Removed `next/font/google` Inter import: it forced a build-time fetch
 // of `fonts.googleapis.com` which intermittently failed in CI (DNS
-// ENOTFOUND on the macOS runner). The body font stack in
-// `styles/globals.css` already includes the full system-font fallback
-// chain (`-apple-system`, `BlinkMacSystemFont`, ...), so dropping the
-// hosted Inter just falls through to the platform's native UI font.
+// ENOTFOUND on the macOS runner). The design-system `--font-sans` token
+// includes the full offline-safe system-font fallback chain, so dropping
+// hosted Inter falls through to the platform's native UI font.
 
 export const metadata: Metadata = {
   title: "Clawrium",
@@ -27,7 +27,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body>
+      <body className="iteration-design-system">
         <Providers>
           <AppShell>{children}</AppShell>
         </Providers>

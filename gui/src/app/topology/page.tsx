@@ -1,6 +1,6 @@
 "use client";
 
-import { PageHeader } from "@/components/layout";
+import { PageHeader } from "@/design-system";
 import { TopologyCanvas } from "@/components/topology";
 import { useFleetHealth } from "@/hooks/use-fleet-health";
 import { useTopology } from "@/hooks/use-topology";
@@ -14,6 +14,8 @@ export default function TopologyPage() {
   return (
     <div>
       <PageHeader
+        trackingId="topology.page.header"
+        eyebrow="Fleet map"
         title="Agent Topology"
         description="Network diagram of hosts and agents"
       />

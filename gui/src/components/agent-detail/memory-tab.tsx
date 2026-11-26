@@ -3,8 +3,8 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import { Card } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
+import { Card } from "@/design-system";
+import { Button } from "@/design-system";
 
 interface MemoryTabProps {
   agentKey: string;
@@ -84,7 +84,7 @@ export function MemoryTab({ agentKey }: MemoryTabProps) {
     <div className="flex gap-4 p-4 h-[500px]">
       {/* File list */}
       <div className="w-48 shrink-0">
-        <Card padding="sm" className="h-full overflow-y-auto">
+        <Card trackingId="agent-detail.memory.files" padding="sm" className="h-full overflow-y-auto">
           <h4 className="text-xs font-semibold text-muted uppercase mb-3">
             Files
           </h4>
@@ -102,7 +102,7 @@ export function MemoryTab({ agentKey }: MemoryTabProps) {
                   }}
                   className={`w-full text-left px-3 py-2 rounded text-sm truncate transition-colors ${
                     selectedFile === file.relative_path
-                      ? "bg-primary/10 text-primary font-medium"
+                      ? "bg-primary/10 text-primary-foreground font-medium"
                       : "text-secondary hover:bg-surface"
                   } ${!file.exists ? "opacity-60" : ""}`}
                 >
@@ -123,7 +123,7 @@ export function MemoryTab({ agentKey }: MemoryTabProps) {
 
       {/* File content */}
       <div className="flex-1 min-w-0">
-        <Card padding="sm" className="h-full flex flex-col">
+        <Card trackingId="agent-detail.memory.content" padding="sm" className="h-full flex flex-col">
           {!selectedFile ? (
             <div className="flex-1 flex items-center justify-center text-muted text-sm">
               Select a file to view its content
@@ -144,7 +144,7 @@ export function MemoryTab({ agentKey }: MemoryTabProps) {
                   )}
                 </h4>
                 <div className="flex gap-2">
-                  <Button
+                  <Button trackingId="agent-detail.memory.copy"
                     variant="secondary"
                     size="sm"
                     onClick={handleCopy}
@@ -158,7 +158,7 @@ export function MemoryTab({ agentKey }: MemoryTabProps) {
                   </Button>
                   {isEditing || isCreating ? (
                     <>
-                      <Button
+                      <Button trackingId="agent-detail.memory.cancel"
                         variant="ghost"
                         size="sm"
                         onClick={() => {
@@ -168,7 +168,7 @@ export function MemoryTab({ agentKey }: MemoryTabProps) {
                       >
                         Cancel
                       </Button>
-                      <Button
+                      <Button trackingId="agent-detail.memory.save"
                         variant="primary"
                         size="sm"
                         onClick={() => saveMutation.mutate()}
@@ -182,7 +182,7 @@ export function MemoryTab({ agentKey }: MemoryTabProps) {
                       </Button>
                     </>
                   ) : (
-                    <Button
+                    <Button trackingId="agent-detail.memory.edit"
                       variant="secondary"
                       size="sm"
                       onClick={() => {
@@ -210,7 +210,7 @@ export function MemoryTab({ agentKey }: MemoryTabProps) {
                 ) : isMissingFile ? (
                   <div className="flex-1 flex flex-col items-center justify-center text-muted text-sm gap-3">
                     <p>This file does not exist on the agent.</p>
-                    <Button
+                    <Button trackingId="agent-detail.memory.create"
                       variant="secondary"
                       size="sm"
                       onClick={() => {

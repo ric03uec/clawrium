@@ -3,7 +3,7 @@
 import { useSearchParams, useRouter } from "next/navigation";
 import { Suspense, useState } from "react";
 import { useAgent, useAgentHealth } from "@/hooks";
-import { PageHeader } from "@/components/layout";
+import { PageHeader, getTabId, getTabPanelId } from "@/design-system";
 import { AgentTable } from "@/components/dashboard";
 import {
   AgentHeader,
@@ -38,6 +38,8 @@ function AgentsListView() {
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
+        trackingId="agents.page.header"
+        eyebrow="Fleet"
         title="Agents"
         description="All agents across your fleet"
       />
@@ -79,7 +81,7 @@ function AgentDetailView({
         <p className="mb-4">Agent not found or unreachable.</p>
         <button
           onClick={() => router.push("/agents")}
-          className="text-primary hover:underline text-sm"
+          className="text-primary-foreground hover:underline text-sm"
         >
           Back to Agents
         </button>
@@ -90,7 +92,7 @@ function AgentDetailView({
   return (
     <div className="space-y-4">
       <div className="text-sm text-muted">
-        <button onClick={() => router.push("/agents")} className="hover:text-primary">
+        <button onClick={() => router.push("/agents")} className="hover:text-primary-foreground">
           Agents
         </button>
         <span className="mx-2">/</span>
@@ -110,7 +112,12 @@ function AgentDetailView({
 
       <div className="bg-white rounded-xl border border-default shadow-sm overflow-hidden">
         <TabNav active={activeTab} onChange={onTabChange} />
-        <div className="min-h-[500px]">
+        <div
+          className="min-h-[500px]"
+          role="tabpanel"
+          id={getTabPanelId("agent-detail.page.tabs", activeTab)}
+          aria-labelledby={getTabId("agent-detail.page.tabs", activeTab)}
+        >
           {activeTab === "overview" && (
             <OverviewTab
               key={agent.agent_key}

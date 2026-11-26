@@ -18,6 +18,8 @@ cut. The `itx-release` skill archives this section into a new
 
 ### Added
 
+- Add and activate the copied-once GUI design system, including canonical blue tokens, tracking contracts, grid backdrop, and accessible global shell chrome (#1075).
+
 - Provision a distinct controller-owned SSH keypair for every agent during
   installation and sync, and expose its public key in agent details.
 
@@ -32,9 +34,11 @@ cut. The `itx-release` skill archives this section into a new
 
 ### Changed
 
-- Refresh the GUI app shell and navigation, with a hosts placeholder and a dedicated MCP servers preview page. Existing Skills and Topology views remain available from the sidebar footer during the transition (#1075).
+- Standardize the GUI on the copied design system: shared accessible tables for agent, provider, model, and integration inventories; migrated headers, controls, tabs, metrics, and status surfaces; and a responsive, browser-verified app shell with the approved navigation hierarchy. Hosts and MCP servers now have dedicated follow-up placeholders, while Skills and Topology remain explicitly transitional (#1075).
 
 ### Fixed
+
+- Complete the GUI design-system accessibility contracts with stable table identities, real row actions, keyboard tabs, AA text colors, a skip link, a reachable mobile sidebar toggle, official branding for every supported agent type, and the restored app-footer version (#1075).
 
 - Preserve the exact Codex OAuth credential bytes during activation so the stored fingerprint matches the installed document.
 

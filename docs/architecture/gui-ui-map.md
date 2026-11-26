@@ -22,17 +22,18 @@
 
 | Element | Location | Contents |
 |---------|----------|----------|
-| **Sidebar** | Left, fixed | Logo · "Agent Fleet Manager" tagline · Navigation links · External links (GitHub, Docs, Discord) · Version badge |
-| **Header bar** | Top | Page title + subtitle · "Request a feature" link · External link icons |
-| **Cost toast** | Bottom-right | Running cost indicator (e.g. "$5.94") — no label or explanation |
+| **Sidebar** | Left, 248 px expanded | Logo · "Agent Fleet Manager" tagline · grouped primary navigation · explicitly labeled transitional links · Settings · GitHub · collapse/expand control · version |
+| **Header bar** | Top, 72 px | Fleet workspace context · "Request a feature" link |
+| **App footer** | Bottom | Version · intentional global links such as Documentation |
 
-**Navigation Items (sidebar):**
-1. Dashboard
-2. Topology
-3. Providers
-4. Skills
-5. Integrations
-6. Settings
+**Approved primary navigation (#1075):**
+
+- **Main** — Dashboard · Agents · Hosts
+- **Configuration** — Providers · Integrations · MCP servers
+- **Transitional pages** — Topology · Skills. These routes remain reachable while later issues own their removal or folding, but they are not part of the approved primary groups.
+- **Sidebar footer** — Settings · GitHub · collapse/expand · version.
+
+Scheduled Jobs and Agent Builder are not part of this information architecture. MCP servers links to a dedicated follow-up-scope page and does not open a coming-soon modal.
 
 ---
 
@@ -45,9 +46,9 @@
 | Metrics Row | 5 stat cards | Total Agents · Running (of total) · Providers · Tokens 24h · Est. Cost 24h |
 | Token Usage (7 Days) | Stacked bar chart (Recharts) | Input/output tokens by model, with totals |
 | Agent Status | Donut/pie chart | Breakdown by status (Running/Stopped/Unknown) |
-| Fleet Agents | Data table | Columns: Status dot, Name, Type, Host, Model, Uptime. Clickable rows → Agent Detail |
+| Fleet Agents | Data table | Columns: Status dot, linked Name, Type, Host, Model, Uptime. The real name link opens Agent Detail. |
 
-**Interactions**: Click agent row → navigate to `/agents?key=<key>`
+**Interactions**: Activate the agent name link → navigate to `/agents?key=<key>`
 
 ---
 
@@ -76,7 +77,7 @@
 
 | Section | Type | Content |
 |---------|------|---------|
-| Configured Providers | Card grid | Each card: logo, name, type, model, API key status, Edit/Remove buttons |
+| Configured Providers | Accessible data table | Columns: details, provider, type, default model, usage, created date, and keyboard-operable Edit/Remove actions |
 | Add Provider | Button | "+ Add Provider" opens modal |
 | Model Catalog | Filterable table | Filter dropdown (by provider) + search. Columns: Provider, Model, Context window, Tags |
 
@@ -105,7 +106,7 @@
 | Section | Type | Content |
 |---------|------|---------|
 | Add Integration | Button | "+ Add Integration" opens modal with type selection |
-| Configured Integrations | Card list | Each card: avatar, name, type, credential status, agent usage count, keys progress (e.g. 3/5), Edit credentials / Remove buttons |
+| Configured Integrations | Searchable data table | Columns: integration, type, credential status, agent usage, and keyboard-operable identity, Edit credentials, and Remove buttons |
 
 ---
 

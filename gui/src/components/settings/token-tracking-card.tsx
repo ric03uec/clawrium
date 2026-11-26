@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Card, Button } from "@/components/ui";
+import { Button, Card } from "@/design-system";
 import { Modal } from "@/components/ui";
 import { Settings } from "@/lib/types";
 import { api } from "@/lib/api";
@@ -33,8 +33,8 @@ export function TokenTrackingCard({ settings, onClear }: TokenTrackingCardProps)
 
   return (
     <>
-      <Card>
-        <h2 className="text-lg font-semibold text-primary mb-4">
+      <Card trackingId="settings.token-tracking.card">
+        <h2 className="text-lg font-semibold text-primary-foreground mb-4">
           Token Tracking
         </h2>
         <div className="grid grid-cols-[140px_1fr] gap-y-3 text-sm">
@@ -51,7 +51,7 @@ export function TokenTrackingCard({ settings, onClear }: TokenTrackingCardProps)
         </div>
 
         <div className="mt-6 flex gap-3">
-          <Button
+          <Button trackingId="settings.token-tracking.export"
             variant="secondary"
             size="sm"
             onClick={handleExport}
@@ -59,7 +59,7 @@ export function TokenTrackingCard({ settings, onClear }: TokenTrackingCardProps)
           >
             {exporting ? "Exporting..." : "Export CSV"}
           </Button>
-          <Button
+          <Button trackingId="settings.token-tracking.open-clear"
             variant="danger"
             size="sm"
             onClick={() => setShowConfirm(true)}
@@ -79,10 +79,10 @@ export function TokenTrackingCard({ settings, onClear }: TokenTrackingCardProps)
           cannot be undone.
         </p>
         <div className="flex justify-end gap-3">
-          <Button variant="secondary" size="sm" onClick={() => setShowConfirm(false)}>
+          <Button trackingId="settings.token-tracking.cancel-clear" variant="secondary" size="sm" onClick={() => setShowConfirm(false)}>
             Cancel
           </Button>
-          <Button variant="danger" size="sm" onClick={handleClear}>
+          <Button trackingId="settings.token-tracking.confirm-clear" variant="danger" size="sm" onClick={handleClear}>
             Clear All Data
           </Button>
         </div>

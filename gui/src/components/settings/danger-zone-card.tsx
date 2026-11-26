@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Card, Button } from "@/components/ui";
+import { Button, Card } from "@/design-system";
 
 export function DangerZoneCard() {
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -41,7 +41,7 @@ export function DangerZoneCard() {
   };
 
   return (
-    <Card>
+    <Card trackingId="settings.danger-zone.card">
       <h2 className="text-lg font-semibold text-status-error mb-4">
         Danger Zone
       </h2>
@@ -50,7 +50,7 @@ export function DangerZoneCard() {
       </p>
 
       {!confirmOpen ? (
-        <Button
+        <Button trackingId="settings.danger-zone.open"
           variant="danger"
           size="sm"
           onClick={() => setConfirmOpen(true)}
@@ -69,7 +69,7 @@ export function DangerZoneCard() {
             <li>Token usage history</li>
           </ul>
           <div className="flex gap-2">
-            <Button
+            <Button trackingId="settings.danger-zone.confirm"
               variant="danger"
               size="sm"
               disabled={resetting}
@@ -77,7 +77,7 @@ export function DangerZoneCard() {
             >
               {resetting ? "Resetting..." : "Confirm Reset"}
             </Button>
-            <Button
+            <Button trackingId="settings.danger-zone.cancel"
               variant="secondary"
               size="sm"
               onClick={() => setConfirmOpen(false)}

@@ -140,6 +140,28 @@ describe("SkillsTab", () => {
     ).toBeInTheDocument();
   });
 
+  it("uses shared tab semantics for add-skill modes", () => {
+    agentSkillsState.data = makeAgentSkills();
+    render(<SkillsTab agentKey="tdd-hermes" />);
+    fireEvent.click(screen.getByRole("button", { name: /Add skill/ }));
+
+    expect(screen.getByRole("tablist", { name: "Add skill mode" })).toHaveAttribute(
+      "data-i7n-name",
+      "agent-detail.skills.add-mode-tabs",
+    );
+    const catalogTab = screen.getByRole("tab", { name: "From catalog" });
+    expect(catalogTab).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tabpanel")).toHaveAttribute("aria-labelledby", catalogTab.id);
+    fireEvent.click(screen.getByRole("tab", { name: "Inline" }));
+    const inlineTab = screen.getByRole("tab", { name: "Inline" });
+    expect(inlineTab).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tabpanel")).toHaveAttribute("aria-labelledby", inlineTab.id);
+    expect(screen.getByLabelText(/Name/)).toHaveAttribute(
+      "data-i7n-name",
+      "agent-detail.skills.inline-name",
+    );
+  });
+
   it("opens the install picker filtered to compatible skills", () => {
     agentSkillsState.data = makeAgentSkills();
     render(<SkillsTab agentKey="tdd-hermes" />);

@@ -2,7 +2,7 @@
 
 import { type TopologyHost } from "@/lib/types";
 import { Modal } from "@/components/ui/modal";
-import { Button } from "@/components/ui/button";
+import { AgentLogo, Button } from "@/design-system";
 import { StatusDot } from "@/components/ui/status-dot";
 
 interface HostInfoModalProps {
@@ -19,7 +19,7 @@ export function HostInfoModal({ host, onClose }: HostInfoModalProps) {
       onClose={onClose}
       title={host.alias}
       footer={
-        <Button variant="ghost" size="sm" onClick={onClose}>
+        <Button trackingId="topology.host-modal.cancel" variant="ghost" size="sm" onClick={onClose}>
           Cancel
         </Button>
       }
@@ -67,6 +67,11 @@ export function HostInfoModal({ host, onClose }: HostInfoModalProps) {
                   className="flex items-center gap-2"
                 >
                   <StatusDot status={agent.status} size="sm" />
+                  <AgentLogo
+                    trackingId="topology.host-modal.agent-logo"
+                    kind={agent.agent_type}
+                    size={14}
+                  />
                   <span className="text-xs text-primary-text">
                     {agent.agent_name}
                   </span>

@@ -12,6 +12,7 @@ import { OSIcon } from "@/components/ui/os-icon";
 import { NvidiaIcon } from "@/components/icons/nvidia";
 import { AmdIcon } from "@/components/icons/amd";
 import { IntelIcon } from "@/components/icons/intel";
+import { AgentLogo } from "@/design-system";
 
 export interface AgentNodeData {
   agent: TopologyAgent;
@@ -101,10 +102,10 @@ export function AgentNode({ data }: NodeProps) {
         onClick={() => onAgentClick?.(agent, hostAlias)}
         className="relative w-full text-left px-4 py-3 hover:bg-surface/50 transition-colors"
       >
-        <span className="absolute top-2 right-3 text-base" aria-hidden="true">🤖</span>
         {/* Name + status */}
         <div className="flex items-center gap-2 mb-2">
           <StatusDot status={agent.status as AgentStatus} size="md" />
+          <AgentLogo trackingId="topology.agent-node.logo" kind={agent.agent_type} size={16} />
           <span className="text-sm font-bold text-primary-text truncate">
             {agent.agent_name}
           </span>

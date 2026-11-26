@@ -2,71 +2,228 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  /* Background */
-  --bg-page: #ffffff;
-  --bg-panel: #f8fafc;
-  --bg-surface: #f0fdfa;
-  --bg-elevated: #ffffff;
-
-  /* Primary */
-  --color-primary: #0d9488;
-  --color-primary-hover: #0f766e;
-  --color-primary-light: #14b8a6;
-  --color-primary-bg: #ccfbf1;
-  --color-primary-wash: #f0fdfa;
-
-  /* Text */
-  --text-primary: #0f172a;
-  --text-secondary: #475569;
-  --text-muted: #94a3b8;
-
-  /* Border */
-  --border-default: #94a3b8;
-  --border-subtle: #cbd5e1;
-
-  /* Status */
-  --status-running: #10b981;
-  --status-warning: #f59e0b;
-  --status-error: #ef4444;
-  --status-info: #0ea5e9;
+html,
+body {
+  min-height: 100%;
 }
 
 body {
-  background: var(--bg-page);
-  color: var(--text-primary);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-    "Helvetica Neue", Arial, sans-serif;
+  margin: 0;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+.iteration-design-system :where(a, button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.skip-link {
+  position: fixed;
+  top: 0.75rem;
+  left: 0.75rem;
+  z-index: 100;
+  padding: 0.625rem 0.875rem;
+  border-radius: 0.5rem;
+  background: var(--surface-card);
+  color: var(--primary-text-color);
+  font-weight: 600;
+  box-shadow: var(--shadow-soft);
+  transform: translateY(-200%);
+}
+
+.skip-link:focus-visible {
+  transform: translateY(0);
 }
 
 .app-root {
   display: grid;
   grid-template-columns: 248px minmax(0, 1fr);
   height: 100vh;
+  background: var(--background);
 }
 
-.app-root:has(.sidebar-collapsed) { grid-template-columns: 128px minmax(0, 1fr); }
-.app-sidebar { position: sticky; top: 0; height: 100vh; overflow-y: auto; }
-.app-sidebar-brand, .app-header { height: 72px; flex-shrink: 0; border-bottom: 1px solid var(--border-default); }
-.sidebar-collapsed .app-sidebar-brand, .sidebar-collapsed nav, .sidebar-collapsed .sidebar-footer { display: none; }
-.sidebar-toggle { padding: 0.75rem; text-align: left; color: var(--text-secondary); font-size: 0.75rem; }
-.app-main { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
-.app-header { flex: none; }
-.app-page { flex: 1; min-width: 0; overflow: auto; padding: 2rem; }
-.app-footer { display: flex; gap: 1rem; padding: 1rem 2rem; border-top: 1px solid var(--border-default); color: var(--text-secondary); font-size: 0.75rem; }
+.app-root:has(.sidebar-collapsed) {
+  grid-template-columns: 56px minmax(0, 1fr);
+}
+
+.app-sidebar {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
+  background: var(--surface-raised);
+}
+
+.app-sidebar-brand,
+.app-header {
+  height: 72px;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.sidebar-collapsed .app-sidebar-brand {
+  justify-content: center;
+  padding-inline: 0;
+}
+
+.sidebar-collapsed .sidebar-brand-label,
+.sidebar-collapsed .sidebar-primary-nav,
+.sidebar-collapsed .sidebar-transition-nav,
+.sidebar-collapsed .sidebar-footer-label,
+.sidebar-collapsed .sidebar-version {
+  display: none;
+}
+
+.sidebar-footer {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  margin-top: auto;
+  background: var(--surface-raised);
+}
+
+.sidebar-collapsed .sidebar-footer {
+  margin-top: auto;
+  padding: 0.5rem;
+}
+
+.sidebar-collapsed .sidebar-footer-control {
+  justify-content: center;
+  min-height: 40px;
+  padding: 0.5rem;
+}
+
+.app-main {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--background);
+}
+
+.app-header {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0 2rem;
+  background: var(--surface-card);
+  box-shadow: var(--shadow-card);
+}
+
+.app-header-context {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 0.75rem;
+  white-space: nowrap;
+}
+
+.app-header-context strong {
+  color: var(--foreground);
+  font-size: 0.875rem;
+  font-weight: 650;
+}
+
+.app-header-description {
+  overflow: hidden;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  text-overflow: ellipsis;
+}
+
+.app-header-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.app-page {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+  padding: 2rem;
+  background-color: var(--background);
+}
+
+.app-footer {
+  display: flex;
+  gap: 1rem;
+  padding: 1rem 2rem;
+  border-top: 1px solid var(--border);
+  background: var(--surface-card);
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+}
+
+.app-footer a:hover {
+  color: var(--primary-text-color);
+}
+
+@media (max-width: 760px) {
+  .app-header-description {
+    display: none;
+  }
+}
 
 @media (max-width: 600px) {
-  .app-root, .app-root:has(.sidebar-collapsed) {
+  .app-root,
+  .app-root:has(.sidebar-collapsed) {
     display: flex;
     flex-direction: column;
     height: auto;
     min-height: 100vh;
   }
-  .app-sidebar { position: static; height: auto; max-height: 50vh; }
-  .app-main { flex: 1; }
-  .app-page { overflow: visible; padding: 1.25rem; }
+
+  .app-sidebar {
+    position: static;
+    height: auto;
+    max-height: 50vh;
+  }
+
+  .app-sidebar.sidebar-collapsed {
+    max-height: none;
+    min-height: 56px;
+    flex-direction: row;
+    align-items: center;
+  }
+
+  .sidebar-collapsed .app-sidebar-brand {
+    width: 56px;
+    height: 56px;
+    border-bottom: 0;
+  }
+
+  .sidebar-collapsed .sidebar-footer {
+    display: flex;
+    margin-top: 0;
+    margin-left: auto;
+    padding: 0.25rem 0.5rem;
+    border-top: 0;
+  }
+
+  .sidebar-collapsed .sidebar-footer > * + * {
+    margin-top: 0;
+  }
+
+  .app-main {
+    flex: 1;
+  }
+
+  .app-header {
+    padding: 0 1.25rem;
+  }
+
+  .app-page {
+    overflow: visible;
+    padding: 1.25rem;
+  }
 }
 
 /* Scrollbar styling */
@@ -80,10 +237,10 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--border-default);
-  border-radius: 3px;
+  border-radius: calc(var(--radius) / 4);
+  background: var(--border);
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--text-muted);
+  background: var(--muted-foreground);
 }

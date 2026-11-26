@@ -12,6 +12,7 @@ interface ModalProps {
 
 export function Modal({ open, onClose, title, children, footer }: ModalProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const openerRef = useRef<HTMLElement | null>(null);
   // ATX-1 W5: pair the <dialog> with a stable id so screen readers
   // announce the title via aria-labelledby. useId is stable across
   // renders + SSR-safe; one id per modal instance.
@@ -19,13 +20,18 @@ export function Modal({ open, onClose, title, children, footer }: ModalProps) {
 
   useEffect(() => {
     const dialog = dialogRef.current;
-    if (!dialog) return;
+    if (!dialog || !open) return;
 
-    if (open) {
-      dialog.showModal();
-    } else {
-      dialog.close();
-    }
+    const activeElement = document.activeElement;
+    openerRef.current = activeElement instanceof HTMLElement ? activeElement : null;
+    dialog.showModal();
+
+    return () => {
+      const opener = openerRef.current;
+      queueMicrotask(() => {
+        if (opener?.isConnected) opener.focus();
+      });
+    };
   }, [open]);
 
   // Keep latest onClose in a ref so the listener registers once per mount

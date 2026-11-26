@@ -3,8 +3,8 @@
 import { useRouter } from "next/navigation";
 import { type TopologyAgent } from "@/lib/types";
 import { Modal } from "@/components/ui/modal";
-import { Button } from "@/components/ui/button";
-import { StatusDot } from "@/components/ui/status-dot";
+import { AgentLogo, Button, StatusChip } from "@/design-system";
+import { AGENT_STATUS_PRESENTATION } from "@/components/ui/status-dot";
 
 interface AgentInfoModalProps {
   agent: TopologyAgent | null;
@@ -40,10 +40,10 @@ export function AgentInfoModal({ agent, hostAlias, onClose }: AgentInfoModalProp
       title={agent.agent_name}
       footer={
         <>
-          <Button variant="ghost" size="sm" onClick={onClose}>
+          <Button trackingId="topology.agent-modal.cancel" variant="ghost" size="sm" onClick={onClose}>
             Cancel
           </Button>
-          <Button
+          <Button trackingId="topology.agent-modal.open"
             variant="primary"
             size="sm"
             onClick={() => {
@@ -59,10 +59,16 @@ export function AgentInfoModal({ agent, hostAlias, onClose }: AgentInfoModalProp
     >
       {/* Status header */}
       <div className="flex items-center gap-2 mb-3 pb-3 border-b border-subtle">
-        <StatusDot status={agent.status} size="md" />
-        <span className="text-sm font-medium text-primary-text capitalize">
-          {agent.status.replace(/_/g, " ")}
-        </span>
+        <AgentLogo
+          trackingId="topology.agent-modal.logo"
+          kind={agent.agent_type}
+          size={20}
+        />
+        <StatusChip
+          trackingId="topology.agent-modal.status"
+          status={agent.status}
+          label={AGENT_STATUS_PRESENTATION[agent.status].label}
+        />
       </div>
 
       {/* Compact card grid */}

@@ -10,6 +10,7 @@ import { StatusDot } from "@/components/ui/status-dot";
 import { NvidiaIcon } from "@/components/icons/nvidia";
 import { AmdIcon } from "@/components/icons/amd";
 import { IntelIcon } from "@/components/icons/intel";
+import { AgentLogo } from "@/design-system";
 
 interface HostNodeData {
   hostname: string;
@@ -137,6 +138,7 @@ export function HostNode({ data }: NodeProps) {
                     status={agent.status as AgentStatus}
                     size="sm"
                   />
+                  <AgentLogo trackingId="topology.host-node.agent-logo" kind={agent.agent_type} size={13} />
                   <div className="text-xs font-medium text-primary-text truncate">
                     {agent.agent_name}
                   </div>

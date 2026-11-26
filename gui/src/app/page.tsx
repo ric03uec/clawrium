@@ -1,6 +1,6 @@
 "use client";
 
-import { PageHeader } from "@/components/layout";
+import { PageHeader } from "@/design-system";
 import {
   MetricsRow,
   UsageChart,
@@ -11,6 +11,8 @@ export default function DashboardPage() {
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
+        trackingId="dashboard.page.header"
+        eyebrow="Fleet"
         title="Dashboard"
         description="Fleet overview and usage metrics"
       />

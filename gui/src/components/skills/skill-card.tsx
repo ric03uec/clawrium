@@ -1,7 +1,7 @@
 "use client";
 
 import type { SkillSummary } from "@/lib/types";
-import { Card } from "@/components/ui/card";
+import { Card } from "@/design-system";
 
 const REGISTRY_BADGES: Record<string, { label: string; color: string }> = {
   clawrium: { label: "CLW", color: "bg-blue-100 text-blue-700" },
@@ -23,7 +23,7 @@ export function SkillCard({ skill, onSelect }: SkillCardProps) {
     };
 
   return (
-    <Card padding="md">
+    <Card trackingId="skills.card.summary" padding="md">
       <button
         type="button"
         onClick={onSelect}

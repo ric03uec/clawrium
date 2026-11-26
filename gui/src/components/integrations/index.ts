@@ -1,4 +1,3 @@
-export { IntegrationCard } from "./integration-card";
 export { IntegrationIcon } from "./integration-icon";
 export {
   AddIntegrationModal,

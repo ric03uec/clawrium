@@ -1,84 +1,86 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { Card } from "@/components/ui/card";
+import type { ColumnDef } from "@tanstack/react-table";
+import Link from "next/link";
+import { AgentLogo, DataTable } from "@/design-system";
 import { StatusDot } from "@/components/ui/status-dot";
 import { OSIcon } from "@/components/ui/os-icon";
 import { useFleet, useFleetHealth } from "@/hooks";
+import type { AgentSummary } from "@/lib/types";
+
+const columns: ColumnDef<AgentSummary, unknown>[] = [
+  {
+    accessorKey: "status",
+    header: () => <span className="sr-only">Status</span>,
+    cell: ({ row }) => <StatusDot status={row.original.status} size="md" />,
+  },
+  {
+    accessorKey: "agent_name",
+    header: "Name",
+    cell: ({ row }) => (
+      <Link
+        href={`/agents?key=${encodeURIComponent(row.original.agent_key)}`}
+        aria-label={`Open agent ${row.original.agent_name}`}
+        className="inline-flex items-center gap-2 font-medium text-primary-foreground hover:underline"
+      >
+        <AgentLogo
+          trackingId="dashboard.agents.agent-logo"
+          kind={row.original.agent_type}
+          size={16}
+        />
+        {row.original.agent_name}
+      </Link>
+    ),
+  },
+  {
+    accessorKey: "agent_type",
+    header: "Type",
+    cell: ({ getValue }) => <span className="text-secondary">{getValue<string>()}</span>,
+  },
+  {
+    id: "host",
+    accessorFn: (agent) => agent.host_alias || agent.host,
+    header: "Host",
+    cell: ({ row, getValue }) => (
+      <span className="inline-flex items-center gap-1.5 text-secondary">
+        <OSIcon os={row.original.host_os_family} variant="dot" />
+        {getValue<string>()}
+      </span>
+    ),
+  },
+  {
+    accessorKey: "model",
+    header: "Model",
+    cell: ({ getValue }) => (
+      <span className="font-mono text-xs text-secondary">{getValue<string>() || "—"}</span>
+    ),
+  },
+  {
+    accessorKey: "uptime",
+    header: "Uptime",
+    cell: ({ getValue }) => <span className="text-secondary">{getValue<string>() || "—"}</span>,
+  },
+];
 
 export function AgentTable() {
   const { data: fleet, isLoading } = useFleet();
   // Start health polling — merges live status into fleet cache
   useFleetHealth();
-  const router = useRouter();
   const agents = fleet?.agents ?? [];
 
   return (
-    <Card padding="md" className="flex flex-col gap-4">
-      <div className="flex items-center justify-between">
-        <h3 className="text-sm font-medium text-secondary">Fleet Agents</h3>
-        <span className="text-xs text-muted">
-          {agents.length} agent{agents.length !== 1 ? "s" : ""}
-        </span>
-      </div>
-
-      {isLoading ? (
-        <div className="h-32 flex items-center justify-center text-muted text-sm">
-          Loading...
-        </div>
-      ) : agents.length === 0 ? (
-        <div className="h-32 flex items-center justify-center text-muted text-sm">
-          No agents installed yet
-        </div>
-      ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-default text-left">
-                <th className="pb-3 pr-4 font-medium text-muted w-8"></th>
-                <th className="pb-3 pr-4 font-medium text-muted">Name</th>
-                <th className="pb-3 pr-4 font-medium text-muted">Type</th>
-                <th className="pb-3 pr-4 font-medium text-muted">Host</th>
-                <th className="pb-3 pr-4 font-medium text-muted">Model</th>
-                <th className="pb-3 font-medium text-muted">Uptime</th>
-              </tr>
-            </thead>
-            <tbody>
-              {agents.map((agent) => (
-                <tr
-                  key={agent.agent_key}
-                  className="border-b border-default last:border-0 hover:bg-surface cursor-pointer transition-colors"
-                  onClick={() =>
-                    router.push(`/agents?key=${agent.agent_key}`)
-                  }
-                >
-                  <td className="py-3 pr-4">
-                    <StatusDot status={agent.status} size="md" />
-                  </td>
-                  <td className="py-3 pr-4 font-medium text-primary">
-                    {agent.agent_name}
-                  </td>
-                  <td className="py-3 pr-4 text-secondary">
-                    {agent.agent_type}
-                  </td>
-                  <td className="py-3 pr-4 text-secondary">
-                    <span className="inline-flex items-center gap-1.5">
-                      <OSIcon os={agent.host_os_family} variant="dot" />
-                      {agent.host_alias || agent.host}
-                    </span>
-                  </td>
-                  <td className="py-3 pr-4 text-secondary font-mono text-xs">
-                    {agent.model || "—"}
-                  </td>
-                  <td className="py-3 text-secondary">
-                    {agent.uptime || "—"}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </Card>
+    <DataTable
+      trackingId="dashboard.agents.table-card"
+      title="Fleet Agents"
+      columns={columns}
+      data={agents}
+      getRowId={(agent) => agent.agent_key}
+      isLoading={isLoading}
+      loadingMessage="Loading..."
+      emptyMessage="No agents installed yet"
+      itemLabel="agent"
+      enableSearch={false}
+      enablePagination={false}
+    />
   );
 }

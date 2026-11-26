@@ -1,7 +1,7 @@
 "use client";
 
 import { AgentDetail, AgentDetailHealth } from "@/lib/types";
-import { Card } from "@/components/ui/card";
+import { AgentLogo, Card } from "@/design-system";
 import { useAgentSkills } from "@/hooks";
 
 interface OverviewTabProps {
@@ -24,7 +24,7 @@ export function OverviewTab({ agent, agentKey, health }: OverviewTabProps) {
   return (
     <div className="space-y-4 p-4">
       {/* Provider attachment */}
-      <Card padding="md">
+      <Card trackingId="agent-detail.overview.provider" padding="md">
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-sm font-semibold text-primary-text">
             Provider
@@ -68,7 +68,7 @@ export function OverviewTab({ agent, agentKey, health }: OverviewTabProps) {
       </Card>
 
       {/* Installed skills */}
-      <Card padding="md">
+      <Card trackingId="agent-detail.overview.skills" padding="md">
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-sm font-semibold text-primary-text">
             Skills
@@ -101,13 +101,13 @@ export function OverviewTab({ agent, agentKey, health }: OverviewTabProps) {
       </Card>
 
       {/* Agent identity */}
-      <Card padding="md">
+      <Card trackingId="agent-detail.overview.identity" padding="md">
         <h3 className="text-sm font-semibold text-primary-text mb-3">
           Agent Identity
         </h3>
         <div className="grid grid-cols-2 gap-y-3 gap-x-8 text-sm">
           <InfoRow label="Name" value={agent.agent_name} />
-          <InfoRow label="Type" value={agent.agent_type} />
+          <AgentKindRow kind={agent.agent_type} />
           <InfoRow label="Host" value={agent.host_alias || agent.host} />
           <VersionRow
             version={agent.version}
@@ -128,6 +128,18 @@ export function OverviewTab({ agent, agentKey, health }: OverviewTabProps) {
           )}
         </div>
       </Card>
+    </div>
+  );
+}
+
+function AgentKindRow({ kind }: { kind: string }) {
+  return (
+    <div>
+      <span className="text-muted text-xs block">Type</span>
+      <span className="inline-flex items-center gap-2 text-primary-text font-mono text-xs">
+        <AgentLogo trackingId="agent-detail.overview.agent-logo" kind={kind} size={14} />
+        {kind}
+      </span>
     </div>
   );
 }

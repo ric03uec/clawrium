@@ -3,8 +3,8 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import { Card } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
+import { Card, Input } from "@/design-system";
+import { Button } from "@/design-system";
 import { LogEntry } from "@/lib/types";
 
 interface LogsTabProps {
@@ -41,7 +41,7 @@ export function LogsTab({ agentKey }: LogsTabProps) {
     <div className="p-4 h-[500px] flex flex-col">
       {/* Controls */}
       <div className="flex items-center gap-3 mb-3">
-        <input
+        <Input trackingId="agent-detail.logs.filter" size="sm"
           type="text"
           placeholder="Filter logs..."
           value={filter}
@@ -58,13 +58,13 @@ export function LogsTab({ agentKey }: LogsTabProps) {
           <option value={200}>200 lines</option>
           <option value={500}>500 lines</option>
         </select>
-        <Button variant="ghost" size="sm" onClick={() => refetch()}>
+        <Button trackingId="agent-detail.logs.refresh" variant="ghost" size="sm" onClick={() => refetch()}>
           Refresh
         </Button>
       </div>
 
       {/* Log content */}
-      <Card padding="sm" className="flex-1 overflow-hidden">
+      <Card trackingId="agent-detail.logs.output" padding="sm" className="flex-1 overflow-hidden">
         {isLoading ? (
           <div className="flex items-center justify-center h-full text-muted text-sm">
             Loading logs...

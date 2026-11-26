@@ -52,6 +52,26 @@ jobs:
       - name: Build GUI frontend
         run: make build-ui
 
+      - name: Install Playwright Chromium
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.11'
+        working-directory: gui
+        run: npx playwright install --with-deps chromium
+
+      - name: Run GUI browser acceptance tests
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.11'
+        working-directory: gui
+        run: npm run test:e2e:ci
+
+      - name: Upload Playwright failure artifacts
+        if: failure() && matrix.os == 'ubuntu-latest' && matrix.python-version == '3.11'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: playwright-report
+          path: |
+            gui/playwright-report/
+            gui/test-results/
+          if-no-files-found: ignore
+
       - name: Install dependencies
         run: uv sync
 

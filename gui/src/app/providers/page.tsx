@@ -1,9 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { PageHeader } from "@/components/layout";
-import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
+import { Button, Card, PageHeader, TabBar, getTabId, getTabPanelId } from "@/design-system";
 import { Modal } from "@/components/ui/modal";
 import {
   ProvidersTable,
@@ -75,33 +73,36 @@ export default function ProvidersPage() {
   return (
     <div className="space-y-6">
       <PageHeader
+        trackingId="providers.page.header"
+        eyebrow="Configuration"
         title="Providers"
         description="Configure LLM providers once, apply them across your fleet. Each provider can power multiple agents."
       />
 
-      <div className="flex items-center justify-between border-b border-default">
-        <nav className="flex" aria-label="Providers tabs">
-          <TabButton
-            active={tab === "configured"}
-            onClick={() => setTab("configured")}
-          >
-            Configured {providerCount > 0 ? `(${providerCount})` : ""}
-          </TabButton>
-          <TabButton
-            active={tab === "registry"}
-            onClick={() => setTab("registry")}
-          >
-            Registry
-          </TabButton>
-        </nav>
+      <div className="flex items-center justify-between">
+        <TabBar
+          trackingId="providers.page.tabs"
+          aria-label="Providers tabs"
+          tabs={[
+            { id: "configured", label: `Configured${providerCount > 0 ? ` (${providerCount})` : ""}` },
+            { id: "registry", label: "Registry" },
+          ]}
+          value={tab}
+          onValueChange={(value) => setTab(value as TabId)}
+        />
         {tab === "configured" && (
-          <Button variant="primary" onClick={() => setShowAdd(true)}>
+          <Button trackingId="providers.page.add-provider" variant="primary" onClick={() => setShowAdd(true)}>
             + Add model provider
           </Button>
         )}
       </div>
 
-      <Card padding="md">
+      <Card trackingId="providers.page.content" padding="md">
+        <div
+          role="tabpanel"
+          id={getTabPanelId("providers.page.tabs", tab)}
+          aria-labelledby={getTabId("providers.page.tabs", tab)}
+        >
         {tab === "configured" ? (
           isLoading ? (
             <div className="py-8 text-center text-muted text-sm">
@@ -120,7 +121,7 @@ export default function ProvidersPage() {
                 No providers configured yet — add one or browse the Registry
                 tab.
               </p>
-              <Button variant="primary" onClick={() => setShowAdd(true)}>
+              <Button trackingId="providers.page.empty-add-provider" variant="primary" onClick={() => setShowAdd(true)}>
                 + Add model provider
               </Button>
             </div>
@@ -128,6 +129,7 @@ export default function ProvidersPage() {
         ) : (
           <ModelCatalog />
         )}
+        </div>
       </Card>
 
       {/* Add Provider Modal — conditionally mounted so closing the modal
@@ -167,10 +169,10 @@ export default function ProvidersPage() {
             This will also remove its stored credentials.
           </p>
           <div className="flex justify-end gap-2">
-            <Button variant="secondary" onClick={() => setRemoveProvider(null)}>
+            <Button trackingId="providers.remove.cancel" variant="secondary" onClick={() => setRemoveProvider(null)}>
               Cancel
             </Button>
-            <Button
+            <Button trackingId="providers.remove.confirm"
               variant="danger"
               onClick={handleDelete}
               disabled={deleteMutation.isPending}
@@ -181,27 +183,5 @@ export default function ProvidersPage() {
         </div>
       </Modal>
     </div>
-  );
-}
-
-interface TabButtonProps {
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}
-
-function TabButton({ active, onClick, children }: TabButtonProps) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
-        active
-          ? "border-primary text-primary"
-          : "border-transparent text-muted hover:text-secondary hover:border-gray-300"
-      }`}
-    >
-      {children}
-    </button>
   );
 }

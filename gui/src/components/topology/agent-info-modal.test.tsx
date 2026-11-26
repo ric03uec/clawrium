@@ -27,22 +27,6 @@ vi.mock("@/components/ui/modal", () => ({
     ) : null,
 }));
 
-vi.mock("@/components/ui/button", () => ({
-  Button: ({
-    children,
-    onClick,
-  }: {
-    children: React.ReactNode;
-    onClick?: () => void;
-  }) => <button onClick={onClick}>{children}</button>,
-}));
-
-vi.mock("@/components/ui/status-dot", () => ({
-  StatusDot: ({ status }: { status: string }) => (
-    <span data-testid="status-dot" data-status={status} />
-  ),
-}));
-
 import { AgentInfoModal } from "./agent-info-modal";
 import { type TopologyAgent } from "@/lib/types";
 
@@ -109,7 +93,7 @@ describe("AgentInfoModal", () => {
     expect(container.firstChild).toBeNull();
   });
 
-  it("replaces all underscores in status text", () => {
+  it("renders the centralized label and raw status contract", () => {
     render(
       <AgentInfoModal
         agent={makeAgent({ status: "pending_onboard" })}
@@ -117,7 +101,6 @@ describe("AgentInfoModal", () => {
         onClose={() => {}}
       />
     );
-    // status is rendered with all underscores swapped for spaces
-    expect(screen.getByText("pending onboard")).toBeInTheDocument();
+    expect(screen.getByText("Pending")).toHaveAttribute("data-status", "pending_onboard");
   });
 });

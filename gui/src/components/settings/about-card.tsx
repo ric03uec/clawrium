@@ -1,6 +1,6 @@
 "use client";
 
-import { Card } from "@/components/ui";
+import { Card } from "@/design-system";
 import { Settings, VersionInfo } from "@/lib/types";
 
 interface AboutCardProps {
@@ -10,8 +10,8 @@ interface AboutCardProps {
 
 export function AboutCard({ settings, version }: AboutCardProps) {
   return (
-    <Card>
-      <h2 className="text-lg font-semibold text-primary mb-4">About</h2>
+    <Card trackingId="settings.about.card">
+      <h2 className="text-lg font-semibold text-primary-foreground mb-4">About</h2>
       <div className="grid grid-cols-[140px_1fr] gap-y-3 text-sm">
         <span className="text-muted">Version</span>
         <span className="font-mono">{version?.version ?? "—"}</span>

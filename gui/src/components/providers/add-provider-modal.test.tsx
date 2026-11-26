@@ -18,15 +18,6 @@ vi.mock("@/components/ui/modal", () => ({
     ) : null,
 }));
 
-vi.mock("@/components/ui/button", () => ({
-  Button: ({
-    children,
-    ...props
-  }: React.ButtonHTMLAttributes<HTMLButtonElement>) => (
-    <button {...props}>{children}</button>
-  ),
-}));
-
 import { AddProviderModal } from "./add-provider-modal";
 import type { ProviderTypesMap } from "@/lib/types";
 
