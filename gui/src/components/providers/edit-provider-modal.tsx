@@ -2,7 +2,7 @@
 
 import { useId, useMemo, useState } from "react";
 import { Modal } from "@/components/ui/modal";
-import { Button } from "@/components/ui/button";
+import { Button, Input } from "@/design-system";
 import { ModelComboBox } from "./model-combobox";
 import type {
   AcceleratorVendor,
@@ -147,7 +147,7 @@ export function EditProviderModal({
             >
               Default Model
             </label>
-            <input
+            <Input trackingId="providers.edit.default-model" size="sm"
               id={modelId}
               type="text"
               value={model}
@@ -176,7 +176,7 @@ export function EditProviderModal({
                     value={vendor}
                     checked={acceleratorVendor === vendor}
                     onChange={() => setAcceleratorVendor(vendor)}
-                    className="text-primary focus:ring-primary/30"
+                    className="text-primary-foreground focus:ring-primary/30"
                   />
                   <span className="uppercase tracking-wide text-xs font-semibold">
                     {vendor}
@@ -197,7 +197,7 @@ export function EditProviderModal({
               >
                 Region
               </label>
-              <input
+              <Input trackingId="providers.edit.region" size="sm"
                 id={regionId}
                 type="text"
                 value={region}
@@ -220,7 +220,7 @@ export function EditProviderModal({
                 )}
               </label>
               <div className="relative">
-                <input
+                <Input trackingId="providers.edit.aws-access-key" size="sm"
                   id={awsAccessKeyId}
                   type={showAwsAccess ? "text" : "password"}
                   value={awsAccessKey}
@@ -250,7 +250,7 @@ export function EditProviderModal({
                 )}
               </label>
               <div className="relative">
-                <input
+                <Input trackingId="providers.edit.aws-secret-key" size="sm"
                   id={awsSecretKeyId}
                   type={showAwsSecret ? "text" : "password"}
                   value={awsSecretKey}
@@ -279,7 +279,7 @@ export function EditProviderModal({
             >
               Endpoint
             </label>
-            <input
+            <Input trackingId="providers.edit.endpoint" size="sm"
               id={endpointId}
               type="text"
               value={endpoint}
@@ -300,7 +300,7 @@ export function EditProviderModal({
               API Key {provider.has_api_key && <span className="text-muted">(leave blank to keep current)</span>}
             </label>
             <div className="relative">
-              <input
+              <Input trackingId="providers.edit.api-key" size="sm"
                 id={apiKeyId}
                 type={showKey ? "text" : "password"}
                 value={apiKey}
@@ -321,10 +321,10 @@ export function EditProviderModal({
 
         {/* Actions */}
         <div className="flex justify-end gap-2 pt-2">
-          <Button variant="secondary" type="button" onClick={handleClose}>
+          <Button trackingId="providers.edit.cancel" variant="secondary" type="button" onClick={handleClose}>
             Cancel
           </Button>
-          <Button variant="primary" type="submit" disabled={saving}>
+          <Button trackingId="providers.edit.save" variant="primary" type="submit" disabled={saving}>
             {saving ? "Saving..." : "Save Changes"}
           </Button>
         </div>

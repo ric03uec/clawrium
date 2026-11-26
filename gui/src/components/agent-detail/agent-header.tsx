@@ -2,9 +2,9 @@
 
 import { useId, useState } from "react";
 import { AgentDetail, AgentDetailHealth, AgentStatus } from "@/lib/types";
-import { StatusDot } from "@/components/ui/status-dot";
+import { AGENT_STATUS_PRESENTATION } from "@/components/ui/status-dot";
 import { OSIcon } from "@/components/ui/os-icon";
-import { Button } from "@/components/ui/button";
+import { AgentLogo, Button, StatusChip } from "@/design-system";
 import {
   PAIRING_AGENT_TYPES,
   TOKEN_REVEAL_AGENT_TYPES,
@@ -129,11 +129,22 @@ export function AgentHeader({ agent, health }: AgentHeaderProps) {
     <div className="bg-white rounded-xl border border-default p-6 shadow-sm">
       <div className="flex items-start justify-between">
         <div className="flex items-center gap-4">
-          <StatusDot status={liveStatus} size="lg" />
+          <AgentLogo
+            trackingId="agent-detail.header.agent-logo"
+            kind={agent.agent_type}
+            size={32}
+          />
           <div>
-            <h1 className="text-xl font-semibold text-primary-text">
-              {agent.agent_name}
-            </h1>
+            <div className="flex items-center gap-3">
+              <h1 className="text-xl font-semibold text-primary-text">
+                {agent.agent_name}
+              </h1>
+              <StatusChip
+                trackingId="agent-detail.header.status"
+                status={liveStatus}
+                label={AGENT_STATUS_PRESENTATION[liveStatus].label}
+              />
+            </div>
             <p className="text-sm text-muted flex items-center gap-1.5 flex-wrap">
               <span>{agent.agent_type} v{agent.version}</span>
               <span aria-hidden="true">·</span>
@@ -151,7 +162,7 @@ export function AgentHeader({ agent, health }: AgentHeaderProps) {
 
         <div className="flex items-center gap-2">
           {showWebUI && (
-            <Button
+            <Button trackingId="agent-detail.header.open-ui"
               variant="secondary"
               size="sm"
               disabled={!webUIReady}
@@ -171,7 +182,7 @@ export function AgentHeader({ agent, health }: AgentHeaderProps) {
             </Button>
           )}
           {showPairing && (
-            <Button
+            <Button trackingId="agent-detail.header.pair"
               variant="secondary"
               size="sm"
               disabled={pairing.isPending || !isRunning}
@@ -190,7 +201,7 @@ export function AgentHeader({ agent, health }: AgentHeaderProps) {
             </Button>
           )}
           {showToken && (
-            <Button
+            <Button trackingId="agent-detail.header.show-token"
               variant="secondary"
               size="sm"
               disabled={token.isPending}
@@ -204,7 +215,7 @@ export function AgentHeader({ agent, health }: AgentHeaderProps) {
               {token.isPending ? "Loading..." : "Show Connection Token"}
             </Button>
           )}
-          <Button
+          <Button trackingId="agent-detail.lifecycle.start"
             variant="primary"
             size="sm"
             onClick={() => {
@@ -225,7 +236,7 @@ export function AgentHeader({ agent, health }: AgentHeaderProps) {
           >
             {start.isPending ? "Starting..." : "Start"}
           </Button>
-          <Button
+          <Button trackingId="agent-detail.lifecycle.restart"
             variant="secondary"
             size="sm"
             onClick={() => {
@@ -246,7 +257,7 @@ export function AgentHeader({ agent, health }: AgentHeaderProps) {
           >
             {restart.isPending ? "Restarting..." : "Restart"}
           </Button>
-          <Button
+          <Button trackingId="agent-detail.lifecycle.stop"
             variant="danger"
             size="sm"
             onClick={() => {
@@ -333,7 +344,7 @@ export function AgentHeader({ agent, health }: AgentHeaderProps) {
               <code className="select-all rounded bg-white px-2 py-1 font-mono text-base tracking-widest text-primary-text">
                 {pairing.data.pairing_code}
               </code>
-              <Button
+              <Button trackingId="agent-detail.pairing.copy"
                 variant="secondary"
                 size="sm"
                 onClick={async () => {
@@ -386,7 +397,7 @@ export function AgentHeader({ agent, health }: AgentHeaderProps) {
               >
                 {token.data.token}
               </code>
-              <Button
+              <Button trackingId="agent-detail.token.copy"
                 variant="secondary"
                 size="sm"
                 onClick={async () => {

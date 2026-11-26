@@ -1,6 +1,6 @@
 "use client";
 
-import { PageHeader } from "@/components/layout";
+import { PageHeader } from "@/design-system";
 import {
   AboutCard,
   TokenTrackingCard,
@@ -17,6 +17,8 @@ export default function SettingsPage() {
   return (
     <div>
       <PageHeader
+        trackingId="settings.page.header"
+        eyebrow="System"
         title="Settings"
         description="Application configuration and preferences"
       />

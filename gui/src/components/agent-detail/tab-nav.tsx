@@ -1,5 +1,7 @@
 "use client";
 
+import { TabBar } from "@/design-system";
+
 const TABS = [
   { id: "overview", label: "Overview" },
   { id: "chat", label: "Chat" },
@@ -19,22 +21,12 @@ interface TabNavProps {
 
 export function TabNav({ active, onChange }: TabNavProps) {
   return (
-    <div className="border-b border-default">
-      <nav className="flex gap-0" aria-label="Agent detail tabs">
-        {TABS.map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => onChange(tab.id)}
-            className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
-              active === tab.id
-                ? "border-primary text-primary"
-                : "border-transparent text-muted hover:text-secondary hover:border-gray-300"
-            }`}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </nav>
-    </div>
+    <TabBar
+      trackingId="agent-detail.page.tabs"
+      aria-label="Agent detail tabs"
+      tabs={TABS.map((tab) => ({ ...tab }))}
+      value={active}
+      onValueChange={(tab) => onChange(tab as TabId)}
+    />
   );
 }

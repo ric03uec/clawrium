@@ -29,8 +29,8 @@ export function IntegrationIcon({
   const src = ICON_PATHS[type];
 
   // The icon is decorative: every call site renders the integration's
-  // type label next to it (see integration-card.tsx). Mark both branches
-  // as `aria-hidden` so screen readers do not read the type twice.
+  // type label alongside it. Mark both branches as `aria-hidden` so screen
+  // readers do not read the type twice.
   if (!src) {
     return (
       <div

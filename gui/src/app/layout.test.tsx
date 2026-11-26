@@ -2,6 +2,7 @@ import { render, screen } from "@testing-library/react";
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
 vi.mock("@/styles/globals.css", () => ({}));
+vi.mock("@/design-system/styles.css", () => ({}));
 
 vi.mock("./providers", () => ({
   Providers: ({ children }: { children: React.ReactNode }) => (
@@ -41,7 +42,7 @@ describe("RootLayout", () => {
     expect(child).toHaveTextContent("hello");
   });
 
-  it("renders the html root with lang=\"en\"", () => {
+  it("renders one design-system ancestor on the English document root", () => {
     const { baseElement } = render(
       <RootLayout>
         <span />
@@ -49,8 +50,11 @@ describe("RootLayout", () => {
     );
 
     const html = baseElement.querySelector("html");
+    const designSystemRoots = baseElement.querySelectorAll(".iteration-design-system");
     expect(html).not.toBeNull();
     expect(html?.getAttribute("lang")).toBe("en");
+    expect(designSystemRoots).toHaveLength(1);
+    expect(designSystemRoots[0].tagName).toBe("BODY");
   });
 
   it("exposes the page metadata expected by Next.js", () => {

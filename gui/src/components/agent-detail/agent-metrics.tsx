@@ -2,6 +2,8 @@
 
 import { AgentDetail, AgentDetailHealth } from "@/lib/types";
 import { useUsageByAgent } from "@/hooks";
+import { StatBlock, StatusChip } from "@/design-system";
+import { AGENT_STATUS_PRESENTATION } from "@/components/ui/status-dot";
 
 interface AgentMetricsProps {
   agent: AgentDetail;
@@ -32,18 +34,27 @@ export function AgentMetrics({ agent, health }: AgentMetricsProps) {
   const unavailableTip = "No usage recorded for this agent in the last 30 days";
 
   const metrics = [
-    { label: "Uptime", value: uptime || "—", title: undefined },
+    { id: "uptime", label: "Uptime", value: uptime || "—", title: undefined },
     {
+      id: "status",
       label: "Status",
-      value: status.replace("_", " "),
+      value: (
+        <StatusChip
+          trackingId="agent-detail.metrics.status-chip"
+          status={status}
+          label={AGENT_STATUS_PRESENTATION[status].label}
+        />
+      ),
       title: undefined,
     },
     {
+      id: "tokens-30d",
       label: "Tokens (30d)",
       value: tokenLabel,
       title: agentUsage ? undefined : unavailableTip,
     },
     {
+      id: "estimated-cost",
       label: "Est. Cost",
       value: costLabel,
       title: agentUsage ? undefined : unavailableTip,
@@ -53,14 +64,16 @@ export function AgentMetrics({ agent, health }: AgentMetricsProps) {
   return (
     <div className="grid grid-cols-4 gap-4">
       {metrics.map((m) => (
-        <div
-          key={m.label}
-          className="bg-white rounded-xl border border-default p-4 text-center shadow-sm"
+        <StatBlock
+          key={m.id}
+          trackingId={`agent-detail.metrics.${m.id}`}
+          layout="stacked"
+          value={m.value}
           title={m.title}
+          className="dashboard-agent-metric items-center text-center"
         >
-          <div className="text-lg font-semibold text-primary-text">{m.value}</div>
-          <div className="text-xs text-muted mt-1">{m.label}</div>
-        </div>
+          <span className="text-xs text-muted">{m.label}</span>
+        </StatBlock>
       ))}
     </div>
   );

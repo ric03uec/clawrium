@@ -1,6 +1,6 @@
 "use client";
 
-import { Card } from "@/components/ui";
+import { Card } from "@/design-system";
 
 interface GuiPreferencesCardProps {
   port: number;
@@ -8,8 +8,8 @@ interface GuiPreferencesCardProps {
 
 export function GuiPreferencesCard({ port }: GuiPreferencesCardProps) {
   return (
-    <Card>
-      <h2 className="text-lg font-semibold text-primary mb-4">
+    <Card trackingId="settings.gui-preferences.card">
+      <h2 className="text-lg font-semibold text-primary-foreground mb-4">
         GUI Preferences
       </h2>
       <div className="grid grid-cols-[140px_1fr] gap-y-3 text-sm">

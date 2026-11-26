@@ -1,14 +1,18 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+
+vi.mock("@/components/hosts", () => ({
+  HostTable: () => <div data-testid="host-table">Fleet Hosts</div>,
+}));
+
 import HostsPage from "./page";
 
-vi.mock("@/components/layout", () => ({ PageHeader: ({ title }: { title: string }) => <h1>{title}</h1> }));
-
-describe("Hosts placeholder", () => {
-  it("links to the existing topology view", () => {
+describe("Hosts page", () => {
+  it("renders the real hosts inventory instead of a placeholder", () => {
     render(<HostsPage />);
     expect(screen.getByRole("heading", { name: "Hosts" })).toBeInTheDocument();
-    expect(screen.getByText(/planned for a later delivery step/i)).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Open topology" })).toHaveAttribute("href", "/topology");
+    expect(screen.getByTestId("host-table")).toBeInTheDocument();
+    expect(screen.queryByText(/planned for a later delivery step/i)).not.toBeInTheDocument();
+    expect(document.querySelector('[data-i7n-name="hosts.page.header"]')).toBeInTheDocument();
   });
 });

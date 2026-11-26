@@ -87,6 +87,8 @@ describe("AgentHeader — chrome", () => {
     render(<AgentHeader agent={makeAgent()} health={undefined} />);
     expect(screen.getByText("demo")).toBeTruthy();
     expect(screen.getByText(/hermes v2026\.4\.2/)).toBeTruthy();
+    expect(screen.getByRole("img", { name: "hermes" })).toHaveAttribute("data-i7n-name", "agent-detail.header.agent-logo");
+    expect(document.querySelector('[data-i7n-name="agent-detail.header.status"]')).toHaveAttribute("data-status", "checking");
   });
 
   it("hides Open Agent UI when the Claude manifest has no native UI", () => {

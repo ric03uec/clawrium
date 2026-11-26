@@ -96,6 +96,11 @@ It is _not_ a hosted platform. There's no dashboard, no SaaS, no account signup.
   <em>75-second walkthrough of every tab in <code>clawctl gui</code> — Dashboard, Agents, Topology, Providers, Skills, Integrations, Settings</em>
 </p>
 
+The GUI now uses one accessible table pattern for agent, provider, model, and
+integration lists, with search on filterable inventories. The Skills catalog
+remains a card gallery during its transition because each skill exposes
+install-specific controls rather than a fleet inventory row.
+
 ### Install & Run
 
 ```bash
@@ -251,11 +256,16 @@ Python · [Typer](https://typer.tiangolo.com/) · [ansible-runner](https://ansib
 
 ## Contributing
 
+Development requires Node.js 20 or newer. Before the first browser-acceptance
+run, install its pinned Chromium build once with
+`cd gui && npx playwright install chromium`.
+
 ```bash
 git clone https://github.com/ric03uec/clawrium && cd clawrium
-make test       # Run tests
-make lint       # Check style
+make test       # Run Python and GUI unit tests
+make lint       # Check Python and GUI style
 make format     # Auto-format
+cd gui && npm run test:e2e  # Fresh build + production-export browser acceptance
 ```
 
 Issues are the source of truth. See [CONTRIBUTING.md](CONTRIBUTING.md) for the full workflow.

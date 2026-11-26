@@ -2,7 +2,7 @@
 
 import { useId, useState } from "react";
 import { Modal } from "@/components/ui/modal";
-import { Button } from "@/components/ui/button";
+import { Button, Input } from "@/design-system";
 import { ModelComboBox } from "./model-combobox";
 import type {
   AcceleratorVendor,
@@ -126,7 +126,7 @@ export function AddProviderModal({
           >
             Provider Name
           </label>
-          <input
+          <Input trackingId="providers.add.name" size="sm"
             id={nameId}
             type="text"
             value={name}
@@ -179,7 +179,7 @@ export function AddProviderModal({
                     value={vendor}
                     checked={acceleratorVendor === vendor}
                     onChange={() => setAcceleratorVendor(vendor)}
-                    className="text-primary focus:ring-primary/30"
+                    className="text-primary-foreground focus:ring-primary/30"
                   />
                   <span className="uppercase tracking-wide text-xs font-semibold">
                     {vendor}
@@ -227,7 +227,7 @@ export function AddProviderModal({
                 AWS Access Key ID
               </label>
               <div className="relative">
-                <input
+                <Input trackingId="providers.add.aws-access-key" size="sm"
                   id={awsAccessKeyId}
                   type={showAwsAccess ? "text" : "password"}
                   value={awsAccessKey}
@@ -254,7 +254,7 @@ export function AddProviderModal({
                 AWS Secret Access Key
               </label>
               <div className="relative">
-                <input
+                <Input trackingId="providers.add.aws-secret-key" size="sm"
                   id={awsSecretKeyId}
                   type={showAwsSecret ? "text" : "password"}
                   value={awsSecretKey}
@@ -280,7 +280,7 @@ export function AddProviderModal({
               >
                 Region
               </label>
-              <input
+              <Input trackingId="providers.add.region" size="sm"
                 id={regionId}
                 type="text"
                 value={region}
@@ -314,7 +314,7 @@ export function AddProviderModal({
               API Key
             </label>
             <div className="relative">
-              <input
+              <Input trackingId="providers.add.api-key" size="sm"
                 id={apiKeyId}
                 type={showKey ? "text" : "password"}
                 value={apiKey}
@@ -342,7 +342,7 @@ export function AddProviderModal({
             >
               Endpoint
             </label>
-            <input
+            <Input trackingId="providers.add.endpoint" size="sm"
               id={endpointId}
               type="text"
               value={endpoint}
@@ -363,10 +363,10 @@ export function AddProviderModal({
 
         {/* Actions */}
         <div className="flex justify-end gap-2 pt-2">
-          <Button variant="secondary" type="button" onClick={handleClose}>
+          <Button trackingId="providers.add.cancel" variant="secondary" type="button" onClick={handleClose}>
             Cancel
           </Button>
-          <Button variant="primary" type="submit" disabled={!name.trim() || !type || saving}>
+          <Button trackingId="providers.add.save" variant="primary" type="submit" disabled={!name.trim() || !type || saving}>
             {saving ? "Saving..." : "Save"}
           </Button>
         </div>

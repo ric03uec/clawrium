@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { Modal } from "@/components/ui/modal";
-import { Button } from "@/components/ui/button";
+import { Button, Input } from "@/design-system";
 import type {
   IntegrationCreate,
   IntegrationCredentialDef,
@@ -79,7 +79,7 @@ export function AddIntegrationModal({
           >
             Integration name
           </label>
-          <input
+          <Input trackingId="integrations.add.name" size="sm"
             id="integration-name"
             type="text"
             value={name}
@@ -132,10 +132,12 @@ export function AddIntegrationModal({
                   >
                     {c.key}
                     {c.required ? (
-                      <span className="text-status-warning ml-1">*</span>
+                      <span className="text-status-warning-text ml-1">*</span>
                     ) : null}
                   </label>
-                  <input
+                  <Input
+                    trackingId={`integrations.add.credential.${c.key.toLowerCase().replaceAll("_", "-")}`}
+                    size="sm"
                     id={fieldId}
                     type={secret ? "password" : "text"}
                     value={values[c.key] || ""}
@@ -158,14 +160,14 @@ export function AddIntegrationModal({
         )}
 
         {error ? (
-          <p className="text-xs text-status-warning">{error}</p>
+          <p className="text-xs text-status-warning-text">{error}</p>
         ) : null}
 
         <div className="flex justify-end gap-2 pt-2">
-          <Button variant="secondary" type="button" onClick={handleClose}>
+          <Button trackingId="integrations.add.cancel" variant="secondary" type="button" onClick={handleClose}>
             Cancel
           </Button>
-          <Button
+          <Button trackingId="integrations.add.save"
             variant="primary"
             type="submit"
             disabled={!name.trim() || !type || requiredMissing || saving}

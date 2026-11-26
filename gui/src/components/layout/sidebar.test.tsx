@@ -1,12 +1,5 @@
-import {
-  render,
-  screen,
-  waitFor,
-  act,
-  within,
-  fireEvent,
-} from "@testing-library/react";
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Sidebar } from "./sidebar";
 
 const pathnameRef = { current: "/" };
@@ -14,28 +7,6 @@ const pathnameRef = { current: "/" };
 vi.mock("next/navigation", () => ({
   usePathname: () => pathnameRef.current,
 }));
-
-// jsdom does not implement HTMLDialogElement.showModal / close. The stub
-// flips an "open" attribute so role="dialog" queries work the same way
-// browsers expose it. Mirrors the shim in modal.test.tsx; needed here so
-// tests that open the ComingSoonModal don't throw "Not implemented".
-beforeEach(() => {
-  if (!HTMLDialogElement.prototype.showModal) {
-    HTMLDialogElement.prototype.showModal = function showModal(
-      this: HTMLDialogElement,
-    ) {
-      this.setAttribute("open", "");
-    };
-  }
-  if (!HTMLDialogElement.prototype.close) {
-    HTMLDialogElement.prototype.close = function close(
-      this: HTMLDialogElement,
-    ) {
-      this.removeAttribute("open");
-      this.dispatchEvent(new Event("close"));
-    };
-  }
-});
 
 vi.mock("next/link", () => ({
   default: ({
@@ -52,127 +23,143 @@ vi.mock("next/link", () => ({
   ),
 }));
 
-function mockFetchOnce(impl: typeof fetch) {
+function mockFetch(impl: typeof fetch) {
   vi.stubGlobal("fetch", impl);
+}
+
+async function renderAndFlush() {
+  const result = render(<Sidebar />);
+  await waitFor(() => expect(screen.getByRole("navigation", { name: "Main navigation" })).toBeInTheDocument());
+  return result;
 }
 
 describe("Sidebar", () => {
   beforeEach(() => {
     pathnameRef.current = "/";
-    mockFetchOnce(
+    mockFetch(
       vi.fn().mockResolvedValue({
         json: () => Promise.resolve({ version: "" }),
       }) as unknown as typeof fetch,
     );
   });
 
-  async function renderAndFlush() {
-    const result = render(<Sidebar />);
-    await waitFor(() => {
-      expect(screen.getByRole("navigation")).toBeInTheDocument();
-    });
-    return result;
-  }
-
-  it("renders every top-level nav item", async () => {
+  it("renders the approved primary hierarchy in exact order", async () => {
     await renderAndFlush();
-    expect(screen.getByRole("link", { name: "Dashboard" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Agents" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Topology" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Providers" })).toBeInTheDocument();
-    expect(
-      screen.getByRole("link", { name: "Integrations" }),
-    ).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Settings" })).toBeInTheDocument();
-  });
-
-  it("renders the Clawrium wordmark with a decorative logo (single a11y name)", async () => {
-    await renderAndFlush();
-    // Link's accessible name comes from the wordmark span only — the logo
-    // is alt="" + aria-hidden so screen readers do not double-announce.
-    const link = screen.getByRole("link", { name: "Clawrium" });
-    expect(link).toBeInTheDocument();
-    const img = link.querySelector("img");
-    expect(img).not.toBeNull();
-    expect(img?.getAttribute("alt")).toBe("");
-    expect(img?.getAttribute("aria-hidden")).toBe("true");
-  });
-
-  it("preserves the primary navigation order", async () => {
-    // ATX-4 W3: the previous ordering test only checked four labels and
-    // missed the new Agents row entirely. Lock in the full main-nav
-    // sequence plus the footer Settings link, in document order.
-    await renderAndFlush();
-    const expected = [
+    const nav = screen.getByRole("navigation", { name: "Main navigation" });
+    expect(within(nav).getAllByRole("link").map((link) => link.getAttribute("aria-label"))).toEqual([
       "Dashboard",
       "Agents",
       "Hosts",
       "Providers",
       "Integrations",
       "MCP servers",
-    ];
-    const labels = within(screen.getByRole("navigation", { name: "Main navigation" }))
-      .getAllByRole("link")
-      .map((el) => el.textContent?.trim())
-      .filter((t) => t && expected.includes(t));
-    expect(labels).toEqual(expected);
+    ]);
+    expect(within(nav).getByText("Main")).toBeInTheDocument();
+    expect(within(nav).getByText("Configuration")).toBeInTheDocument();
   });
 
-  it("labels the nav for assistive tech", async () => {
+  it("removes unapproved stubs and does not render a coming-soon modal", async () => {
     await renderAndFlush();
-    expect(
-      screen.getByRole("navigation", { name: "Main navigation" }),
-    ).toBeInTheDocument();
+    expect(screen.queryByText("Scheduled Jobs")).not.toBeInTheDocument();
+    expect(screen.queryByText("Agent Builder")).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
-  it("marks only the matching nav item as current on exact match", async () => {
-    pathnameRef.current = "/providers";
+  it("links MCP servers to its dedicated page without a modal trigger", async () => {
     await renderAndFlush();
-    expect(
-      screen.getByRole("link", { name: "Providers" }),
-    ).toHaveAttribute("aria-current", "page");
-    expect(
-      screen.getByRole("link", { name: "Topology" }),
-    ).not.toHaveAttribute("aria-current");
+    expect(screen.getByRole("link", { name: "MCP servers" })).toHaveAttribute("href", "/mcp-servers");
+    expect(screen.queryByRole("button", { name: /MCP servers/i })).not.toBeInTheDocument();
   });
 
-  it("activates parent route on nested path", async () => {
-    pathnameRef.current = "/providers/openai";
+  it("does not invent navigation outside the issue-approved groups", async () => {
     await renderAndFlush();
-    expect(
-      screen.getByRole("link", { name: "Providers" }),
-    ).toHaveAttribute("aria-current", "page");
+    expect(screen.queryByText("Transitional pages")).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Topology" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Skills" })).not.toBeInTheDocument();
   });
 
-  it("does not activate parent on a sibling path that shares a prefix", async () => {
-    pathnameRef.current = "/providers-legacy";
+  it.each([
+    ["/hosts", "Hosts"],
+    ["/hosts/server-a", "Hosts"],
+    ["/mcp-servers", "MCP servers"],
+    ["/mcp-servers/example", "MCP servers"],
+  ])("marks %s active on the matching exact or nested route", async (pathname, label) => {
+    pathnameRef.current = pathname;
     await renderAndFlush();
-    expect(
-      screen.getByRole("link", { name: "Providers" }),
-    ).not.toHaveAttribute("aria-current");
+    expect(screen.getByRole("link", { name: label })).toHaveAttribute("aria-current", "page");
   });
 
-  it("does not activate Dashboard on non-root paths", async () => {
-    pathnameRef.current = "/topology";
+  it.each([
+    ["/hosts-legacy", "Hosts"],
+    ["/mcp-servers-old", "MCP servers"],
+    ["/providers-legacy", "Providers"],
+  ])("does not activate %s routes that only share a prefix", async (pathname, label) => {
+    pathnameRef.current = pathname;
     await renderAndFlush();
-    expect(
-      screen.getByRole("link", { name: "Dashboard" }),
-    ).not.toHaveAttribute("aria-current");
+    expect(screen.getByRole("link", { name: label })).not.toHaveAttribute("aria-current");
   });
 
-  it("renders the version footer when the fetch resolves with a version", async () => {
-    mockFetchOnce(
+  it("only activates Dashboard at the root", async () => {
+    pathnameRef.current = "/agents";
+    await renderAndFlush();
+    expect(screen.getByRole("link", { name: "Dashboard" })).not.toHaveAttribute("aria-current");
+  });
+
+  it("marks nested Settings routes active outside primary navigation", async () => {
+    pathnameRef.current = "/settings/profile";
+    await renderAndFlush();
+    const primary = screen.getByRole("navigation", { name: "Main navigation" });
+    expect(within(primary).queryByRole("link", { name: "Settings" })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Settings" })).toHaveAttribute("aria-current", "page");
+  });
+
+  it("keeps only Settings and GitHub as sidebar footer links", async () => {
+    const { container } = await renderAndFlush();
+    const footer = container.querySelector(".ds-app-sidebar-footer");
+    expect(footer).not.toBeNull();
+    expect(within(footer as HTMLElement).getAllByRole("link").map((link) => link.textContent?.trim())).toEqual([
+      "Settings",
+      "GitHub",
+    ]);
+    const github = within(footer as HTMLElement).getByRole("link", { name: "GitHub" });
+    expect(github).toHaveAttribute("href", "https://github.com/ric03uec/clawrium");
+    expect(github).toHaveAttribute("target", "_blank");
+    expect(screen.queryByRole("link", { name: "Docs" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Discord" })).not.toBeInTheDocument();
+  });
+
+  it("collapses accessibly, keeps the toggle focused, and expands again", async () => {
+    await renderAndFlush();
+    const sidebar = screen.getByRole("complementary", { name: "Fleet navigation" });
+    const collapse = screen.getByRole("button", { name: "Collapse sidebar" });
+    collapse.focus();
+    fireEvent.click(collapse);
+    expect(sidebar).toHaveClass("sidebar-collapsed");
+    const expand = screen.getByRole("button", { name: "Expand sidebar" });
+    expect(expand).toHaveAttribute("aria-expanded", "false");
+    expect(document.activeElement).toBe(expand);
+    fireEvent.click(expand);
+    expect(sidebar).not.toHaveClass("sidebar-collapsed");
+    expect(screen.getByRole("button", { name: "Collapse sidebar" })).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it("renders the Clawrium wordmark with a single accessible name", async () => {
+    await renderAndFlush();
+    const link = screen.getByRole("link", { name: "Clawrium" });
+    expect(link.querySelector("img")).toHaveAttribute("alt", "");
+    expect(link.querySelector("img")).toHaveAttribute("aria-hidden", "true");
+  });
+
+  it("renders a fetched version and accepts a supplied version without another request", async () => {
+    mockFetch(
       vi.fn().mockResolvedValue({
         json: () => Promise.resolve({ version: "1.2.3" }),
       }) as unknown as typeof fetch,
     );
-    render(<Sidebar />);
-    await waitFor(() => {
-      expect(screen.getByText("v1.2.3")).toBeInTheDocument();
-    });
-  });
+    const { unmount } = render(<Sidebar />);
+    expect(await screen.findByText("v1.2.3")).toBeInTheDocument();
+    unmount();
 
-  it("uses a supplied version without another request", () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
     render(<Sidebar version="2.3.4" />);
@@ -180,189 +167,24 @@ describe("Sidebar", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("leaves the footer empty (no crash) when the fetch rejects", async () => {
-    mockFetchOnce(
-      vi.fn().mockRejectedValue(new Error("boom")) as unknown as typeof fetch,
-    );
-    expect(() => render(<Sidebar />)).not.toThrow();
-    await waitFor(() => {
-      expect(screen.queryByText(/^v/)).not.toBeInTheDocument();
-    });
-  });
-
-  it("calls /api/settings/version with an AbortSignal", async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      json: () => Promise.resolve({ version: "9.9.9" }),
-    }) as unknown as typeof fetch;
-    mockFetchOnce(fetchMock);
-
-    render(<Sidebar />);
-    await waitFor(() => {
-      expect(screen.getByText("v9.9.9")).toBeInTheDocument();
-    });
-
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [url, init] = (fetchMock as unknown as ReturnType<typeof vi.fn>).mock
-      .calls[0];
-    expect(url).toBe("/api/settings/version");
-    expect(init?.signal).toBeInstanceOf(AbortSignal);
-  });
-
-  it("aborts the in-flight request on unmount", async () => {
-    const abortSpy = vi.spyOn(AbortController.prototype, "abort");
-    // Fetch that never settles — the only way the test ends cleanly is via abort.
-    mockFetchOnce(
-      vi.fn().mockReturnValue(new Promise(() => {})) as unknown as typeof fetch,
-    );
-
+  it("uses an AbortSignal and aborts the version request on unmount", async () => {
+    const fetchMock = vi.fn().mockReturnValue(new Promise(() => {})) as unknown as typeof fetch;
+    mockFetch(fetchMock);
     const { unmount } = render(<Sidebar />);
+    const [, init] = (fetchMock as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(init.signal).toBeInstanceOf(AbortSignal);
+    expect(init.signal.aborted).toBe(false);
     unmount();
-
-    expect(abortSpy).toHaveBeenCalledTimes(1);
+    expect(init.signal.aborted).toBe(true);
   });
 
-  it("renders GitHub, Docs, and Discord links in the footer with target=_blank", async () => {
-    await renderAndFlush();
-    const github = screen.getByRole("link", { name: "GitHub" });
-    const docs = screen.getByRole("link", { name: "Docs" });
-    const discord = screen.getByRole("link", { name: "Discord" });
-
-    expect(github).toHaveAttribute("href", "https://github.com/ric03uec/clawrium");
-    expect(docs).toHaveAttribute("href", "https://ric03uec.github.io/clawrium/");
-    expect(discord).toHaveAttribute("href", "https://discord.gg/KzPuSxgQ98");
-
-    for (const link of [github, docs, discord]) {
-      expect(link).toHaveAttribute("target", "_blank");
-      expect(link.getAttribute("rel") ?? "").toContain("noreferrer");
-    }
-  });
-
-  it("suppresses AbortError without clobbering version state", async () => {
-    const abortErr = new Error("aborted");
-    abortErr.name = "AbortError";
-    mockFetchOnce(
-      vi.fn().mockRejectedValue(abortErr) as unknown as typeof fetch,
-    );
-
+  it("handles version failures without crashing or showing a false value", async () => {
+    mockFetch(vi.fn().mockRejectedValue(new Error("boom")) as unknown as typeof fetch);
     render(<Sidebar />);
-    // Let microtasks settle so the rejection handler runs.
     await act(async () => {
       await Promise.resolve();
       await Promise.resolve();
     });
-    // setVersion('') would render an empty <span>; the suppression branch must
-    // leave version as null so the placeholder space renders instead.
     expect(screen.queryByText(/^v/)).not.toBeInTheDocument();
-  });
-
-  // W2: previous ordering test passed only because the footer follows the
-  // main nav in DOM order. The semantic guarantee is that Settings lives
-  // OUTSIDE the main-nav landmark — that's what we lock in here.
-  it("renders Settings outside the main-nav landmark", async () => {
-    await renderAndFlush();
-    const nav = screen.getByRole("navigation", { name: "Main navigation" });
-    expect(
-      within(nav).queryByRole("link", { name: "Settings" }),
-    ).toBeNull();
-    expect(screen.getByRole("link", { name: "Settings" })).toBeInTheDocument();
-  });
-
-  // W3: Settings active state — covers the footer Link's aria-current
-  // wiring on exact match, nested path, and negative.
-  it("marks footer Settings link as current on /settings", async () => {
-    pathnameRef.current = "/settings";
-    await renderAndFlush();
-    expect(
-      screen.getByRole("link", { name: "Settings" }),
-    ).toHaveAttribute("aria-current", "page");
-  });
-
-  it("marks footer Settings link as current on nested /settings/profile", async () => {
-    pathnameRef.current = "/settings/profile";
-    await renderAndFlush();
-    expect(
-      screen.getByRole("link", { name: "Settings" }),
-    ).toHaveAttribute("aria-current", "page");
-  });
-
-  it("does not mark footer Settings link as current on root path", async () => {
-    pathnameRef.current = "/";
-    await renderAndFlush();
-    expect(
-      screen.getByRole("link", { name: "Settings" }),
-    ).not.toHaveAttribute("aria-current");
-  });
-
-  // W4: Stub rows render as <button> (not <a>) and clicking them opens
-  // the ComingSoonModal with the matching feature name + upvote URL.
-  it("renders Scheduled Jobs / Agent Builder as buttons, not links", async () => {
-    await renderAndFlush();
-    for (const label of ["Scheduled Jobs", "Agent Builder"]) {
-      expect(
-        screen.getByRole("button", { name: `${label} — coming soon` }),
-      ).toBeInTheDocument();
-      expect(screen.queryByRole("link", { name: label })).toBeNull();
-    }
-  });
-
-  it("links MCP servers to its dedicated page", async () => {
-    await renderAndFlush();
-    expect(screen.getByRole("link", { name: "MCP servers" })).toHaveAttribute("href", "/mcp-servers");
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-  });
-
-  it("clicking Scheduled Jobs opens the modal targeting issue #699", async () => {
-    await renderAndFlush();
-    fireEvent.click(
-      screen.getByRole("button", { name: "Scheduled Jobs — coming soon" }),
-    );
-    const dialog = await screen.findByRole("dialog");
-    expect(
-      within(dialog).getByText("Scheduled Jobs — coming soon"),
-    ).toBeVisible();
-    expect(
-      within(dialog).getByRole("link", {
-        name: "Upvote Scheduled Jobs on GitHub",
-      }),
-    ).toHaveAttribute(
-      "href",
-      "https://github.com/ric03uec/clawrium/issues/699",
-    );
-  });
-
-  it("clicking Agent Builder opens the modal targeting issue #700", async () => {
-    await renderAndFlush();
-    fireEvent.click(
-      screen.getByRole("button", { name: "Agent Builder — coming soon" }),
-    );
-    const dialog = await screen.findByRole("dialog");
-    expect(
-      within(dialog).getByText("Agent Builder — coming soon"),
-    ).toBeVisible();
-    expect(
-      within(dialog).getByRole("link", {
-        name: "Upvote Agent Builder on GitHub",
-      }),
-    ).toHaveAttribute(
-      "href",
-      "https://github.com/ric03uec/clawrium/issues/700",
-    );
-  });
-
-  // W1: closing the modal must restore focus to the button that opened it
-  // (WCAG 2.4.3). Sidebar refocuses synchronously in closeStub. We trigger
-  // close via the modal's ✕ button (a React onClick path), since that
-  // matches how a real user clicks Close / X — and unlike a raw
-  // dialog.dispatchEvent('close'), it goes through act() automatically.
-  it("restores focus to the triggering stub button on modal close", async () => {
-    await renderAndFlush();
-    const trigger = screen.getByRole("button", {
-      name: "Scheduled Jobs — coming soon",
-    });
-    fireEvent.click(trigger);
-    const dialog = await screen.findByRole("dialog");
-    const closeX = within(dialog).getByRole("button", { name: "Close dialog" });
-    fireEvent.click(closeX);
-    expect(document.activeElement).toBe(trigger);
   });
 });

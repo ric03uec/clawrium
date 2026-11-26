@@ -12,7 +12,7 @@ import {
   LabelList,
   Legend,
 } from "recharts";
-import { Card } from "@/components/ui/card";
+import { Card } from "@/design-system";
 import { useFleet } from "@/hooks";
 
 type ModelUsage = {
@@ -102,7 +102,7 @@ export function UsageChart() {
   const totalCost = chartData.reduce((acc, d) => acc + d.cost, 0);
 
   return (
-    <Card padding="md" className="flex flex-col gap-4">
+    <Card trackingId="dashboard.usage.chart-card" padding="md" className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-medium text-secondary">
           Token Usage (7 Days)

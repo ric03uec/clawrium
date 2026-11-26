@@ -8,17 +8,26 @@
     "start": "next start",
     "lint": "next lint",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:export-server": "node --test scripts/serve-export.test.mjs",
+    "test:e2e": "npm run build && npm run test:e2e:ci",
+    "test:e2e:ci": "playwright test",
+    "test:e2e:evidence": "npm run build && E2E_RECORD_EVIDENCE=1 npm run test:e2e:ci"
   },
   "dependencies": {
     "@tanstack/react-query": "5.100.10",
+    "@tanstack/react-table": "8.21.3",
     "@xyflow/react": "12.10.2",
+    "clsx": "2.1.1",
+    "lucide-react": "0.522.0",
     "next": "14.2.35",
     "react": "18.3.1",
     "react-dom": "18.3.1",
-    "recharts": "2.15.4"
+    "recharts": "2.15.4",
+    "tailwind-merge": "2.6.0"
   },
   "devDependencies": {
+    "@playwright/test": "1.65.1",
     "@testing-library/jest-dom": "6.6.3",
     "@testing-library/react": "16.1.0",
     "@testing-library/user-event": "14.5.2",

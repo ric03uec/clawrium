@@ -22,17 +22,18 @@
 
 | Element | Location | Contents |
 |---------|----------|----------|
-| **Sidebar** | Left, fixed | Logo · "Agent Fleet Manager" tagline · Navigation links · External links (GitHub, Docs, Discord) · Version badge |
-| **Header bar** | Top | Page title + subtitle · "Request a feature" link · External link icons |
-| **Cost toast** | Bottom-right | Running cost indicator (e.g. "$5.94") — no label or explanation |
+| **Sidebar** | Left, 248 px expanded | Logo · "Agent Fleet Manager" tagline · grouped design-system navigation cards · Settings · GitHub · collapse/expand control · version |
+| **Header bar** | Top, 72 px | Fleet workspace context · Documentation · Request a feature |
+| **App footer** | Bottom | Version · intentional global links such as Documentation |
 
-**Navigation Items (sidebar):**
-1. Dashboard
-2. Topology
-3. Providers
-4. Skills
-5. Integrations
-6. Settings
+**Approved primary navigation (#1075):**
+
+- **Main** — Dashboard · Agents · Hosts
+- **Configuration** — Providers · Integrations · MCP servers
+Topology and Skills remain addressable routes for existing deep links, but they are not part of the issue #1075 sidebar hierarchy.
+- **Sidebar footer** — Settings · GitHub · collapse/expand · version.
+
+Scheduled Jobs and Agent Builder are not part of this information architecture. MCP servers links to a dedicated follow-up-scope page and does not open a coming-soon modal.
 
 ---
 
@@ -45,13 +46,25 @@
 | Metrics Row | 5 stat cards | Total Agents · Running (of total) · Providers · Tokens 24h · Est. Cost 24h |
 | Token Usage (7 Days) | Stacked bar chart (Recharts) | Input/output tokens by model, with totals |
 | Agent Status | Donut/pie chart | Breakdown by status (Running/Stopped/Unknown) |
-| Fleet Agents | Data table | Columns: Status dot, Name, Type, Host, Model, Uptime. Clickable rows → Agent Detail |
+| Fleet Agents | List / Graph tabs | List columns: linked Name with inline status and official agent mark, Type, Host, Model, Uptime. Graph reuses the canonical topology view. The real name link opens Agent Detail. |
 
-**Interactions**: Click agent row → navigate to `/agents?key=<key>`
+**Interactions**: Activate the agent name link → navigate to `/agents?key=<key>`
 
 ---
 
-### Page 2: Topology (`/topology`)
+### Page 2: Hosts (`/hosts`)
+
+**Purpose**: Inventory machines enrolled in the fleet
+
+| Section | Type | Content |
+|---------|------|---------|
+| Fleet Hosts | Data table | Name with OS identity, primary address, SSH user, agent count, architecture, and SSH-access status |
+
+**Interactions**: Search and sort the host inventory using the shared `DataTable` controls.
+
+---
+
+### Page 3: Topology (`/topology`)
 
 **Purpose**: Network diagram of hosts and agents
 
@@ -70,13 +83,13 @@
 
 ---
 
-### Page 3: Providers (`/providers`)
+### Page 4: Providers (`/providers`)
 
 **Purpose**: Manage LLM provider configurations
 
 | Section | Type | Content |
 |---------|------|---------|
-| Configured Providers | Card grid | Each card: logo, name, type, model, API key status, Edit/Remove buttons |
+| Configured Providers | Accessible data table | Columns: details, provider, type, default model, usage, created date, and keyboard-operable Edit/Remove actions |
 | Add Provider | Button | "+ Add Provider" opens modal |
 | Model Catalog | Filterable table | Filter dropdown (by provider) + search. Columns: Provider, Model, Context window, Tags |
 
@@ -84,7 +97,7 @@
 
 ---
 
-### Page 4: Skills (`/skills`)
+### Page 5: Skills (`/skills`)
 
 **Purpose**: Browse the skills catalog
 
@@ -98,18 +111,18 @@
 
 ---
 
-### Page 5: Integrations (`/integrations`)
+### Page 6: Integrations (`/integrations`)
 
 **Purpose**: Manage connections to external services
 
 | Section | Type | Content |
 |---------|------|---------|
 | Add Integration | Button | "+ Add Integration" opens modal with type selection |
-| Configured Integrations | Card list | Each card: avatar, name, type, credential status, agent usage count, keys progress (e.g. 3/5), Edit credentials / Remove buttons |
+| Configured Integrations | Searchable data table | Columns: integration, type, credential status, agent usage, and keyboard-operable identity, Edit credentials, and Remove buttons |
 
 ---
 
-### Page 6: Settings (`/settings`)
+### Page 7: Settings (`/settings`)
 
 **Purpose**: Application configuration and preferences
 
@@ -124,7 +137,7 @@
 
 ---
 
-### Page 7: Agent Detail (`/agents?key=<agent_key>`)
+### Page 8: Agent Detail (`/agents?key=<agent_key>`)
 
 **Purpose**: Per-agent management and interaction
 

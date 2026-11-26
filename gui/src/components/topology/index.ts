@@ -1,4 +1,5 @@
 export { TopologyCanvas } from "./topology-canvas";
+export { TopologyView } from "./topology-view";
 export { ControlNode } from "./control-node";
 export { AgentNode } from "./agent-node";
 export { HostNode } from "./host-node";

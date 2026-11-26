@@ -1,0 +1,36 @@
+{
+  "issue": 1075,
+  "branch": "fix/1075-design-system-completion",
+  "captured_at_utc": "2026-11-26T16:36:56Z",
+  "browser": {
+    "engine": "Chromium",
+    "playwright": "1.65.1",
+    "chromium_revision": "1255",
+    "chrome_for_testing": "159.0.8154.6"
+  },
+  "command": "cd gui && npm run test:e2e:evidence",
+  "scripts": {
+    "local_fresh": "npm run test:e2e",
+    "ci_already_built": "npm run test:e2e:ci",
+    "evidence_fresh": "npm run test:e2e:evidence",
+    "export_server_unit": "npm run test:export-server"
+  },
+  "server": "checked-in scripts/serve-export.mjs serving the Next production export from gui/out",
+  "fixtures": "All /api requests intercepted by gui/e2e/design-system.spec.ts with deterministic in-process JSON fixtures.",
+  "viewports": {
+    "desktop": { "width": 1440, "height": 1000 },
+    "mobile": { "width": 390, "height": 844 }
+  },
+  "evidence": [
+    { "file": "desktop-shell-expanded.png", "route": "/agents", "viewport": "desktop", "state": "expanded sidebar with larger typography and header Documentation action" },
+    { "file": "desktop-shell-collapsed.png", "route": "/agents", "viewport": "desktop", "state": "collapsed sidebar" },
+    { "file": "desktop-agents-table.png", "route": "/agents", "viewport": "desktop", "state": "list tab with deterministic agent fixtures" },
+    { "file": "desktop-agents-graph.png", "route": "/agents", "viewport": "desktop", "state": "graph tab with deterministic topology fixtures" },
+    { "file": "desktop-providers-table.png", "route": "/providers", "viewport": "desktop", "state": "deterministic provider fixtures with details expanded" },
+    { "file": "desktop-integrations-table.png", "route": "/integrations", "viewport": "desktop", "state": "deterministic integration fixtures" },
+    { "file": "desktop-hosts-table.png", "route": "/hosts", "viewport": "desktop", "state": "deterministic host inventory with access and hardware columns" },
+    { "file": "desktop-mcp-placeholder.png", "route": "/mcp-servers", "viewport": "desktop", "state": "follow-up placeholder without CRUD" },
+    { "file": "mobile-navigation-and-agents-table.png", "route": "/agents", "viewport": "mobile", "state": "expanded mobile navigation and contained table" }
+  ],
+  "working_tree_note": "Captured after final-review fixes from an uncommitted working tree; no commit SHA is claimed. Unrelated untracked .itx/1033, .itx/1049, and .itx/1069 directories were not touched. Browser binaries remain only in the user Playwright cache and are not part of the repository."
+}

@@ -44,7 +44,7 @@ function FleetSummaryCard({ data }: { data: TopologyResponse }) {
     {
       label: "Running",
       value: data.summary.running,
-      valueClass: "text-status-running",
+      valueClass: "text-status-running-text",
     },
   ];
 

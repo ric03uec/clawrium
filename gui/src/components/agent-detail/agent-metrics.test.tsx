@@ -54,13 +54,14 @@ function makeHealth(
 describe("AgentMetrics — health loading fallback (#758 ATX W7)", () => {
   it("renders 'checking' status from static fallback when health is undefined", () => {
     render(<AgentMetrics agent={makeAgent()} health={undefined} />);
-    // Status cell text comes from agent.status while health is loading.
-    expect(screen.getByText("checking")).toBeTruthy();
+    const status = screen.getByText("Checking");
+    expect(status).toHaveAttribute("data-status", "checking");
   });
 
   it("renders live status from health once the probe resolves", () => {
     render(<AgentMetrics agent={makeAgent()} health={makeHealth()} />);
-    expect(screen.getByText("running")).toBeTruthy();
+    const status = screen.getByText("Running");
+    expect(status).toHaveAttribute("data-status", "running");
   });
 
   it("renders uptime from the static endpoint regardless of health state", () => {
@@ -73,10 +74,8 @@ describe("AgentMetrics — health loading fallback (#758 ATX W7)", () => {
     render(
       <AgentMetrics agent={makeAgent({ uptime: "" })} health={undefined} />,
     );
-    // Multiple "—" cells render (empty uptime + empty usage); the one
-    // we care about is the Uptime label's sibling.
-    const uptimeLabel = screen.getByText("Uptime");
-    const uptimeCell = uptimeLabel.parentElement;
-    expect(uptimeCell?.textContent).toContain("—");
+    const uptimeCell = document.querySelector('[data-i7n-name="agent-detail.metrics.uptime"]');
+    expect(uptimeCell).toHaveTextContent("—");
+    expect(uptimeCell).toHaveTextContent("Uptime");
   });
 });

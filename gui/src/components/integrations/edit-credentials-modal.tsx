@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { Modal } from "@/components/ui/modal";
-import { Button } from "@/components/ui/button";
+import { Button, Input } from "@/design-system";
 import type {
   Integration,
   IntegrationCredentialDef,
@@ -78,7 +78,9 @@ export function EditCredentialsModal({
                   {isConfigured ? "(set)" : "(not set)"}
                 </span>
               </label>
-              <input
+              <Input
+                trackingId={`integrations.credentials.field.${c.key.toLowerCase().replaceAll("_", "-")}`}
+                size="sm"
                 id={fieldId}
                 type={isSecretKey(c.key) ? "password" : "text"}
                 value={values[c.key] || ""}
@@ -96,10 +98,10 @@ export function EditCredentialsModal({
         })}
 
         <div className="flex justify-end gap-2 pt-2">
-          <Button variant="secondary" type="button" onClick={handleClose}>
+          <Button trackingId="integrations.credentials.cancel" variant="secondary" type="button" onClick={handleClose}>
             Cancel
           </Button>
-          <Button
+          <Button trackingId="integrations.credentials.save"
             variant="primary"
             type="submit"
             disabled={!hasInput || saving}

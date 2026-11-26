@@ -1,9 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { PageHeader } from "@/components/layout";
+import { Button, Input, PageHeader } from "@/design-system";
 import { Modal } from "@/components/ui/modal";
-import { Button } from "@/components/ui";
 import { SkillCard, SkillDetail } from "@/components/skills";
 import { useSkill, useSkills, useInstallAgentSkill, useAddOverlaySkill } from "@/hooks";
 import { useFleet } from "@/hooks";
@@ -40,25 +39,27 @@ export default function SkillsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-start justify-between">
-        <PageHeader
-          title="Skills"
-          description="Browse and install skills onto your agents. Skills add capabilities like TDD workflows, code review, and more."
-        />
-        <Button
-          variant="primary"
-          size="sm"
-          onClick={() => setAddOverlayOpen(true)}
-          className="mt-1 shrink-0"
-        >
-          Add to catalog
-        </Button>
-      </div>
+      <PageHeader
+        trackingId="skills.page.header"
+        eyebrow="Catalog"
+        title="Skills"
+        description="Browse and install skills onto your agents. Skills add capabilities like TDD workflows, code review, and more."
+        actions={(
+          <Button
+            trackingId="skills.page.add-overlay"
+            variant="primary"
+            size="sm"
+            onClick={() => setAddOverlayOpen(true)}
+          >
+            Add to catalog
+          </Button>
+        )}
+      />
 
       {error ? (
         <div
           role="alert"
-          className="bg-surface rounded-xl border border-default p-6 text-sm text-status-warning"
+          className="bg-surface rounded-xl border border-default p-6 text-sm text-status-warning-text"
         >
           Failed to load skills catalog:{" "}
           {error instanceof Error ? error.message : String(error)}
@@ -68,7 +69,7 @@ export default function SkillsPage() {
       {catalog?.error ? (
         <div
           role="alert"
-          className="bg-surface rounded-xl border border-default p-4 text-sm text-status-warning"
+          className="bg-surface rounded-xl border border-default p-4 text-sm text-status-warning-text"
         >
           Skills catalog is currently unavailable on the server (likely a
           filesystem permission issue). Showing empty tabs as a fallback —
@@ -120,8 +121,8 @@ export default function SkillsPage() {
                   onClick={() => setActiveRegistry(registry)}
                   className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
                     isActive
-                      ? "border-primary text-primary"
-                      : "border-transparent text-secondary hover:text-primary"
+                      ? "border-primary text-primary-foreground"
+                      : "border-transparent text-secondary hover:text-primary-foreground"
                   }`}
                 >
                   {label}
@@ -208,7 +209,7 @@ function AddOverlaySkillModal({
       title="Add skill to user overlay"
       footer={
         <div className="flex items-center gap-2">
-          <Button
+          <Button trackingId="skills.overlay.add"
             variant="primary"
             size="sm"
             onClick={handleAdd}
@@ -216,7 +217,7 @@ function AddOverlaySkillModal({
           >
             {addMutation.isPending ? "Adding…" : "Add skill"}
           </Button>
-          <Button variant="secondary" size="sm" onClick={handleClose}>
+          <Button trackingId="skills.overlay.cancel" variant="secondary" size="sm" onClick={handleClose}>
             Cancel
           </Button>
         </div>
@@ -262,10 +263,11 @@ function AddOverlaySkillModal({
           >
             Name <span className="text-red-500">*</span>
           </label>
-          <input
+          <Input
+            trackingId="skills.overlay.name"
             id="overlay-name"
             type="text"
-            className="w-full rounded-lg border border-default bg-surface px-3 py-2 text-sm text-primary-text focus:outline-none focus:ring-2 focus:ring-accent"
+            size="sm"
             placeholder="my-skill"
             value={name}
             onChange={(e) => setName(e.target.value)}
@@ -363,7 +365,7 @@ function SkillDetailModal({
           Loading...
         </div>
       ) : error ? (
-        <div role="alert" className="text-sm text-status-warning py-6">
+        <div role="alert" className="text-sm text-status-warning-text py-6">
           Failed to load skill:{" "}
           {error instanceof Error ? error.message : String(error)}
         </div>
@@ -395,7 +397,7 @@ function SkillDetailModal({
                     </option>
                   ))}
                 </select>
-                <Button
+                <Button trackingId="skills.detail.install"
                   size="sm"
                   disabled={
                     !targetAgent || installMutation.isPending
@@ -410,7 +412,7 @@ function SkillDetailModal({
               <p className="mt-2 text-xs text-emerald-600">{installSuccess}</p>
             ) : null}
             {installMutation.isError ? (
-              <p className="mt-2 text-xs text-status-warning">
+              <p className="mt-2 text-xs text-status-warning-text">
                 Install failed:{" "}
                 {installMutation.error instanceof Error
                   ? installMutation.error.message

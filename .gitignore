@@ -219,6 +219,10 @@ __marimo__/
 # Playwright MCP session artifacts
 .playwright-mcp/
 
+# GUI browser acceptance artifacts (uploaded by CI on failure)
+/gui/test-results/
+/gui/playwright-report/
+
 # Website (Docusaurus)
 website/node_modules/
 website/build/

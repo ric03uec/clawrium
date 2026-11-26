@@ -4,7 +4,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { ChatMessage } from "@/lib/types";
-import { Button } from "@/components/ui/button";
+import { Button } from "@/design-system";
 
 interface ChatTabProps {
   agentKey: string;
@@ -231,7 +231,7 @@ export function ChatTab({ agentKey, agentName }: ChatTabProps) {
             rows={1}
             className="flex-1 rounded-lg border border-default px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary resize-none overflow-y-auto max-h-[182px] min-h-[24px]"
           />
-          <Button
+          <Button trackingId="agent-detail.chat.reset"
             variant="secondary"
             size="md"
             onClick={handleReset}
@@ -240,7 +240,7 @@ export function ChatTab({ agentKey, agentName }: ChatTabProps) {
             New chat
           </Button>
           {sending ? (
-            <Button
+            <Button trackingId="agent-detail.chat.stop"
               variant="danger"
               size="md"
               onClick={handleStop}
@@ -249,7 +249,7 @@ export function ChatTab({ agentKey, agentName }: ChatTabProps) {
               Stop
             </Button>
           ) : (
-            <Button
+            <Button trackingId="agent-detail.chat.send"
               variant="primary"
               size="md"
               onClick={handleSend}

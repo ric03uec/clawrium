@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
-import { Button } from "@/components/ui/button";
+import { useMemo, useState } from "react";
+import type { ColumnDef } from "@tanstack/react-table";
+import { Button, DataTable } from "@/design-system";
 import {
   getAcceleratorBadge,
   getProviderBrand,
@@ -23,64 +24,149 @@ export function ProvidersTable({
 }: ProvidersTableProps) {
   const [expanded, setExpanded] = useState<string | null>(null);
 
+  const columns = useMemo<ColumnDef<Provider, unknown>[]>(
+    () => [
+      {
+        id: "expand",
+        header: () => <span className="sr-only">Details</span>,
+        enableSorting: false,
+        cell: ({ row }) => {
+          const provider = row.original;
+          const isExpanded = expanded === provider.name;
+          const detailsId = `provider-details-${row.id}`;
+          return (
+            <button
+              type="button"
+              onClick={() => setExpanded(isExpanded ? null : provider.name)}
+              className="text-muted hover:text-secondary"
+              aria-label={`${isExpanded ? "Collapse" : "Expand"} details for ${provider.name}`}
+              aria-expanded={isExpanded}
+              aria-controls={detailsId}
+            >
+              {isExpanded ? "▾" : "▸"}
+            </button>
+          );
+        },
+      },
+      {
+        accessorKey: "name",
+        header: "Provider",
+        enableSorting: false,
+        cell: ({ row }) => {
+          const provider = row.original;
+          const brand = getProviderBrand(provider.type);
+          const Icon = brand.Icon;
+          const isExpanded = expanded === provider.name;
+          const usedBy = usage[provider.name] || [];
+          return (
+            <div className="min-w-64 whitespace-normal">
+              <div className="flex items-center gap-2">
+                <Icon className="w-5 h-5" title={brand.label} />
+                <span className="font-medium text-primary-foreground">{provider.name}</span>
+              </div>
+              {isExpanded && (
+                <ProviderDetails
+                  id={`provider-details-${row.id}`}
+                  provider={provider}
+                  usedBy={usedBy}
+                />
+              )}
+            </div>
+          );
+        },
+      },
+      {
+        accessorKey: "type",
+        header: "Type",
+        enableSorting: false,
+        cell: ({ getValue }) => (
+          <span className="text-secondary">{getValue<string>()}</span>
+        ),
+      },
+      {
+        accessorKey: "default_model",
+        header: "Default Model",
+        enableSorting: false,
+        cell: ({ getValue }) => (
+          <span className="font-mono text-xs text-secondary">
+            {getValue<string | null>() || "—"}
+          </span>
+        ),
+      },
+      {
+        id: "usedBy",
+        accessorFn: (provider) => (usage[provider.name] || []).join(", "),
+        header: "Used by",
+        enableSorting: false,
+        cell: ({ row }) => {
+          const usedBy = usage[row.original.name] || [];
+          return usedBy.length > 0 ? (
+            <span className="text-secondary">{usedBy.join(", ")}</span>
+          ) : (
+            <span className="px-1.5 py-0.5 text-[10px] rounded bg-surface text-muted">
+              ⌀ Unassigned
+            </span>
+          );
+        },
+      },
+      {
+        accessorKey: "created_at",
+        header: "Created",
+        enableSorting: false,
+        cell: ({ getValue }) => (
+          <span className="text-muted">{formatDate(getValue<string | null>())}</span>
+        ),
+      },
+      {
+        id: "actions",
+        header: "Actions",
+        enableSorting: false,
+        meta: { align: "right" },
+        cell: ({ row }) => (
+          <div className="flex justify-end gap-1">
+            <Button
+              trackingId="providers.table.edit"
+              variant="ghost"
+              size="sm"
+              onClick={() => onEdit(row.original)}
+            >
+              Edit
+            </Button>
+            <Button
+              trackingId="providers.table.remove"
+              variant="ghost"
+              size="sm"
+              onClick={() => onRemove(row.original)}
+            >
+              Remove
+            </Button>
+          </div>
+        ),
+      },
+    ],
+    [expanded, onEdit, onRemove, usage],
+  );
+
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="border-b border-default text-left">
-            <th className="pb-3 pr-4 font-medium text-muted w-8"></th>
-            <th className="pb-3 pr-4 font-medium text-muted">Provider</th>
-            <th className="pb-3 pr-4 font-medium text-muted">Type</th>
-            <th className="pb-3 pr-4 font-medium text-muted">Default Model</th>
-            <th className="pb-3 pr-4 font-medium text-muted">Used by</th>
-            <th className="pb-3 pr-4 font-medium text-muted">Created</th>
-            <th className="pb-3 font-medium text-muted text-right">Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {providers.map((p) => {
-            const brand = getProviderBrand(p.type);
-            const Icon = brand.Icon;
-            const usedBy = usage[p.name] || [];
-            const isOpen = expanded === p.name;
-            return (
-              <ProviderRow
-                key={p.name}
-                provider={p}
-                brandIcon={<Icon className="w-5 h-5" title={brand.label} />}
-                usedBy={usedBy}
-                expanded={isOpen}
-                onToggle={() => setExpanded(isOpen ? null : p.name)}
-                onEdit={() => onEdit(p)}
-                onRemove={() => onRemove(p)}
-              />
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
+    <DataTable
+      trackingId="providers.configured.table"
+      columns={columns}
+      data={providers}
+      getRowId={(provider) => provider.name}
+      itemLabel="provider"
+      enableSearch={false}
+      enablePagination={false}
+    />
   );
 }
 
-interface ProviderRowProps {
+interface ProviderDetailsProps {
+  id: string;
   provider: Provider;
-  brandIcon: React.ReactNode;
   usedBy: string[];
-  expanded: boolean;
-  onToggle: () => void;
-  onEdit: () => void;
-  onRemove: () => void;
 }
 
-function ProviderRow({
-  provider,
-  brandIcon,
-  usedBy,
-  expanded,
-  onToggle,
-  onEdit,
-  onRemove,
-}: ProviderRowProps) {
+function ProviderDetails({ id, provider, usedBy }: ProviderDetailsProps) {
   const accelerator = getAcceleratorBadge(
     provider.type,
     provider.accelerator_vendor,
@@ -88,112 +174,61 @@ function ProviderRow({
   );
 
   return (
-    <>
-      <tr className="border-b border-default last:border-0 hover:bg-surface">
-        <td className="py-3 pr-4 align-middle">
-          <button
-            type="button"
-            onClick={onToggle}
-            className="text-muted hover:text-secondary"
-            aria-label={expanded ? "Collapse details" : "Expand details"}
-          >
-            {expanded ? "▾" : "▸"}
-          </button>
-        </td>
-        <td className="py-3 pr-4">
-          <div className="flex items-center gap-2">
-            {brandIcon}
-            <span className="font-medium text-primary">{provider.name}</span>
-          </div>
-        </td>
-        <td className="py-3 pr-4 text-secondary">{provider.type}</td>
-        <td className="py-3 pr-4 text-secondary font-mono text-xs">
-          {provider.default_model || "—"}
-        </td>
-        <td className="py-3 pr-4 text-secondary">
-          {usedBy.length > 0 ? (
-            usedBy.join(", ")
-          ) : (
-            <span className="px-1.5 py-0.5 text-[10px] rounded bg-surface text-muted">
-              ⌀ Unassigned
-            </span>
-          )}
-        </td>
-        <td className="py-3 pr-4 text-muted whitespace-nowrap">
-          {formatDate(provider.created_at)}
-        </td>
-        <td className="py-3 text-right whitespace-nowrap">
-          <Button variant="ghost" size="sm" onClick={onEdit}>
-            Edit
-          </Button>
-          <Button variant="ghost" size="sm" onClick={onRemove}>
-            Remove
-          </Button>
-        </td>
-      </tr>
-      {expanded && (
-        <tr className="border-b border-default bg-surface/50">
-          <td></td>
-          <td colSpan={6} className="py-3 pr-4">
-            <dl className="grid grid-cols-[140px_1fr] gap-y-1 text-xs">
-              {provider.endpoint && (
-                <>
-                  <dt className="text-muted">Endpoint</dt>
-                  <dd className="font-mono text-secondary break-all">
-                    {provider.endpoint}
-                  </dd>
-                </>
-              )}
-              {provider.type === "bedrock" && (
-                <>
-                  <dt className="text-muted">Region</dt>
-                  <dd className="font-mono text-secondary">
-                    {provider.region || "—"}
-                  </dd>
-                  <dt className="text-muted">AWS credentials</dt>
-                  <dd className="text-secondary">
-                    {provider.has_aws_credentials ? "configured" : "missing"}
-                  </dd>
-                </>
-              )}
-              {provider.type !== "bedrock" && provider.type !== "ollama" && (
-                <>
-                  <dt className="text-muted">API key</dt>
-                  <dd className="text-secondary">
-                    {provider.has_api_key ? "configured" : "missing"}
-                  </dd>
-                </>
-              )}
-              {accelerator && (
-                <>
-                  <dt className="text-muted">Accelerator</dt>
-                  <dd className="text-secondary uppercase tracking-wide text-[11px]">
-                    {accelerator.label}
-                  </dd>
-                </>
-              )}
-              {provider.available_models &&
-                provider.available_models.length > 0 && (
-                  <>
-                    <dt className="text-muted">Models</dt>
-                    <dd className="text-secondary">
-                      {provider.available_models.slice(0, 6).join(", ")}
-                      {provider.available_models.length > 6 &&
-                        ` +${provider.available_models.length - 6} more`}
-                    </dd>
-                  </>
-                )}
-              {usedBy.length > 0 && (
-                <>
-                  <dt className="text-muted">Used by</dt>
-                  <dd className="text-secondary">{usedBy.join(", ")}</dd>
-                </>
-              )}
-            </dl>
-          </td>
-        </tr>
+    <dl
+      id={id}
+      className="mt-3 grid grid-cols-[140px_1fr] gap-y-1 border-t border-default pt-3 text-xs"
+    >
+      {provider.endpoint && (
+        <>
+          <dt className="text-muted">Endpoint</dt>
+          <dd className="font-mono text-secondary break-all">
+            {provider.endpoint}
+          </dd>
+        </>
       )}
-    </>
+      {provider.type === "bedrock" && (
+        <>
+          <dt className="text-muted">Region</dt>
+          <dd className="font-mono text-secondary">{provider.region || "—"}</dd>
+          <dt className="text-muted">AWS credentials</dt>
+          <dd className="text-secondary">
+            {provider.has_aws_credentials ? "configured" : "missing"}
+          </dd>
+        </>
+      )}
+      {provider.type !== "bedrock" && provider.type !== "ollama" && (
+        <>
+          <dt className="text-muted">API key</dt>
+          <dd className="text-secondary">
+            {provider.has_api_key ? "configured" : "missing"}
+          </dd>
+        </>
+      )}
+      {accelerator && (
+        <>
+          <dt className="text-muted">Accelerator</dt>
+          <dd className="text-secondary uppercase tracking-wide text-[11px]">
+            {accelerator.label}
+          </dd>
+        </>
+      )}
+      {provider.available_models && provider.available_models.length > 0 && (
+        <>
+          <dt className="text-muted">Models</dt>
+          <dd className="text-secondary">
+            {provider.available_models.slice(0, 6).join(", ")}
+            {provider.available_models.length > 6 &&
+              ` +${provider.available_models.length - 6} more`}
+          </dd>
+        </>
+      )}
+      {usedBy.length > 0 && (
+        <>
+          <dt className="text-muted">Used by</dt>
+          <dd className="text-secondary">{usedBy.join(", ")}</dd>
+        </>
+      )}
+    </dl>
   );
 }
 
