@@ -46,7 +46,7 @@ Scheduled Jobs and Agent Builder are not part of this information architecture. 
 | Metrics Row | 5 stat cards | Total Agents · Running (of total) · Providers · Tokens 24h · Est. Cost 24h |
 | Token Usage (7 Days) | Stacked bar chart (Recharts) | Input/output tokens by model, with totals |
 | Agent Status | Donut/pie chart | Breakdown by status (Running/Stopped/Unknown) |
-| Fleet Agents | Data table | Columns: Status dot, linked Name, Type, Host, Model, Uptime. The real name link opens Agent Detail. |
+| Fleet Agents | List / Graph tabs | List columns: linked Name with inline status and official agent mark, Type, Host, Model, Uptime. Graph reuses the canonical topology view. The real name link opens Agent Detail. |
 
 **Interactions**: Activate the agent name link → navigate to `/agents?key=<key>`
 

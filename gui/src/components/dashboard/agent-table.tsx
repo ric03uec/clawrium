@@ -10,11 +10,6 @@ import type { AgentSummary } from "@/lib/types";
 
 const columns: ColumnDef<AgentSummary, unknown>[] = [
   {
-    accessorKey: "status",
-    header: () => <span className="sr-only">Status</span>,
-    cell: ({ row }) => <StatusDot status={row.original.status} size="md" />,
-  },
-  {
     accessorKey: "agent_name",
     header: "Name",
     cell: ({ row }) => (
@@ -23,6 +18,7 @@ const columns: ColumnDef<AgentSummary, unknown>[] = [
         aria-label={`Open agent ${row.original.agent_name}`}
         className="inline-flex items-center gap-2 font-medium text-primary-foreground hover:underline"
       >
+        <StatusDot status={row.original.status} size="md" />
         <AgentLogo
           trackingId="dashboard.agents.agent-logo"
           kind={row.original.agent_type}

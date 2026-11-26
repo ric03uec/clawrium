@@ -39,6 +39,42 @@ const fleet = {
   summary: { total: 2, running: 1, provisioning: 0, hosts: 2 },
 };
 
+const topology = {
+  control: { label: "Control", description: "clawctl CLI" },
+  summary: { total_agents: 2, running: 1, total_hosts: 2 },
+  connections: [],
+  hosts: [
+    {
+      hostname: "lab.example",
+      alias: "Lab host",
+      user: "xclm",
+      addresses: ["192.0.2.10"],
+      has_key: true,
+      agent_count: 1,
+      agents: [{
+        ...fleet.agents[0],
+        version: "1.0.0",
+        provider_endpoint: "https://api.openai.com/v1",
+        provider_accelerator_vendor: null,
+      }],
+    },
+    {
+      hostname: "studio.example",
+      alias: "Studio Mac",
+      user: "xclm",
+      addresses: ["192.0.2.11"],
+      has_key: true,
+      agent_count: 1,
+      agents: [{
+        ...fleet.agents[1],
+        version: "1.0.0",
+        provider_endpoint: "https://api.anthropic.com",
+        provider_accelerator_vendor: null,
+      }],
+    },
+  ],
+};
+
 const providers = [
   {
     name: "openai-main",
@@ -126,6 +162,7 @@ async function installApiFixtures(page: Page) {
 
     if (path === "/api/settings/version") return fulfillJson(route, { version: "26.8.1" });
     if (path === "/api/fleet") return fulfillJson(route, fleet);
+    if (path === "/api/fleet/topology") return fulfillJson(route, topology);
     if (path === "/api/fleet/health") {
       return fulfillJson(route, {
         summary: fleet.summary,
@@ -289,6 +326,19 @@ test("Agents DataTable renders fixtures and exposes keyboard-operable agent link
   await page.goto("/agents");
   await expect(table.getByRole("row", { name: /Alpha/ })).toBeVisible();
   await evidence(page, "desktop-agents-table.png");
+});
+
+test("Agents view exposes reusable List and Graph tabs", async ({ page }) => {
+  await page.goto("/agents");
+  const listTab = page.getByRole("tab", { name: "List" });
+  const graphTab = page.getByRole("tab", { name: "Graph" });
+  await expect(listTab).toHaveAttribute("aria-selected", "true");
+  await graphTab.click();
+  await expect(graphTab).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator(".react-flow")).toBeVisible();
+  await evidence(page, "desktop-agents-graph.png");
+  await listTab.click();
+  await expect(page.getByRole("table")).toBeVisible();
 });
 
 test("Providers DataTable actions are keyboard operable and modal closes with Escape", async ({ page }) => {

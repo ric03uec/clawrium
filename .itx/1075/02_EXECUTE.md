@@ -34,6 +34,9 @@ backend description/context-injection work recorded in the parent issue.
   application layout code now supplies data only.
 - Rebuilt the staged local frontend and verified the live six-agent Hermes fleet
   renders the official Hermes mark rather than the stale glyph fallback.
+- Removed the empty standalone status column by placing status inside the linked
+  Name cell, and restored List/Graph tabs on Agents using the shared `TabBar`
+  and reusable topology view.
 - Regenerated browser evidence and metadata after all fixes. Metadata describes
   the uncommitted working tree and does not claim a commit SHA.
 

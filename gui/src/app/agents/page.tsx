@@ -3,8 +3,9 @@
 import { useSearchParams, useRouter } from "next/navigation";
 import { Suspense, useState } from "react";
 import { useAgent, useAgentHealth } from "@/hooks";
-import { PageHeader, getTabId, getTabPanelId } from "@/design-system";
+import { PageHeader, TabBar, getTabId, getTabPanelId } from "@/design-system";
 import { AgentTable } from "@/components/dashboard";
+import { TopologyView } from "@/components/topology";
 import {
   AgentHeader,
   AgentMetrics,
@@ -35,6 +36,8 @@ function AgentsRouter() {
 }
 
 function AgentsListView() {
+  const [view, setView] = useState<"list" | "graph">("list");
+
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
@@ -43,7 +46,22 @@ function AgentsListView() {
         title="Agents"
         description="All agents across your fleet"
       />
-      <AgentTable />
+      <TabBar
+        trackingId="agents.page.views"
+        tabs={[
+          { id: "list", label: "List" },
+          { id: "graph", label: "Graph" },
+        ]}
+        value={view}
+        onValueChange={(value) => setView(value as "list" | "graph")}
+      />
+      <div
+        role="tabpanel"
+        id={getTabPanelId("agents.page.views", view)}
+        aria-labelledby={getTabId("agents.page.views", view)}
+      >
+        {view === "list" ? <AgentTable /> : <TopologyView />}
+      </div>
     </div>
   );
 }

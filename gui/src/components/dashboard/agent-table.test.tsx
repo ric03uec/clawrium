@@ -64,7 +64,7 @@ describe("AgentTable", () => {
     const { container } = render(<AgentTable />);
 
     expect(container.querySelector('[data-i7n-component="data-table"][data-i7n-name="dashboard.agents.table-card"]')).toBeInTheDocument();
-    expect(screen.getByRole("columnheader", { name: "Status" })).toBeInTheDocument();
+    expect(screen.queryByRole("columnheader", { name: "Status" })).not.toBeInTheDocument();
     for (const heading of ["Name", "Type", "Host", "Model", "Uptime"]) {
       expect(screen.getByRole("columnheader", { name: new RegExp(heading) })).toBeInTheDocument();
     }

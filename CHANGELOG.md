@@ -38,7 +38,7 @@ cut. The `itx-release` skill archives this section into a new
 
 ### Fixed
 
-- Complete the GUI design-system accessibility contracts with stable table identities, real row actions, keyboard tabs, AA text colors, a skip link, a reachable mobile sidebar toggle, official branding for every supported agent type, and the restored app-footer version (#1075).
+- Complete the GUI design-system accessibility contracts with stable table identities, real row actions, keyboard tabs, AA text colors, a skip link, a reachable mobile sidebar toggle, official branding for every supported agent type, and the restored app-footer version. The Agents surface now removes the empty status column and restores List/Graph tabs using the shared topology view (#1075).
 
 - Preserve the exact Codex OAuth credential bytes during activation so the stored fingerprint matches the installed document.
 

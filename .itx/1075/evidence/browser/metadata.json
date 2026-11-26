@@ -1,7 +1,7 @@
 {
   "issue": 1075,
   "branch": "fix/1075-design-system-completion",
-  "captured_at_utc": "2026-11-26T05:05:05Z",
+  "captured_at_utc": "2026-11-26T05:15:45Z",
   "browser": {
     "engine": "Chromium",
     "playwright": "1.65.1",
@@ -24,7 +24,8 @@
   "evidence": [
     { "file": "desktop-shell-expanded.png", "route": "/agents", "viewport": "desktop", "state": "expanded sidebar" },
     { "file": "desktop-shell-collapsed.png", "route": "/agents", "viewport": "desktop", "state": "collapsed sidebar" },
-    { "file": "desktop-agents-table.png", "route": "/agents", "viewport": "desktop", "state": "deterministic agent fixtures" },
+    { "file": "desktop-agents-table.png", "route": "/agents", "viewport": "desktop", "state": "list tab with deterministic agent fixtures" },
+    { "file": "desktop-agents-graph.png", "route": "/agents", "viewport": "desktop", "state": "graph tab with deterministic topology fixtures" },
     { "file": "desktop-providers-table.png", "route": "/providers", "viewport": "desktop", "state": "deterministic provider fixtures with details expanded" },
     { "file": "desktop-integrations-table.png", "route": "/integrations", "viewport": "desktop", "state": "deterministic integration fixtures" },
     { "file": "desktop-hosts-placeholder.png", "route": "/hosts", "viewport": "desktop", "state": "follow-up placeholder" },
