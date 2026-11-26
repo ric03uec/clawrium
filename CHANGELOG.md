@@ -34,7 +34,7 @@ cut. The `itx-release` skill archives this section into a new
 
 ### Changed
 
-- Standardize the GUI on the copied design system: shared accessible tables for agent, host, provider, model, and integration inventories; migrated headers, controls, tabs, metrics, and status surfaces; and a responsive, browser-verified app shell whose reusable sidebar matches the approved navigation hierarchy exactly. MCP servers retains a dedicated follow-up placeholder (#1075).
+- Standardize the GUI on the copied design system: shared accessible tables for agent, host, provider, model, and integration inventories; migrated headers, controls, tabs, metrics, and status surfaces; larger fleet-wide typography; and a responsive, browser-verified app shell whose reusable sidebar matches the approved navigation hierarchy exactly and whose header exposes Documentation and feature-request actions. MCP servers retains a dedicated follow-up placeholder (#1075).
 
 ### Fixed
 

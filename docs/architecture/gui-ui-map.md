@@ -23,7 +23,7 @@
 | Element | Location | Contents |
 |---------|----------|----------|
 | **Sidebar** | Left, 248 px expanded | Logo · "Agent Fleet Manager" tagline · grouped design-system navigation cards · Settings · GitHub · collapse/expand control · version |
-| **Header bar** | Top, 72 px | Fleet workspace context · "Request a feature" link |
+| **Header bar** | Top, 72 px | Fleet workspace context · Documentation · Request a feature |
 | **App footer** | Bottom | Version · intentional global links such as Documentation |
 
 **Approved primary navigation (#1075):**

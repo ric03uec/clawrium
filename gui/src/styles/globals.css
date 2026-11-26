@@ -82,14 +82,14 @@ body {
 
 .app-header-context strong {
   color: var(--foreground);
-  font-size: 0.875rem;
+  font-size: 1rem;
   font-weight: 650;
 }
 
 .app-header-description {
   overflow: hidden;
   color: var(--muted-foreground);
-  font-size: 0.75rem;
+  font-size: 0.875rem;
   text-overflow: ellipsis;
 }
 
@@ -115,7 +115,7 @@ body {
   border-top: 1px solid var(--border);
   background: var(--surface-card);
   color: var(--muted-foreground);
-  font-size: 0.75rem;
+  font-size: 0.875rem;
 }
 
 .app-footer a:hover {
@@ -143,6 +143,16 @@ body {
 
   .app-header {
     padding: 0 1.25rem;
+  }
+
+  .app-header-actions a {
+    width: 2.25rem;
+    justify-content: center;
+    padding-inline: 0;
+  }
+
+  .app-header-actions a span {
+    display: none;
   }
 
   .app-page {

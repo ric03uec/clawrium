@@ -69,6 +69,8 @@ describe("visual-system activation contracts", () => {
     expect(globals).toContain("var(--focus-ring)");
     expect(tailwind).toContain('DEFAULT: "var(--primary)"');
     expect(tailwind).toContain('default: "var(--border)"');
+    expect(tailwind).toContain('base: ["1.125rem", { lineHeight: "1.75rem" }]');
+    expect(styles).toContain("font: 18px/1.6 var(--font-sans)");
     expect(tailwind).not.toMatch(/teal:\s*\{/);
   });
 

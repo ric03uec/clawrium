@@ -1,7 +1,7 @@
 {
   "issue": 1075,
   "branch": "fix/1075-design-system-completion",
-  "captured_at_utc": "2026-11-26T16:24:31Z",
+  "captured_at_utc": "2026-11-26T16:36:56Z",
   "browser": {
     "engine": "Chromium",
     "playwright": "1.65.1",
@@ -22,7 +22,7 @@
     "mobile": { "width": 390, "height": 844 }
   },
   "evidence": [
-    { "file": "desktop-shell-expanded.png", "route": "/agents", "viewport": "desktop", "state": "expanded sidebar" },
+    { "file": "desktop-shell-expanded.png", "route": "/agents", "viewport": "desktop", "state": "expanded sidebar with larger typography and header Documentation action" },
     { "file": "desktop-shell-collapsed.png", "route": "/agents", "viewport": "desktop", "state": "collapsed sidebar" },
     { "file": "desktop-agents-table.png", "route": "/agents", "viewport": "desktop", "state": "list tab with deterministic agent fixtures" },
     { "file": "desktop-agents-graph.png", "route": "/agents", "viewport": "desktop", "state": "graph tab with deterministic topology fixtures" },

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { RequestFeatureButton } from "./external-links";
+import { DocumentationButton, RequestFeatureButton } from "./external-links";
 import { Sidebar } from "./sidebar";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
@@ -31,6 +31,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <span className="app-header-description">Manage agents across your network</span>
           </div>
           <div className="app-header-actions">
+            <DocumentationButton />
             <RequestFeatureButton />
           </div>
         </header>

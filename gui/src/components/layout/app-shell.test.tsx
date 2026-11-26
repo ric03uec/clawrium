@@ -27,6 +27,7 @@ describe("AppShell", () => {
     const header = screen.getByRole("banner", { name: "Application header" });
     expect(within(header).getByText("Fleet workspace")).toBeInTheDocument();
     expect(within(header).getByText("Manage agents across your network")).toBeInTheDocument();
+    expect(within(header).getByRole("link", { name: "Documentation" })).toHaveAttribute("href", "https://ric03uec.github.io/clawrium/");
     expect(within(header).getByRole("link", { name: "Request a feature" })).toBeInTheDocument();
     const footer = screen.getByRole("contentinfo");
     expect(within(footer).getByRole("link", { name: "Documentation" })).toBeInTheDocument();
@@ -65,7 +66,7 @@ describe("AppShell", () => {
     vi.stubGlobal("fetch", vi.fn(() => new Promise((_resolve, reject) => { rejectFetch = reject; })));
     render(<AppShell>Content</AppShell>);
     await act(async () => { rejectFetch(new Error("unavailable")); });
-    expect(screen.getByRole("link", { name: "Documentation" })).toBeInTheDocument();
+    expect(within(screen.getByRole("contentinfo")).getByRole("link", { name: "Documentation" })).toBeInTheDocument();
   });
 
   it("handles a missing version and malformed JSON", async () => {
@@ -74,7 +75,7 @@ describe("AppShell", () => {
       const { container, unmount } = render(<AppShell>Content</AppShell>);
       await act(async () => { await Promise.resolve(); });
       expect(container.querySelector(".app-sidebar")).toHaveAttribute("data-version", "");
-      expect(screen.getByRole("link", { name: "Documentation" })).toBeInTheDocument();
+      expect(within(screen.getByRole("contentinfo")).getByRole("link", { name: "Documentation" })).toBeInTheDocument();
       unmount();
     }
   });

@@ -269,6 +269,9 @@ test("every primary sidebar route resolves with its heading and active item", as
 
 test("desktop shell collapse keeps icon navigation accessible", async ({ page }) => {
   await page.goto("/agents");
+  const header = page.getByRole("banner", { name: "Application header" });
+  await expect(header.getByRole("link", { name: "Documentation" })).toBeVisible();
+  await expect(header.getByRole("link", { name: "Request a feature" })).toBeVisible();
   await page.keyboard.press("Tab");
   const skipLink = page.getByRole("link", { name: "Skip to main content" });
   await expect(skipLink).toBeFocused();

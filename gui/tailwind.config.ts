@@ -3,6 +3,21 @@ import type { Config } from "tailwindcss";
 const config: Config = {
   content: ["./src/**/*.{ts,tsx}"],
   theme: {
+    fontSize: {
+      xs: ["0.875rem", { lineHeight: "1.25rem" }],
+      sm: ["1rem", { lineHeight: "1.5rem" }],
+      base: ["1.125rem", { lineHeight: "1.75rem" }],
+      lg: ["1.25rem", { lineHeight: "1.75rem" }],
+      xl: ["1.375rem", { lineHeight: "1.75rem" }],
+      "2xl": ["1.625rem", { lineHeight: "2rem" }],
+      "3xl": ["2rem", { lineHeight: "2.25rem" }],
+      "4xl": ["2.5rem", { lineHeight: "2.75rem" }],
+      "5xl": ["3.125rem", { lineHeight: "1" }],
+      "6xl": ["3.875rem", { lineHeight: "1" }],
+      "7xl": ["4.625rem", { lineHeight: "1" }],
+      "8xl": ["6.125rem", { lineHeight: "1" }],
+      "9xl": ["8.125rem", { lineHeight: "1" }],
+    },
     extend: {
       colors: {
         primary: {

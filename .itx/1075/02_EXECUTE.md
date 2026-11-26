@@ -40,6 +40,8 @@ backend description/context-injection work recorded in the parent issue.
 - Replaced the Hosts placeholder with a searchable shared `DataTable` showing
   OS identity, primary address, SSH user, agent count, architecture, and access
   status from the existing topology API.
+- Added Documentation to the top-right application header and raised the
+  design-system/Tailwind typography scale by roughly two pixels across the GUI.
 - Regenerated browser evidence and metadata after all fixes. Metadata describes
   the uncommitted working tree and does not claim a commit SHA.
 

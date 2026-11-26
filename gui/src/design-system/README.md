@@ -49,6 +49,8 @@ React 18, Next 14, and Tailwind 3, so this fork deliberately:
 - uses `tailwind-merge` 2.x, the Tailwind 3-compatible line;
 - scopes tokens beneath `.iteration-design-system`, uses system font fallbacks,
   and does not copy the Tailwind 4-only `shadcn.css` or network-loaded fonts;
+- raises the upstream 16 px base typography and Tailwind type scale by roughly
+  two pixels for the fleet-management shell's wide desktop layouts;
 - changes `HostCard` from a fixed 420 px width to `width: 100%` with
   `max-width: 420px` for narrow layouts;
 - forwards Button/Card refs and retains the previous production `danger`
