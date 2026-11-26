@@ -52,7 +52,19 @@ Scheduled Jobs and Agent Builder are not part of this information architecture. 
 
 ---
 
-### Page 2: Topology (`/topology`)
+### Page 2: Hosts (`/hosts`)
+
+**Purpose**: Inventory machines enrolled in the fleet
+
+| Section | Type | Content |
+|---------|------|---------|
+| Fleet Hosts | Data table | Name with OS identity, primary address, SSH user, agent count, architecture, and SSH-access status |
+
+**Interactions**: Search and sort the host inventory using the shared `DataTable` controls.
+
+---
+
+### Page 3: Topology (`/topology`)
 
 **Purpose**: Network diagram of hosts and agents
 
@@ -71,7 +83,7 @@ Scheduled Jobs and Agent Builder are not part of this information architecture. 
 
 ---
 
-### Page 3: Providers (`/providers`)
+### Page 4: Providers (`/providers`)
 
 **Purpose**: Manage LLM provider configurations
 
@@ -85,7 +97,7 @@ Scheduled Jobs and Agent Builder are not part of this information architecture. 
 
 ---
 
-### Page 4: Skills (`/skills`)
+### Page 5: Skills (`/skills`)
 
 **Purpose**: Browse the skills catalog
 
@@ -99,7 +111,7 @@ Scheduled Jobs and Agent Builder are not part of this information architecture. 
 
 ---
 
-### Page 5: Integrations (`/integrations`)
+### Page 6: Integrations (`/integrations`)
 
 **Purpose**: Manage connections to external services
 
@@ -110,7 +122,7 @@ Scheduled Jobs and Agent Builder are not part of this information architecture. 
 
 ---
 
-### Page 6: Settings (`/settings`)
+### Page 7: Settings (`/settings`)
 
 **Purpose**: Application configuration and preferences
 
@@ -125,7 +137,7 @@ Scheduled Jobs and Agent Builder are not part of this information architecture. 
 
 ---
 
-### Page 7: Agent Detail (`/agents?key=<agent_key>`)
+### Page 8: Agent Detail (`/agents?key=<agent_key>`)
 
 **Purpose**: Per-agent management and interaction
 

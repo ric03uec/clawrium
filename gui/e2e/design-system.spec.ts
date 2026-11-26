@@ -48,9 +48,11 @@ const topology = {
       hostname: "lab.example",
       alias: "Lab host",
       user: "xclm",
-      addresses: ["192.0.2.10"],
+      addresses: [{ address: "192.0.2.10", is_primary: true, label: "lan" }],
       has_key: true,
       agent_count: 1,
+      os_family: "linux",
+      hardware: { architecture: "x86_64", cores: 16, memtotal_mb: 32768, gpu: { present: false, vendor: null }, product_name: null, system_vendor: null },
       agents: [{
         ...fleet.agents[0],
         version: "1.0.0",
@@ -62,9 +64,11 @@ const topology = {
       hostname: "studio.example",
       alias: "Studio Mac",
       user: "xclm",
-      addresses: ["192.0.2.11"],
+      addresses: [{ address: "192.0.2.11", is_primary: true, label: "lan" }],
       has_key: true,
       agent_count: 1,
+      os_family: "darwin",
+      hardware: { architecture: "arm64", cores: 10, memtotal_mb: 16384, gpu: { present: false, vendor: null }, product_name: null, system_vendor: null },
       agents: [{
         ...fleet.agents[1],
         version: "1.0.0",
@@ -294,10 +298,19 @@ test("MCP preview is explicit follow-up scope without CRUD or a modal", async ({
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect(page.getByRole("button", { name: /create|add|edit|delete/i })).toHaveCount(0);
   await evidence(page, "desktop-mcp-placeholder.png");
+});
 
+test("Hosts DataTable renders the fleet inventory", async ({ page }) => {
   await page.goto("/hosts");
-  await expect(page.getByText(/planned for a later delivery step/i)).toBeVisible();
-  await evidence(page, "desktop-hosts-placeholder.png");
+  const table = page.locator('[data-i7n-name="hosts.page.table-card"]');
+  await expect(table).toContainText("2 hosts");
+  await expect(table.getByRole("columnheader", { name: /Name/ })).toBeVisible();
+  await expect(table.getByRole("columnheader", { name: /Address/ })).toBeVisible();
+  await expect(table.getByRole("columnheader", { name: /Agents/ })).toBeVisible();
+  await expect(table.getByRole("row", { name: /Lab host.*192\.0\.2\.10/ })).toBeVisible();
+  await expect(table.getByRole("row", { name: /Studio Mac.*192\.0\.2\.11/ })).toBeVisible();
+  await expect(page.getByText(/planned for a later delivery step/i)).toHaveCount(0);
+  await evidence(page, "desktop-hosts-table.png");
 });
 
 test("Agents DataTable renders fixtures and exposes keyboard-operable agent links", async ({ page }) => {

@@ -1,6 +1,5 @@
-import Link from "next/link";
 import { PageHeader } from "@/design-system";
-import { ComingSoon } from "@/components/layout";
+import { HostTable } from "@/components/hosts";
 
 export default function HostsPage() {
   return (
@@ -11,11 +10,7 @@ export default function HostsPage() {
         title="Hosts"
         description="Machines in your agent fleet"
       />
-      <ComingSoon
-        trackingId="hosts.page.coming-soon"
-        description="The hosts management page is planned for a later delivery step. Until then, view and manage hosts in topology."
-        actions={<Link className="text-primary-foreground underline" href="/topology">Open topology</Link>}
-      />
+      <HostTable />
     </div>
   );
 }

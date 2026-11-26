@@ -37,6 +37,9 @@ backend description/context-injection work recorded in the parent issue.
 - Removed the empty standalone status column by placing status inside the linked
   Name cell, and restored List/Graph tabs on Agents using the shared `TabBar`
   and reusable topology view.
+- Replaced the Hosts placeholder with a searchable shared `DataTable` showing
+  OS identity, primary address, SSH user, agent count, architecture, and access
+  status from the existing topology API.
 - Regenerated browser evidence and metadata after all fixes. Metadata describes
   the uncommitted working tree and does not claim a commit SHA.
 

@@ -143,6 +143,7 @@ const pageHeaderFiles = [
 const listSurfaces = [
   "src/app/integrations/page.tsx",
   "src/components/dashboard/agent-table.tsx",
+  "src/components/hosts/host-table.tsx",
   "src/components/providers/model-catalog.tsx",
   "src/components/providers/providers-table.tsx",
 ] as const;
@@ -240,7 +241,7 @@ describe("design-system production migration contracts", () => {
 
   it("standardizes every in-scope fleet inventory on DataTable", () => {
     // Skills remains a documented card gallery because each item owns install-specific controls.
-    // Hosts and MCP servers are placeholders, not inventories, so neither belongs in this allowlist.
+    // MCP servers is still a placeholder rather than an inventory.
     for (const path of listSurfaces) {
       const sourceFile = parse(path);
       expect(importsFrom(sourceFile, "@/design-system", "DataTable"), `${path} DataTable import`).toBe(true);

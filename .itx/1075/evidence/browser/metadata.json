@@ -1,7 +1,7 @@
 {
   "issue": 1075,
   "branch": "fix/1075-design-system-completion",
-  "captured_at_utc": "2026-11-26T05:15:45Z",
+  "captured_at_utc": "2026-11-26T16:24:31Z",
   "browser": {
     "engine": "Chromium",
     "playwright": "1.65.1",
@@ -28,7 +28,7 @@
     { "file": "desktop-agents-graph.png", "route": "/agents", "viewport": "desktop", "state": "graph tab with deterministic topology fixtures" },
     { "file": "desktop-providers-table.png", "route": "/providers", "viewport": "desktop", "state": "deterministic provider fixtures with details expanded" },
     { "file": "desktop-integrations-table.png", "route": "/integrations", "viewport": "desktop", "state": "deterministic integration fixtures" },
-    { "file": "desktop-hosts-placeholder.png", "route": "/hosts", "viewport": "desktop", "state": "follow-up placeholder" },
+    { "file": "desktop-hosts-table.png", "route": "/hosts", "viewport": "desktop", "state": "deterministic host inventory with access and hardware columns" },
     { "file": "desktop-mcp-placeholder.png", "route": "/mcp-servers", "viewport": "desktop", "state": "follow-up placeholder without CRUD" },
     { "file": "mobile-navigation-and-agents-table.png", "route": "/agents", "viewport": "mobile", "state": "expanded mobile navigation and contained table" }
   ],
