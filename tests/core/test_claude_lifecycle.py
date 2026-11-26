@@ -345,7 +345,7 @@ def test_claude_successful_remote_removal_prunes_local_state_after_cleanup(
 
     monkeypatch.setattr(lifecycle, "_run_lifecycle_playbook", _run)
     monkeypatch.setattr(lifecycle, "remove_instance_secrets", _remove_secrets)
-    monkeypatch.setattr(lifecycle, "cleanup_agent_state", _cleanup_state)
+    monkeypatch.setattr(lifecycle, "_cleanup_agent_state_dir", _cleanup_state)
     monkeypatch.setattr(lifecycle, "remove_agent_from_host", _remove_record)
 
     result = lifecycle.remove_agent("claude-host", "claude", agent_name="claude-code")
@@ -366,7 +366,7 @@ def test_claude_remote_removal_failure_preserves_persisted_local_state(
     )
     monkeypatch.setattr(lifecycle, "remove_agent_from_host", _unexpected)
     monkeypatch.setattr(lifecycle, "remove_instance_secrets", _unexpected)
-    monkeypatch.setattr(lifecycle, "cleanup_agent_state", _unexpected)
+    monkeypatch.setattr(lifecycle, "_cleanup_agent_state_dir", _unexpected)
 
     result = lifecycle.remove_agent("claude-host", "claude", agent_name="claude-code")
 

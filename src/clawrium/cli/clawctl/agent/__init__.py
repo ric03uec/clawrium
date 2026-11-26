@@ -35,7 +35,6 @@ from clawrium.cli.clawctl.agent import (
     restart as _restart,
     secret as _secret,
     shell as _shell,
-    skill as _skill,
     start as _start,
     status as _status,
     stop as _stop,
@@ -122,7 +121,6 @@ agent_app.command(
 agent_app.add_typer(_provider.provider_app, name="provider")
 agent_app.add_typer(_channel.channel_app, name="channel")
 agent_app.add_typer(_integration.integration_app, name="integration")
-agent_app.add_typer(_skill.skill_app, name="skill")
 agent_app.add_typer(_secret.secret_app, name="secret")
 agent_app.add_typer(_memory.memory_app, name="memory")
 agent_app.add_typer(_registry.registry_app, name="registry")

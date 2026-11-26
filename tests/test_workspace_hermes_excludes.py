@@ -3,10 +3,9 @@
 
 Plan §3.2 maps:
   - I3: hermes excludes enforced — every entry in the manifest exclude
-    list (including all three SQLite WAL companion files and the
-    `skills/clawrium/` dir-prefix) is filtered out and surfaced as a
-    `WorkspaceExcluded` event. Good files (legitimate operator drops)
-    land.
+    list (including all three SQLite WAL companion files) is filtered
+    out and surfaced as a `WorkspaceExcluded` event. Good files
+    (legitimate operator drops) land.
   - I14: hermes configure path with excludes enforced (the same Python
     enumerator is shared between sync and configure; this test pins
     that contract via the shared helper).
@@ -71,10 +70,6 @@ def _collect_events() -> tuple[list[tuple[str, dict[str, Any]]], Any]:
         # Dir-prefix excludes:
         "sessions/123.json",
         "logs/gateway.log",
-        # W10 iter-3: operator dropping skills/clawrium/<sub>/SKILL.md
-        # MUST be rejected — the skills_apply playbook owns this path.
-        "skills/clawrium/tdd/SKILL.md",
-        "skills/clawrium/anything/SKILL.md",
     ],
 )
 def test_i3_hermes_hostile_drop_is_excluded(

@@ -18,7 +18,7 @@ class Op:
 @dataclass
 class AttachOp:
     agent: str
-    resource_kind: str   # provider | channel | integration | skill
+    resource_kind: str   # provider | channel | integration
     resource_name: str
 
 

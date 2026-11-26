@@ -22,7 +22,6 @@ from clawrium.cli.clawctl.host import host_app
 from clawrium.cli.clawctl.integration import integration_app
 from clawrium.cli.clawctl.provider import provider_app
 from clawrium.cli.clawctl.server import server_app
-from clawrium.cli.clawctl.skill import skill_app
 from clawrium.cli.meta import completion_cmd, version_cmd
 from clawrium.cli.service import service_app
 
@@ -90,7 +89,6 @@ app.add_typer(agent_app, name="agent")
 app.add_typer(provider_app, name="provider")
 app.add_typer(channel_app, name="channel")
 app.add_typer(integration_app, name="integration")
-app.add_typer(skill_app, name="skill")
 app.add_typer(audit_app, name="audit")
 app.add_typer(doctor_app, name="doctor")
 

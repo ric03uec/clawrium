@@ -462,23 +462,6 @@ def test_pi_secret_mutations_reject_before_input_or_store_access(
     )
 
 
-def test_pi_skill_mutations_reject_before_input_editor_or_state_access(
-    fleet_dir, monkeypatch
-):
-    add_pi(fleet_dir)
-    monkeypatch.setattr("clawrium.cli.clawctl.agent.skill._resolve_add_input", boom)
-    monkeypatch.setattr("clawrium.cli.clawctl.agent.skill._run_editor", boom)
-    monkeypatch.setattr("clawrium.cli.clawctl.agent.skill.remove_skill", boom)
-    added = runner.invoke(
-        app, ["agent", "skill", "add", "pi-test", "--from-template", "clawrium/tdd"]
-    )
-    edited = runner.invoke(app, ["agent", "skill", "edit", "pi-test", "tdd"])
-    removed = runner.invoke(app, ["agent", "skill", "remove", "pi-test", "tdd"])
-    assert all(
-        r.exit_code != 0 and "unavailable" in r.output for r in (added, edited, removed)
-    )
-
-
 def test_pi_provider_attach_rejects_missing_or_unsupported_model_before_metadata_write(
     fleet_dir, monkeypatch
 ):

@@ -15,7 +15,6 @@ import {
   ChatTab,
   ExecTab,
   ConfigTab,
-  SkillsTab,
   MemoryTab,
   LogsTab,
 } from "@/components/agent-detail";
@@ -140,7 +139,6 @@ function AgentDetailView({
             <OverviewTab
               key={agent.agent_key}
               agent={agent}
-              agentKey={agentKey}
               health={health.data}
             />
           )}
@@ -153,7 +151,6 @@ function AgentDetailView({
           )}
           {activeTab === "exec" && <ExecTab agentKey={agentKey} />}
           {activeTab === "configuration" && <ConfigTab agent={agent} />}
-          {activeTab === "skills" && <SkillsTab agentKey={agentKey} />}
           {activeTab === "memory" && <MemoryTab agentKey={agentKey} />}
           {activeTab === "logs" && <LogsTab agentKey={agentKey} />}
         </div>

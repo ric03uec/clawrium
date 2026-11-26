@@ -6,7 +6,7 @@ the only sync path since #560 dropped the `--canonical` opt-in flag.
 Phase lines (plan §6.10, post-#560):
 
     1. validating local state
-    2. pushing config (provider, skills, channels, env)
+    2. pushing config (provider, channels, env)
     3. restarting unit
     4. verifying health
     + final `synced (drift=0, took Xs)`
@@ -54,7 +54,7 @@ from clawrium.core.agent_lifecycle import (
 
 _PHASES = (
     "validating local state",
-    "pushing config (provider, skills, channels, env)",
+    "pushing config (provider, channels, env)",
     "restarting unit",
     "verifying health",
 )

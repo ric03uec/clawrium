@@ -79,7 +79,7 @@ def test_pi_remove_dispatches_remove_without_stop_and_deletes_after_success():
         ) as instance_key,
         patch("clawrium.core.lifecycle.remove_instance_secrets") as secrets,
         patch(
-            "clawrium.core.lifecycle.cleanup_agent_state", return_value=True
+            "clawrium.core.lifecycle._cleanup_agent_state_dir", return_value=True
         ) as cleanup,
     ):
         result = remove_agent("pi-host", "pi", agent_name="pi-one")
@@ -115,7 +115,7 @@ def test_pi_darwin_remove_runs_runner_with_macos_playbook_and_cleans_up(tmp_path
         patch("clawrium.core.lifecycle.remove_agent_from_host", return_value=True) as remove,
         patch("clawrium.core.lifecycle.get_instance_key", return_value="key"),
         patch("clawrium.core.lifecycle.remove_instance_secrets") as secrets,
-        patch("clawrium.core.lifecycle.cleanup_agent_state", return_value=True) as cleanup,
+        patch("clawrium.core.lifecycle._cleanup_agent_state_dir", return_value=True) as cleanup,
     ):
         assert remove_agent("pi-host", "pi", agent_name="pi-one")["success"]
     kwargs = runner.call_args.kwargs
@@ -140,7 +140,7 @@ def test_pi_darwin_remove_selects_macos_playbook():
         patch("clawrium.core.lifecycle.remove_agent_from_host", return_value=True),
         patch("clawrium.core.lifecycle.get_instance_key", return_value="key"),
         patch("clawrium.core.lifecycle.remove_instance_secrets"),
-        patch("clawrium.core.lifecycle.cleanup_agent_state", return_value=True),
+        patch("clawrium.core.lifecycle._cleanup_agent_state_dir", return_value=True),
     ):
         assert remove_agent("pi-host", "pi", agent_name="pi-one")["success"]
     assert str(run.call_args.kwargs["playbook_path_override"]).endswith(
@@ -160,7 +160,7 @@ def test_pi_darwin_runner_failure_preserves_local_state(tmp_path):
         patch("clawrium.core.lifecycle.ansible_runner.run", runner),
         patch("clawrium.core.lifecycle.remove_agent_from_host") as remove,
         patch("clawrium.core.lifecycle.remove_instance_secrets") as secrets,
-        patch("clawrium.core.lifecycle.cleanup_agent_state") as cleanup,
+        patch("clawrium.core.lifecycle._cleanup_agent_state_dir") as cleanup,
     ):
         result = remove_agent("pi-host", "pi", agent_name="pi-one")
     assert result["success"] is False
@@ -183,7 +183,7 @@ def test_pi_darwin_remove_failure_retains_local_record_and_skips_cleanup():
         patch("clawrium.core.lifecycle._run_lifecycle_playbook", return_value=(False, "remote refused")) as run,
         patch("clawrium.core.lifecycle.remove_agent_from_host") as remove,
         patch("clawrium.core.lifecycle.remove_instance_secrets") as secrets,
-        patch("clawrium.core.lifecycle.cleanup_agent_state") as cleanup,
+        patch("clawrium.core.lifecycle._cleanup_agent_state_dir") as cleanup,
     ):
         result = remove_agent("pi-host", "pi", agent_name="pi-one")
     assert result["success"] is False and result["error"] == "remote refused"

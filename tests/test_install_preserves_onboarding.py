@@ -185,12 +185,12 @@ class TestReinstallPreservesOnboarding:
     def test_reinstall_preserves_attachments(
         self, host_with_ready_agent, monkeypatch
     ):
-        """#816: provider/channel/integration/skill attach lists survive a re-install.
+        """#816: provider/channel/integration attach lists survive a re-install.
 
         Reproduces the `clawctl_upgrade_strips_attachments` regression
         observed on wolf-i (2026-06-18 and again 2026-07-01). Prior to
         the fix in `install.py`, the wholesale record overwrite in
-        `set_installing` cleared providers/channels/integrations/skills
+        `set_installing` cleared providers/channels/integrations
         even though onboarding was preserved.
         """
         # Seed attach lists onto the existing agent record.
@@ -199,7 +199,6 @@ class TestReinstallPreservesOnboarding:
         agent_rec["providers"] = ["clawrium-gtm-litellm"]
         agent_rec["channels"] = ["discord-wolf-i"]
         agent_rec["integrations"] = ["wolf-brave"]
-        agent_rec["skills"] = ["tdd"]
         # Persist via the isolated hosts.json path used by other tests
         # in this file.
         (host_with_ready_agent / "hosts.json").write_text(json.dumps([host], indent=2))
@@ -216,7 +215,6 @@ class TestReinstallPreservesOnboarding:
         assert post["providers"] == ["clawrium-gtm-litellm"]
         assert post["channels"] == ["discord-wolf-i"]
         assert post["integrations"] == ["wolf-brave"]
-        assert post["skills"] == ["tdd"]
 
     def test_failed_reinstall_preserves_attachments(
         self, host_with_ready_agent, monkeypatch

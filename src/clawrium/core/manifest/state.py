@@ -15,7 +15,6 @@ class ActualAgent:
     providers: list[str] = field(default_factory=list)
     channels: list[str] = field(default_factory=list)
     integrations: list[str] = field(default_factory=list)
-    skills: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -64,7 +63,6 @@ class ActualState:
                     providers=_as_list(agent_data.get("providers")),
                     channels=_as_list(agent_data.get("channels")),
                     integrations=_as_list(agent_data.get("integrations")),
-                    skills=_as_list(agent_data.get("skills")),
                 )
 
         providers_raw = load_providers()

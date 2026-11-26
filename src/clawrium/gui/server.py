@@ -22,7 +22,6 @@ from clawrium.gui.routes import (
     integrations,
     providers,
     settings,
-    skills,
     topology,
     usage,
 )
@@ -112,7 +111,6 @@ app.include_router(settings.router)
 app.include_router(usage.router)
 app.include_router(agents.router)
 app.include_router(integrations.router)
-app.include_router(skills.router)
 
 
 @app.get("/api/health")

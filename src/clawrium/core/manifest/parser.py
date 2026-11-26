@@ -127,7 +127,6 @@ def _parse_resource(raw: dict, source: str = "") -> ManifestResource:
             provider=spec.get("provider"),
             channels=list(spec.get("channels") or []),
             integrations=list(spec.get("integrations") or []),
-            skills=list(spec.get("skills") or []),
             version=spec.get("version"),
             config=dict(spec.get("config") or {}),
             lifecycle=AgentLifecycle(

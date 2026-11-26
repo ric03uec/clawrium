@@ -123,11 +123,10 @@ def test_hermes_workspace_overlay_excludes_pinned() -> None:
     """U3 (#769): the hermes exclude list is pinned to the exact set
     documented in the plan §1.1. Drift is a release blocker.
 
-    Manifest entries with a trailing slash (`sessions/`, `logs/`,
-    `skills/clawrium/`) mean "dir-prefix exclude"; the loader retains
-    the trailing slash here in the raw manifest view. The typed
-    `WorkspaceOverlaySpec` strips it when classifying into
-    `excludes_dirs`."""
+    Manifest entries with a trailing slash (`sessions/`, `logs/`)
+    mean "dir-prefix exclude"; the loader retains the trailing slash
+    here in the raw manifest view. The typed `WorkspaceOverlaySpec`
+    strips it when classifying into `excludes_dirs`."""
     manifest = load_manifest("hermes")
     overlay = manifest["features"]["workspace_overlay"]
     assert set(overlay["excludes"]) == {
@@ -140,7 +139,6 @@ def test_hermes_workspace_overlay_excludes_pinned() -> None:
         "state.db-shm",
         "sessions/",
         "logs/",
-        "skills/clawrium/",
     }
 
 

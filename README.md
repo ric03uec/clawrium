@@ -93,13 +93,11 @@ It is _not_ a hosted platform. There's no dashboard, no SaaS, no account signup.
     <img src="https://img.youtube.com/vi/F8AVpxsZTOA/maxresdefault.jpg" alt="Watch the Clawrium GUI walkthrough on YouTube" width="75%">
   </a>
   <br>
-  <em>75-second walkthrough of every tab in <code>clawctl gui</code> — Dashboard, Agents, Topology, Providers, Skills, Integrations, Settings</em>
+  <em>75-second walkthrough of every tab in <code>clawctl gui</code> — Dashboard, Agents, Topology, Providers, Integrations, Settings</em>
 </p>
 
 The GUI now uses one accessible table pattern for agent, provider, model, and
-integration lists, with search on filterable inventories. The Skills catalog
-remains a card gallery during its transition because each skill exposes
-install-specific controls rather than a fleet inventory row.
+integration lists, with search on filterable inventories.
 
 ### Install & Run
 

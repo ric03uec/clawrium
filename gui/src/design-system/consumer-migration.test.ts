@@ -136,7 +136,6 @@ const pageHeaderFiles = [
   "src/app/page.tsx",
   "src/app/providers/page.tsx",
   "src/app/settings/page.tsx",
-  "src/app/skills/page.tsx",
   "src/app/topology/page.tsx",
 ] as const;
 
@@ -240,7 +239,6 @@ describe("design-system production migration contracts", () => {
   });
 
   it("standardizes every in-scope fleet inventory on DataTable", () => {
-    // Skills remains a documented card gallery because each item owns install-specific controls.
     // MCP servers is still a placeholder rather than an inventory.
     for (const path of listSurfaces) {
       const sourceFile = parse(path);

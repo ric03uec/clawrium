@@ -243,11 +243,6 @@ def test_integration_registry_edit_noninteractive(fleet_dir, stdin_not_tty) -> N
     assert result.exit_code == 0
 
 
-def test_skill_registry_get_noninteractive(fleet_dir, stdin_not_tty) -> None:
-    result = runner.invoke(app, ["skill", "registry", "get"])
-    assert result.exit_code == 0
-
-
 def test_mcp_registry_get_noninteractive(fleet_dir, stdin_not_tty) -> None:
     # #838: `clawctl mcp` group removed. Typer treats it as an unknown
     # command and exits 2. Generic MCP support tracked in #844.
@@ -419,18 +414,6 @@ def test_integration_registry_describe_delete_noninteractive(
     r = runner.invoke(app, ["integration", "registry", "describe", "idd"])
     assert r.exit_code == 0
     r = runner.invoke(app, ["integration", "registry", "delete", "idd", "--yes"])
-    assert r.exit_code == 0
-
-
-def test_skill_registry_describe_noninteractive(fleet_dir, stdin_not_tty) -> None:
-    listing = runner.invoke(app, ["skill", "registry", "get", "-o", "name"])
-    refs = [
-        line.split("/", 1)[1]
-        for line in listing.output.strip().splitlines()
-        if "/" in line
-    ]
-    assert refs, "expected at least one skill in catalog"
-    r = runner.invoke(app, ["skill", "registry", "describe", refs[0]])
     assert r.exit_code == 0
 
 
