@@ -18,6 +18,7 @@ import typer
 from clawrium.cli.clawctl._common import is_local_host
 from clawrium.cli.clawctl.agent._shared import safe_resolve_agent
 from clawrium.cli.output import emit_error, stream_action
+from clawrium.cli.output._sanitize import sanitize_passthrough
 from clawrium.core.web_ui import (
     DAEMONLESS_AGENT_TYPES,
     ResolvedUI,
@@ -104,13 +105,21 @@ def open(  # noqa: A001 — `open` matches plan §4 verb name
             from urllib.parse import quote
             url = f"{url}/auth/exchange?t={quote(web_token, safe='')}"
 
+    # The URL may embed remote-derived values (host from hosts.json) or
+    # agent-minted auth material (ethos web token). Route every raw
+    # emission through `sanitize_passthrough` so a tampered hosts.json
+    # cannot inject bidi / zero-width codepoints that reverse-print
+    # the operator's terminal (#1071 phase 2 ATX W1; same contract the
+    # shared output primitives enforce — see `cli/output/__init__.py`).
+    safe_url = sanitize_passthrough(url)
+
     if print_url:
-        typer.echo(url)
+        typer.echo(safe_url)
         return
 
-    stream_action(resource=f"agent/{name}", message=f"opening {url}")
+    stream_action(resource=f"agent/{name}", message=f"opening {safe_url}")
     if not webbrowser.open(url):
-        typer.echo(f"Could not open browser. URL: {url}", err=True)
+        typer.echo(f"Could not open browser. URL: {safe_url}", err=True)
         typer.echo(
             "Hint:  re-run with --print-url to get the URL for manual use.",
             err=True,
