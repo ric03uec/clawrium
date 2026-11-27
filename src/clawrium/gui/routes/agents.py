@@ -194,6 +194,28 @@ def _resolve_openclaw_credentials(
     Consumed by `gui/routes/fleet.py` to surface the gateway bearer
     on the **Show Connection Token** button and to authenticate the
     openclaw dashboard WebSocket handshake.
+
+    **Trust model (pre-#1071, documented in AGENTS.md).** This
+    helper is a pure secrets read. The *endpoint* that returns the
+    bearer to a browser lives at
+    `POST /api/fleet/agents/<name>/connection-token` in
+    `gui/routes/fleet.py`; its auth boundary is the GUI server's
+    loopback bind + the operator's SSH access to the host (per
+    AGENTS.md: "anyone who can hit this URL can already read
+    `hosts.json` directly on disk"). ATX phase-3a round B1 flagged
+    this as a design concern — hardening the endpoint with
+    per-operator sessions, CSRF, and scoped short-lived credentials
+    is tracked as a follow-up and is intentionally out of #1071
+    scope (removal / strip milestone).
+
+    **Known residue (ATX phase-3a round W2).** The legacy fallback
+    branches below copy `gateway.auth` / `gateway.device.privateKey`
+    into the secrets store but leave the plaintext copies in
+    `hosts.json`. Tightening to delete-after-migrate requires an
+    atomic hosts.json mutation path and is deferred alongside B1
+    into the same follow-up. This matches the pre-#1071 behaviour
+    (#816 migration semantics) and is not a regression introduced
+    by phase 3a.
     """
     secrets = get_instance_secrets(instance_key)
 
