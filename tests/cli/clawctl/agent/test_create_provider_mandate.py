@@ -27,7 +27,7 @@ from typer.testing import CliRunner
 
 from clawrium.cli import app
 from clawrium.core.install import InstallationError, run_installation
-from clawrium.core.nemoclaw import (
+from clawrium.core.openclaw_sandbox import (
     CLAWRIUM_TO_NEMOCLAW_PROVIDER,
     UnmappedProviderError,
     clawrium_provider_type_to_nemoclaw,

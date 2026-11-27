@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import pytest
 
-from clawrium.core import nemoclaw
-from clawrium.core.nemoclaw import (
+from clawrium.core import openclaw_sandbox as nemoclaw
+from clawrium.core.openclaw_sandbox import (
     NEMOCLAW_BINARY,
     NemoclawCommand,
     _build,

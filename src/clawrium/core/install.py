@@ -438,7 +438,7 @@ def run_installation(
     nemoclaw_provider_env: dict[str, str] = {}
     openclaw_provider_canonical: str | None = None
     if claw_name == "openclaw" and provider:
-        from clawrium.core.nemoclaw import (
+        from clawrium.core.openclaw_sandbox import (
             UnmappedProviderError,
             clawrium_provider_type_to_nemoclaw,
         )
@@ -917,7 +917,7 @@ def run_installation(
         # fresh installs and `resume` paths so a partially-installed
         # bare openclaw ends up sandboxed after the resume.
         if claw_name == "openclaw":
-            from clawrium.core.nemoclaw import (
+            from clawrium.core.openclaw_sandbox import (
                 NEMOCLAW_VERSION,
                 default_sandbox_name,
             )

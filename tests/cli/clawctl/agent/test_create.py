@@ -25,7 +25,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from clawrium.core.install import run_installation
-from clawrium.core.nemoclaw import NEMOCLAW_VERSION
+from clawrium.core.openclaw_sandbox import NEMOCLAW_VERSION
 
 
 def _write_bare_host(isolated_config, agents_block):

@@ -74,19 +74,43 @@ Delete the chat / memory / exec / workspace / nemoclaw modules and their test fi
 - `src/clawrium/core/registry.py` — drop `WorkspaceOverlayConfig` dataclass, `_validate_workspace_overlay`, and `features.workspace_overlay` schema recognition. Any workspace-overlay block in a third-party manifest becomes an unknown-feature warning.
 - `src/clawrium/core/manifest/schema.py`, `parser.py`, `differ.py`, `state.py` — drop fields analogous to the #1072 `skills` strip: anywhere `AgentSpec`, `ActualAgent`, `AttachOp.resource_kind` mention `workspace` / `memory` / `secrets.agent`, drop them. Mirror #1072's scope — not the provider / integration fields.
 
-### Phase 4 — NemoClaw full strip
+### Phase 4 — NemoClaw doctor surface strip (openclaw infra stays)
 
-Nemoclaw is being reclassified as infra, not an end-user agent. Beyond `core/nemoclaw.py` and the doctor command, the openclaw playbook tree is half-nemo.
+**Scope correction** (2026-11-27): NemoClaw is openclaw's upstream
+runtime sandbox and MUST stay installed/onboarded on openclaw hosts.
+The removal is narrow — only the operator-facing doctor surface and
+the Python pin module. The install playbook, onboarding helper, and
+openclaw manifest's `runtime.nemoclaw` block all stay.
 
 **Delete:**
-- `src/clawrium/platform/registry/openclaw/playbooks/install_nemoclaw.yaml`
-- `src/clawrium/platform/registry/openclaw/playbooks/install_nemoclaw_macos.yaml`
-- `src/clawrium/platform/registry/openclaw/playbooks/nemoclaw_onboard.yaml`
-- `src/clawrium/platform/registry/openclaw/playbooks/nemoclaw_status.yaml`
+- `src/clawrium/core/nemoclaw.py` — the pin module
+  (`NEMOCLAW_VERSION`, `INSTALL_SH_SHA256`, `install_sh_url()`).
+  Doctor probe at `cli/clawctl/doctor/nemoclaw.py` already removed
+  in Phase 1 (whole `doctor` group deleted).
 
 **Edit:**
-- `src/clawrium/platform/registry/openclaw/manifest.yaml` — strip any nemoclaw-related role or runbook references.
-- `src/clawrium/core/registry.py` / `cli/clawctl/agent/registry.py` — nemoclaw must not appear in `clawctl agent registry` listings. Grep for `nemoclaw` registration beyond the files above.
+- `src/clawrium/platform/registry/openclaw/playbooks/install_nemoclaw.yaml`
+  (and `_macos` sibling) — keep the runbook; make its `vars:`
+  self-contained by inlining the `nemoclaw_version` and
+  `nemoclaw_install_sh_sha256` literals that previously rode via
+  `core/nemoclaw.py` constants.
+- `tests/cli/clawctl/agent/test_create.py` — rewrite the pin
+  lockstep assertion to read the playbook YAML directly instead of
+  importing `core.nemoclaw.NEMOCLAW_VERSION`.
+- Any other Python caller of `clawrium.core.nemoclaw` surfaced by
+  grep.
+
+**Explicitly kept (do not touch):**
+- `install_nemoclaw.yaml`, `nemoclaw_onboard.yaml`,
+  `nemoclaw_status.yaml`, `install_nemoclaw_macos.yaml` — the
+  openclaw install + onboard + status playbooks.
+- `_openclaw_nemoclaw_onboard` in
+  `src/clawrium/core/lifecycle_canonical.py` — the sync-time onboard
+  helper that openclaw agents rely on.
+- `runtime.nemoclaw` block in
+  `src/clawrium/platform/registry/openclaw/manifest.yaml`.
+- Every openclaw-side `_openclaw_nemoclaw_*` playbook + manifest
+  wiring.
 
 ### Phase 5 — Registry manifests + per-agent playbooks
 

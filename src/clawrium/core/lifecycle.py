@@ -612,7 +612,7 @@ def _run_lifecycle_playbook(
                     "the agent (see docs/releases/26.7.3/CHANGELOG.md).",
                 )
         else:
-            from clawrium.core.nemoclaw import _validate_sandbox_name
+            from clawrium.core.openclaw_sandbox import _validate_sandbox_name
 
             _validate_sandbox_name(sandbox_name)
             extra_vars["sandbox_name"] = sandbox_name

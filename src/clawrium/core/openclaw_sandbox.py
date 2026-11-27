@@ -1,49 +1,58 @@
-"""NemoClaw runtime substrate — pinned upstream version + install.sh URL.
+"""OpenClaw sandbox integration — NemoClaw runtime substrate.
 
-NVIDIA/NemoClaw does NOT publish binary release artifacts on GitHub
-Releases. The canonical install path documented upstream is:
+#1071 phase 4: this module is the new home for the NemoClaw
+integration code that previously lived at `core/nemoclaw.py`.
+NemoClaw is openclaw's upstream runtime substrate — openclaw agents
+run inside a NemoClaw sandbox, and the control-plane needs a Python
+seam for:
 
-    curl -fsSL https://raw.githubusercontent.com/NVIDIA/NemoClaw/<ref>/install.sh | bash
+- Translating Clawrium provider types into NemoClaw's install.sh enum.
+- Validating sandbox names before they hit a shell / argv edge.
+- Building the exact CLI invocations that `lifecycle_canonical`'s
+  openclaw onboard / start / stop / destroy paths consume.
+- Routing provider credentials to NemoClaw's gateway registry so the
+  sandboxed openclaw process never sees the raw bearer.
 
-which clones the ref at runtime and executes `scripts/install.sh` from
-the checkout (see the bootstrap at
-https://github.com/NVIDIA/NemoClaw/blob/main/install.sh).
+Scope compared to the pre-#1071 `core/nemoclaw.py`:
 
-We therefore pin the install.sh bootstrap's SHA256 (not a nonexistent
-tarball SHA). A version bump MUST re-hash install.sh at the new tag and
-update `INSTALL_SH_SHA256` here AND the matching
-`nemoclaw_install_sh_sha256` var in
-`platform/registry/openclaw/playbooks/install_nemoclaw.yaml` in lockstep.
-The doctor probe (`clawctl doctor nemoclaw`) can verify the pin against
-live upstream via `install_sh_url()` before any host work lands.
+- **Removed with the operator doctor probe** (`clawctl doctor
+  nemoclaw` was deleted in #1071 phase 1):
+    - `UPSTREAM_REPO`, `UPSTREAM_DOCS` — doc constants.
+    - `INSTALL_SH_SHA256`, `_INSTALL_SH_URL_TEMPLATE`,
+      `install_sh_url()` — the pin-against-upstream helper the doctor
+      probe compared the on-disk playbook pin against. The pin itself
+      lives in `install_nemoclaw.yaml` (Linux) +
+      `install_nemoclaw_macos.yaml` (darwin) + this module's
+      `NEMOCLAW_VERSION` constant; lockstep is enforced by
+      `tests/platform/test_nemoclaw_pin_lockstep.py`.
+- **Kept** (load-bearing openclaw infrastructure):
+    - `NEMOCLAW_VERSION` — stamped into `hosts.json.agents.<name>
+      .config.nemoclaw_version` by `core/install.py` on every fresh
+      install or resume.
+    - `SUPPORTED_ARCHES` — the arch set the install playbook claims
+      to support; lockstep-asserted against `install_nemoclaw.yaml`.
+    - Provider mapping + `UnmappedProviderError` +
+      `clawrium_provider_type_to_nemoclaw`.
+    - CLI wrapper surface (`NemoclawCommand`, `onboard` / `start` /
+      `stop` / `status` / `logs` / `destroy`,
+      `_validate_sandbox_name`, `default_sandbox_name`).
+    - `gateway_register_provider` + the fail-closed guard (issue
+      #946, still pending upstream confirmation).
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 
-UPSTREAM_REPO = "NVIDIA/NemoClaw"
-UPSTREAM_DOCS = "https://docs.nvidia.com/nemoclaw/latest/"
 
+# Pin stamped into `hosts.json.agents.<name>.config.nemoclaw_version`
+# by `core/install.py`. Bumping it requires re-hashing install.sh at
+# the new tag and updating `nemoclaw_install_sh_sha256` in
+# `install_nemoclaw.yaml` + `install_nemoclaw_macos.yaml` in lockstep
+# (asserted by `tests/platform/test_nemoclaw_pin_lockstep.py`).
 NEMOCLAW_VERSION = "v0.0.97"
 
-_INSTALL_SH_URL_TEMPLATE = (
-    "https://raw.githubusercontent.com/NVIDIA/NemoClaw/"
-    "{version}/install.sh"
-)
-
-# SHA256 of the install.sh bootstrap at NEMOCLAW_VERSION. Fresh-hashed
-# on 2026-07-29 from
-# https://raw.githubusercontent.com/NVIDIA/NemoClaw/v0.0.97/install.sh.
-# Bumping NEMOCLAW_VERSION MUST re-hash and update this constant.
-INSTALL_SH_SHA256 = "7de1c1e630672e8afa3333e3e17c8b162ab93cdaefae9450be9ac270bc74626f"
-
 SUPPORTED_ARCHES = ("x86_64", "aarch64")
-
-
-def install_sh_url(version: str = NEMOCLAW_VERSION) -> str:
-    """Return the raw.githubusercontent.com URL for install.sh at `version`."""
-    return _INSTALL_SH_URL_TEMPLATE.format(version=version)
 
 
 # ---------------------------------------------------------------------------
@@ -95,7 +104,7 @@ def clawrium_provider_type_to_nemoclaw(clawrium_type: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Phase 2: thin CLI wrapper (issue #944).
+# Thin CLI wrapper (issue #944).
 #
 # Every verb below wraps a single `nemoclaw <verb> <sandbox_name>`
 # invocation. The actual host-side execution is driven by
@@ -103,10 +112,7 @@ def clawrium_provider_type_to_nemoclaw(clawrium_type: str) -> str:
 # `openclaw/playbooks/nemoclaw_onboard.yaml`); this wrapper's job is
 # to (a) normalize the argv shape so callers do not embed CLI-syntax
 # in their own code paths, and (b) sit as the single seam Phase 3
-# swaps to full openclaw-lifecycle delegation. Phase 2 uses only
-# `onboard`; the other verbs ship here so the surface is complete
-# and Phase 3's `sync`/`start`/`stop`/`remove` do not have to grow
-# the module.
+# swaps to full openclaw-lifecycle delegation.
 # ---------------------------------------------------------------------------
 
 
@@ -344,10 +350,10 @@ def gateway_register_provider(
 def default_sandbox_name(agent_name: str) -> str:
     """Deterministic sandbox name derived from the openclaw agent name.
 
-    Kept trivial in Phase 2 (identity) so operators reading hosts.json
-    can trace the sandbox back to the agent at a glance. A future
-    phase can hash / prefix / namespace this without callers noticing —
-    every write site must route through this helper.
+    Kept trivial (identity) so operators reading hosts.json can trace
+    the sandbox back to the agent at a glance. A future phase can
+    hash / prefix / namespace this without callers noticing — every
+    write site must route through this helper.
     """
     _validate_sandbox_name(agent_name)
     return agent_name
