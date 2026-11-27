@@ -43,6 +43,17 @@ BIND_ADDRESS_MAP: dict[str, str] = {
     "wildcard": "127.0.0.1",
 }
 
+# Daemonless install-only agent runtimes. They have no local service to
+# forward and no dashboard to open, so #1071 removes them from the
+# `clawctl agent {open,port-forward}` surface entirely. The CLI consults
+# this set BEFORE calling `resolve()` so that operators get a specific
+# "daemonless — SSH to the host" refusal instead of the generic
+# "manifest lacks features.web_ui" message their manifests would also
+# trigger today. Keep the set in this module (not duplicated in each
+# consumer) so adding or removing a daemonless runtime stays a one-line
+# change.
+DAEMONLESS_AGENT_TYPES: frozenset[str] = frozenset({"claude", "codex", "pi"})
+
 # Characters that must never appear in a host-supplied identity-file path.
 # Phase 2's tunnel manager will pass this value to `ssh -i <path>`; rejecting
 # null bytes, newlines, and shell metachars at resolve-time means the

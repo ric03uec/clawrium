@@ -470,4 +470,4 @@ def test_pi_port_forward_rejects_before_tunnel(fleet_dir, monkeypatch):
     add_pi(fleet_dir)
     monkeypatch.setattr("clawrium.core.web_ui_tunnel.ensure", boom)
     r = runner.invoke(app, ["agent", "port-forward", "pi-test", "22"])
-    assert r.exit_code != 0 and "no native listener" in r.output
+    assert r.exit_code != 0 and "daemonless install-only agent" in r.output

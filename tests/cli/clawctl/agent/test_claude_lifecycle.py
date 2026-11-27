@@ -44,13 +44,15 @@ def test_claude_is_visible_in_get_and_describe(fleet_dir) -> None:
     assert "claude" in detail.output.lower()
 
 
-def test_claude_open_remains_manifest_capability_unavailable(fleet_dir) -> None:
+def test_claude_open_rejected_as_daemonless(fleet_dir) -> None:
+    """#1071: Claude Code is daemonless — `agent open` refuses before resolver."""
     _add_claude_agent(fleet_dir)
 
     result = runner.invoke(app, ["agent", "open", "claude-code", "--print-url"])
 
     assert result.exit_code != 0
-    assert "no web ui" in result.output.lower()
+    assert "daemonless install-only agent" in result.output
+    assert "SSH to the agent host" in result.output
 
 
 def test_claude_help_lists_expected_lifecycle_verbs(fleet_dir) -> None:

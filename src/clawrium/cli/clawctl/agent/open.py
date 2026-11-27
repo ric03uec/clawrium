@@ -18,7 +18,11 @@ import typer
 from clawrium.cli.clawctl._common import is_local_host
 from clawrium.cli.clawctl.agent._shared import safe_resolve_agent
 from clawrium.cli.output import emit_error, stream_action
-from clawrium.core.web_ui import ResolvedUI, resolve as resolve_web_ui
+from clawrium.core.web_ui import (
+    DAEMONLESS_AGENT_TYPES,
+    ResolvedUI,
+    resolve as resolve_web_ui,
+)
 
 
 def open(  # noqa: A001 — `open` matches plan §4 verb name
@@ -28,7 +32,18 @@ def open(  # noqa: A001 — `open` matches plan §4 verb name
     ),
 ) -> None:
     """Open the agent's web UI in the default browser."""
-    host, agent_key, _claw_record = safe_resolve_agent(name)
+    host, agent_type, _claw_record = safe_resolve_agent(name)
+
+    # #1071: daemonless install-only runtimes (Claude Code, Codex, Pi)
+    # have no local service to forward and no dashboard to open. Refuse
+    # before calling `resolve_web_ui` so the message names the reason
+    # instead of talking about a missing manifest feature.
+    if agent_type in DAEMONLESS_AGENT_TYPES:
+        emit_error(
+            f"{agent_type} is a daemonless install-only agent and has no web UI",
+            hint="SSH to the agent host and invoke the native CLI directly",
+            exit_code=2,
+        )
 
     # resolve_web_ui expects the user-facing instance name (the key in
     # hosts.json.agents), not the agent_type returned by get_agent_by_name.
