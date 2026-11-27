@@ -173,11 +173,12 @@ clawctl agent get
 # NAME           TYPE       HOST       PROVIDER    STATUS    AGE
 # my-assistant   openclaw   worker-1   anthropic   running   2m
 
-# Chat with your agent
-clawctl agent chat my-assistant
+# SSH into the agent host for an interactive session (`clawctl agent
+# shell <name> -- <cmd>` wraps a one-shot command).
+clawctl agent shell my-assistant -- '<command that exits>'
 
-# Or open the local web dashboard
-clawctl gui
+# Open the local web dashboard
+clawctl server start
 ```
 
 **You should see:** A running agent in `clawctl agent get` output with status `running`.
@@ -204,7 +205,7 @@ Ubuntu and macOS are in the test matrix — both as the control machine and as t
 
 [OpenClaw](https://github.com/openclaw/openclaw) is officially supported and tested end-to-end.
 
-[Hermes](https://github.com/NousResearch/hermes-agent) (Nous Research) is supported in `🚧 In Development` status — install, configure, and a local OpenAI-compatible HTTP API on `127.0.0.1:8642` are wired end-to-end. `clawctl agent chat` and external messaging gateways are not yet supported for hermes. See the [Hermes Support Matrix](https://ric03uec.github.io/clawrium/docs/agent-support/hermes) for details.
+[Hermes](https://github.com/NousResearch/hermes-agent) (Nous Research) is supported in `🚧 In Development` status — install, configure, and a local OpenAI-compatible HTTP API on `127.0.0.1:8642` are wired end-to-end. See the [Hermes Support Matrix](https://ric03uec.github.io/clawrium/docs/agent-support/hermes) for details.
 
 Additional agent types are planned.
 

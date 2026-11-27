@@ -39,10 +39,10 @@ Clawrium supports multiple agent types, each designed for different use cases. T
 |--------|:--------:|:------:|:--------:|:-----------:|:-----:|
 | **Status** | ✅ Production Ready | 🚧 In Development | 🚧 In Development | ✅ Install-only | ✅ Install-only |
 | **Transport** | Native daemon | Local OpenAI-compatible HTTP API (`127.0.0.1:8642`) | CLI process | Per-agent CLI environment | Per-agent CLI environment |
-| **`clawctl agent chat <name>` support** | ✅ | ✅ (OpenAI-compatible HTTP backend) | 🚧 | ✅ (finite CLI backend) | ✅ (finite CLI backend) |
+| **Interactive session** | SSH to the agent host; `clawctl agent shell <name> -- <cmd>` wraps a one-shot command. | Same — SSH to the host. | Same. | Same. | Same. |
 | **Multi-Provider** | ✅ (OpenAI, Anthropic, OpenRouter, Bedrock, Vertex, ZAI, Ollama) | ✅ (OpenRouter, Anthropic, OpenAI, Ollama / custom) | 🚧 (OpenAI, Anthropic, Ollama planned) | ❌ — one OAuth or Anthropic API-key credential | ❌ — one `codex-oauth` credential |
-| **Memory model** | Daily files + identity files | Two fixed files: `MEMORY.md` (≤ 2200 chars), `USER.md` (≤ 1375 chars) | ❌ | ❌ | ❌ |
-| **Identity management** | clawctl-managed `SOUL.md` / `IDENTITY.md` | Hermes-managed `SOUL.md` / `AGENTS.md` inside `~/.hermes/` (accessible via `clawctl agent memory`) | ❌ | Project-owned `.claude` settings untouched | Project-owned Codex state |
+| **Memory model** | Operator-owned on-host state | Hermes-managed state inside `~/.hermes/` (operator-owned) | Operator-owned `~/.zeroclaw/workspace/` | Operator-owned | Operator-owned |
+| **Identity management** | On-host `SOUL.md` / `IDENTITY.md` (operator-owned) | On-host `SOUL.md` / `AGENTS.md` inside `~/.hermes/` | Zeroclaw-rendered `~/.zeroclaw/workspace/` | Project-owned `.claude` settings | Project-owned Codex state |
 | **Messaging gateways** | Discord ✅, Slack 🚧, Web 🚧 | Discord ✅, Slack/Telegram/WhatsApp/Signal/email/... 📋 deferred | ❌ | ❌ | ❌ |
 | **External integrations** | GitHub 🚧, Jira 🚧 | 📋 Deferred | ❌ | ❌ | ❌ |
 | **Onboarding wizard** | ✅ 4-stage | ✅ 4-stage (identity auto-skipped) | 🚧 2-stage | ❌ — bounded configure/sync only | ❌ — bounded configure/sync only |
@@ -80,7 +80,7 @@ Clawrium supports multiple agent types, each designed for different use cases. T
 **Use Claude Code when:**
 
 - You need an isolated, pinned Claude Code installation on a fleet host
-- You will run finite native commands through `clawctl agent exec <name> -- <args...>` (or a shell expression through `agent shell`) or chat on demand through `clawctl agent chat <name>` or the GUI Chat tab
+- You will run finite native commands through `clawctl agent shell <name> -- <cmd>` (or SSH directly for longer sessions)
 - You do not need a Clawrium-managed gateway, daemon, or native web UI
 - You need Clawrium to own only the per-agent account, bounded global settings,
   selected credential environment, and installation prefix

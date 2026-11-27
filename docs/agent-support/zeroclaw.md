@@ -4,6 +4,8 @@ ZeroClaw is the [ZeroClaw Labs Rust agent runtime](https://github.com/zeroclaw-l
 
 **Status:** 🚧 In Development
 
+> **Changed in v26.11.0 (#1071).** `clawctl agent chat`, `agent exec`, `agent memory`, `agent audit`, and `agent secret` were removed. Operators SSH to the agent host for interactive sessions; `clawctl agent shell <name> -- <cmd>` wraps a one-shot command. Examples below that reference the removed verbs are historical — read them against the current CLI with that substitution in mind.
+
 **Best for:** Low-resource hosts (Raspberry Pi 2/3 armv7l, aarch64 SBCs, small x86_64 servers) that need a minimal, single-binary AI agent with file-based personality and a LAN-reachable chat endpoint. ZeroClaw is intentionally narrower than [Hermes](hermes.md) (no OpenAI-compatible HTTP) and [OpenClaw](openclaw.md) (fewer native channels). Discord is supported; MCP integrations are Linux-only, with macOS support deferred (#836).
 
 **Current pinned version:** `v0.8.5`; `v0.7.5` remains as a legacy manifest entry. The manifest pins each release for five `(os, os_version, arch)` combinations (ten entries total); every version bump requires re-pinning all five current-release combinations.

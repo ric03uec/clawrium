@@ -4,6 +4,8 @@ OpenClaw is a full-featured agent supporting multiple LLM providers, communicati
 
 **Status:** ✅ Production Ready
 
+> **Changed in v26.11.0 (#1071).** `clawctl agent chat`, `agent exec`, `agent memory`, `agent audit`, and `agent secret` were removed. Operators SSH to the agent host for interactive sessions; `clawctl agent shell <name> -- <cmd>` wraps a one-shot command. Examples below that reference the removed verbs are historical — read them against the current CLI with that substitution in mind.
+
 **Best for:** Discord bots, multi-channel assistants, complex workflows
 
 ---
