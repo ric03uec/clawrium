@@ -373,6 +373,74 @@ class TestConfirmModal:
         assert results == [False]
 
 
+class TestDetailScreenRendering:
+    """Rendering regressions for the #1071 removal of the chat panel.
+
+    The detail screen previously composed a `ChatPanel` for openclaw
+    agents with a live gateway. That widget — and the backing
+    `clawrium.cli.tui.widgets.chat_panel` module — were deleted in
+    #1071. These tests lock in the replacement behaviour.
+    """
+
+    def _run(self, assertions):
+        async def _test():
+            with (
+                patch(
+                    "clawrium.cli.tui.data.get_fleet_data",
+                    return_value=(
+                        [SAMPLE_AGENT],
+                        FleetSummary(total=1, running=1, provisioning=0, hosts=1),
+                    ),
+                ),
+                patch(
+                    "clawrium.cli.tui.screens.detail.get_agent_detail",
+                    return_value=SAMPLE_AGENT,
+                ),
+            ):
+                app = ClawriumApp()
+                async with app.run_test(size=(120, 40)) as pilot:
+                    app.push_screen(DetailScreen(agent=SAMPLE_AGENT))
+                    await pilot.pause()
+                    screen = app.screen
+                    assertions(screen)
+
+        asyncio.run(_test())
+
+    def test_detail_screen_does_not_render_chat_widget(self):
+        def _assertions(screen):
+            # The old ChatPanel registered id="detail-bottom". The
+            # replacement is a Static at id="detail-bottom-placeholder".
+            placeholder = screen.query_one("#detail-bottom-placeholder", Static)
+            assert placeholder is not None
+            assert len(screen.query("#detail-bottom")) == 0, (
+                "DetailScreen must not instantiate a ChatPanel (id=detail-bottom)"
+            )
+
+        self._run(_assertions)
+
+    def test_detail_screen_renders_chat_moved_hint(self):
+        def _assertions(screen):
+            placeholder = screen.query_one("#detail-bottom-placeholder", Static)
+            text = str(placeholder.renderable)
+            assert "Chat moved to the host" in text
+            assert "clawctl agent shell" in text
+
+        self._run(_assertions)
+
+    def test_chat_panel_module_is_absent(self):
+        """Hard regression — importing the removed module must fail."""
+        import importlib
+
+        try:
+            importlib.import_module("clawrium.cli.tui.widgets.chat_panel")
+        except ModuleNotFoundError:
+            pass
+        else:  # pragma: no cover
+            raise AssertionError(
+                "clawrium.cli.tui.widgets.chat_panel must not be importable after #1071"
+            )
+
+
 class TestDetailScreenCallbacks:
     def test_stop_confirmed_calls_stop_agent(self):
         async def _test():

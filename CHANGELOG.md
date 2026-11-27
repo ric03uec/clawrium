@@ -14,6 +14,19 @@ cut. The `itx-release` skill archives this section into a new
 
 ### BREAKING
 
+- Removed the per-agent chat / memory / exec / audit / secret CLI surfaces and the top-level `clawctl apply`, `clawctl diff`, `clawctl audit`, and `clawctl doctor` command groups. **Operator scripts invoking any of the commands below will now fail with "No such command".** Removed commands and their replacement workflows (#1071, phase 1):
+
+  | Removed command | Replacement |
+  |---|---|
+  | `clawctl agent chat <name>` | SSH to the host and invoke the agent's native CLI directly. `clawctl agent shell <name> -- <cmd>` still wraps the SSH session for a one-shot command. |
+  | `clawctl agent exec <name> -- <args...>` | `clawctl agent shell <name> -- <cmd>` (one-shot), or SSH directly for longer sessions. |
+  | `clawctl agent memory ...` | No replacement. Operator memory lives on the agent host; manage it with the agent's native tooling. |
+  | `clawctl agent audit <name>`, `clawctl audit {log,tail,stats,path,session}` | No replacement. The operator audit trail capability is removed from `clawctl`. Prior logs under `~/.config/clawrium/changelog/` are untouched and can be read manually. |
+  | `clawctl agent secret {create,list,delete,import}` | Provider and integration credentials live on the provider / integration records: use `clawctl provider` and `clawctl integration`. There is no agent-scoped secret CLI. |
+  | `clawctl apply -f <file>`, `clawctl diff -f <file>` | No replacement for declarative fleet apply / diff. `clawctl delete -f <file>` stays for declarative teardown; the imperative path is the individual lifecycle verbs (`clawctl agent {create,configure,sync,start,stop,restart,delete}`). |
+  | `clawctl doctor nemoclaw` | Removed — NemoClaw is reclassified as infrastructure, not an agent runtime. No replacement. |
+
+  Alongside the public verbs, the legacy hybrid modules at `src/clawrium/cli/{chat,memory,secret}.py` and the TUI chat panel at `src/clawrium/cli/tui/widgets/chat_panel.py` are deleted. The TUI agent-detail screen now shows a static "chat moved to the host" hint in place of the removed panel. Chat / memory / exec / audit / secret state left on the local disk from prior versions is ignored by the upgraded `clawctl`; operators can remove `~/.config/clawrium/changelog/` and any per-agent `secrets/` / `memory/` trees manually.
 - Removed the Clawrium skills subsystem — `clawctl skill`, `clawctl agent skill`, the GUI **Skills** tab, every `src/clawrium/core/skills*.py` module, every per-claw `skills_apply.yaml` playbook, the `skills/` catalog, the `docs/skills/` documentation tree, and the related tests. Skills management moves fully onto the agent host, operated outside Clawrium. No migration runs — any skills state left under `~/.config/clawrium/agents/<name>/skills*` and any `skills` directory on the agent host (e.g. `~/.hermes/skills/clawrium/`) is ignored by the upgraded `clawctl` and can be manually removed at the operator's discretion. The legacy `agents.<name>.skills` key in `hosts.json` is likewise dead data and is dropped from the agent record on the next `clawctl agent install` / upgrade; operators who still need the attachment list can read it from a pre-upgrade backup of `hosts.json`. Operators who relied on managed skills reapply them directly on the host (#1072).
 - Config-directory initialization now refuses symlinked path components, config directories owned by another user, and group/world-writable config leaves or non-sticky ancestors to prevent path-redirection attacks. `sudo XDG_CONFIG_HOME=/home/user/.config clawctl` now fails: run as the intended non-root operator, or set `XDG_CONFIG_HOME` to a root-owned private real path; no automated migration is available (#1046).
 
