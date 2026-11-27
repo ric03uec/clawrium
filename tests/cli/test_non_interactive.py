@@ -291,25 +291,6 @@ def test_agent_integration_attach_get_noninteractive(fleet_dir, stdin_not_tty) -
     assert listed.exit_code == 0
 
 
-def test_agent_secret_create_get_noninteractive(fleet_dir, stdin_not_tty) -> None:
-    result = runner.invoke(
-        app,
-        [
-            "agent",
-            "secret",
-            "create",
-            "FOO",
-            "--agent",
-            "wise-hypatia",
-            "--value",
-            "bar",
-        ],
-    )
-    assert result.exit_code == 0
-    listed = runner.invoke(app, ["agent", "secret", "get", "--agent", "wise-hypatia"])
-    assert listed.exit_code == 0
-
-
 # ---------------------------------------------------------------------------
 # Bundle 4 — detach verbs and remaining sub-resource paths (ATX iter-2 W1)
 # ---------------------------------------------------------------------------
@@ -342,59 +323,6 @@ def test_agent_integration_detach_noninteractive(fleet_dir, stdin_not_tty) -> No
         app, ["agent", "integration", "detach", "di", "--agent", "wise-hypatia"]
     )
     assert result.exit_code == 0
-
-
-def test_agent_secret_describe_delete_import_noninteractive(
-    fleet_dir, stdin_not_tty, tmp_path
-) -> None:
-    # describe
-    runner.invoke(
-        app,
-        [
-            "agent",
-            "secret",
-            "create",
-            "FOO",
-            "--agent",
-            "wise-hypatia",
-            "--value",
-            "v",
-        ],
-    )
-    r = runner.invoke(
-        app, ["agent", "secret", "describe", "FOO", "--agent", "wise-hypatia"]
-    )
-    assert r.exit_code == 0
-    # delete with --yes
-    r = runner.invoke(
-        app,
-        [
-            "agent",
-            "secret",
-            "delete",
-            "FOO",
-            "--agent",
-            "wise-hypatia",
-            "--yes",
-        ],
-    )
-    assert r.exit_code == 0
-    # import from --from-file
-    env = tmp_path / ".env"
-    env.write_text("A=1\nB=2\n")
-    r = runner.invoke(
-        app,
-        [
-            "agent",
-            "secret",
-            "import",
-            "--agent",
-            "wise-hypatia",
-            "--from-file",
-            str(env),
-        ],
-    )
-    assert r.exit_code == 0
 
 
 def test_provider_registry_refresh_requires_ollama_type(

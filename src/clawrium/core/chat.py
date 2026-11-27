@@ -1,4 +1,20 @@
-"""OpenClaw gateway chat client for interactive CLI sessions."""
+"""OpenClaw gateway WebSocket client.
+
+Historically this module hosted both the `OpenClawChatClient` gateway
+client AND a family of per-agent `ChatBackend` implementations plus
+the shared `ChatBackend` Protocol. #1071 removed every per-agent chat
+backend (chat_claude / chat_codex / chat_hermes / chat_pi /
+chat_zeroclaw / chat_ethos) and the CLI / GUI chat surfaces that
+consumed them. The `OpenClawChatClient` stays because the
+`core/validation.py` openclaw gateway reachability probe uses it
+during `clawctl agent sync` / `configure`.
+
+The `Chat*Error` exception hierarchy is retained for backward
+compatibility with that validation path; the `SecretStr` container
+stays because it masks the gateway bearer in logs. The `ChatBackend`
+Protocol is removed — it had no remaining implementers after the
+per-agent file deletions.
+"""
 
 from __future__ import annotations
 
@@ -9,7 +25,7 @@ import sys
 import time
 import uuid
 from collections import deque
-from typing import Any, Callable, Protocol, runtime_checkable
+from typing import Any, Callable
 from urllib.parse import urlparse
 
 import websockets
@@ -23,14 +39,13 @@ __all__ = [
     "ChatConnectionError",
     "ChatAuthenticationError",
     "ChatProtocolError",
-    "ChatBackend",
     "SecretStr",
     "OpenClawChatClient",
 ]
 
 
 class ChatError(Exception):
-    """Base exception for chat failures."""
+    """Base exception for gateway client failures."""
 
 
 class ChatConnectionError(ChatError):
@@ -62,57 +77,6 @@ class SecretStr:
 
     def __str__(self) -> str:
         return "***"
-
-
-@runtime_checkable
-class ChatBackend(Protocol):
-    """Protocol implemented by transport-specific chat clients.
-
-    Implementations must be safely usable from `cli/chat.py:_chat_loop` —
-    connect once, send N messages, then close. `send_message` MUST invoke
-    `on_delta` for incremental output when streaming is supported, and return
-    the assembled final text when the turn completes.
-    """
-
-    async def connect(self) -> None: ...
-
-    async def send_message(
-        self,
-        message: str,
-        session_key: str,
-        on_delta: Callable[[str], None] | None = None,
-        response_timeout_seconds: float = 120.0,
-    ) -> str: ...
-
-    async def close(self) -> None: ...
-
-    def clear_history(self) -> None:
-        """Reset any client-side conversation buffer the backend keeps.
-
-        Backends with no client-side history (e.g. WebSocket backends whose
-        gateway owns the session state) MUST implement this as a no-op so
-        the REPL `/reset` command never crashes.
-        """
-        ...
-
-    @property
-    def is_connected(self) -> bool:
-        """Whether `send_message` would succeed without a fresh `connect()`.
-
-        Optimistic contract: `True` after a successful `connect()` and
-        before an explicit `close()`. It is NOT a heartbeat — a server-
-        initiated TCP close between turns will leave it `True` until the
-        next failed `send_message`. The REPL uses this to decide
-        between continuing a chat session and breaking after a
-        `ChatProtocolError` that the backend self-tore-down on
-        (e.g. zeroclaw's `approval_request` branch).
-
-        Backends without an explicit lifecycle (HTTP-style hermes) MAY
-        return `True` constantly — `close()` flips it to `False` so the
-        REPL's break-on-disconnect contract is still meaningful when
-        an `approval_request`-shaped path lands in those backends later.
-        """
-        ...
 
 
 class OpenClawChatClient:

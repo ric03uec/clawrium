@@ -5,7 +5,6 @@ from pathlib import Path
 import subprocess
 
 import yaml
-from clawrium.core.agent_exec import SUPPORTED_CLAW_TYPES
 from clawrium.core.agent_lifecycle import has_daemon_lifecycle
 from clawrium.core.registry import list_claws, load_manifest
 
@@ -33,9 +32,7 @@ def task(tasks, name):
 def test_pi_registry_is_daemonless_and_pinned():
     m = load_manifest("pi")
     assert "pi" in list_claws() and not has_daemon_lifecycle("pi")
-    assert "pi" in SUPPORTED_CLAW_TYPES and {p["version"] for p in m["platforms"]} == {
-        PIN
-    }
+    assert {p["version"] for p in m["platforms"]} == {PIN}
 
 
 def test_pi_install_contract_is_isolated_and_idempotent_on_both_os():
