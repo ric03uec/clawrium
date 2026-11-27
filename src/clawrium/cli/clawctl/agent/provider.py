@@ -232,11 +232,7 @@ def _attach_claude_oauth_provider(
     if provider_record.get("type") != CLAUDE_OAUTH_PROVIDER_TYPE:
         emit_error(
             "Claude agents require a claude-oauth provider",
-            hint=(
-                "use a claude-oauth provider, or set an API key with: "
-                "clawctl agent secret create ANTHROPIC_API_KEY --agent <name> "
-                "--value-stdin"
-            ),
+            hint="create a claude-oauth provider and attach it to the agent",
         )
 
     provider_name = str(provider_record.get("name") or "")

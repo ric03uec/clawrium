@@ -437,31 +437,6 @@ def test_pi_channel_and_integration_attach_reject_before_metadata_write(
     )
 
 
-def test_pi_secret_mutations_reject_before_input_or_store_access(
-    fleet_dir, monkeypatch
-):
-    add_pi(fleet_dir)
-    monkeypatch.setattr("clawrium.cli.clawctl.agent.secret._read_from_file", boom)
-    monkeypatch.setattr("clawrium.cli.clawctl.agent.secret.set_instance_secret", boom)
-    monkeypatch.setattr(
-        "clawrium.cli.clawctl.agent.secret.remove_instance_secret", boom
-    )
-    create = runner.invoke(
-        app, ["agent", "secret", "create", "KEY", "--agent", "pi-test", "--value", "x"]
-    )
-    imported = runner.invoke(
-        app,
-        ["agent", "secret", "import", "--agent", "pi-test", "--from-file", "/missing"],
-    )
-    deleted = runner.invoke(
-        app, ["agent", "secret", "delete", "KEY", "--agent", "pi-test", "--yes"]
-    )
-    assert all(
-        r.exit_code != 0 and "unavailable" in r.output
-        for r in (create, imported, deleted)
-    )
-
-
 def test_pi_provider_attach_rejects_missing_or_unsupported_model_before_metadata_write(
     fleet_dir, monkeypatch
 ):
@@ -488,7 +463,7 @@ def test_pi_shell_remains_rejected_before_remote_backend(fleet_dir, monkeypatch)
     add_pi(fleet_dir)
     monkeypatch.setattr("clawrium.cli.clawctl.agent.shell.run_agent_shell", boom)
     shell = runner.invoke(app, ["agent", "shell", "pi-test", "--", "true"])
-    assert shell.exit_code != 0 and "install-only" in shell.output
+    assert shell.exit_code != 0 and "SSH to the host" in shell.output
 
 
 def test_pi_port_forward_rejects_before_tunnel(fleet_dir, monkeypatch):

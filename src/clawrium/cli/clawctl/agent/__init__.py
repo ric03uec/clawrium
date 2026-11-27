@@ -1,12 +1,15 @@
 """`clawctl agent` — Pattern B target (AI assistant instances).
 
-Plan §4 surface: create, get, describe, delete, edit, configure,
-start, stop, restart, sync, logs, chat, open, port-forward, exec,
-shell, registry.
+Surface: create, get, describe, delete, edit, configure, start, stop,
+status, restart, sync, upgrade, doctor, logs, open, port-forward,
+shell, registry (plus provider / channel / integration sub-groups).
 
 Per-verb modules under this package wire onto `agent_app`. The CLI
-layer delegates all data-plane work to `clawrium.core.*` (untouched
-per plan §2 guardrail).
+layer delegates all data-plane work to `clawrium.core.*`.
+
+`chat`, `exec`, `memory`, `audit`, and `secret` were removed in #1071.
+Operators SSH to the host for one-off commands; `clawctl agent shell`
+still wraps the SSH session.
 """
 
 from __future__ import annotations
@@ -14,8 +17,6 @@ from __future__ import annotations
 import typer
 
 from clawrium.cli.clawctl.agent import (
-    audit as _audit,
-    chat as _chat,
     channel as _channel,
     configure as _configure,
     create as _create,
@@ -23,17 +24,14 @@ from clawrium.cli.clawctl.agent import (
     describe as _describe,
     doctor as _doctor,
     edit as _edit,
-    exec as _exec,
     get as _get,
     integration as _integration,
     logs as _logs,
-    memory as _memory,
     open as _open,
     port_forward as _port_forward,
     provider as _provider,
     registry as _registry,
     restart as _restart,
-    secret as _secret,
     shell as _shell,
     start as _start,
     status as _status,
@@ -54,7 +52,7 @@ agent_app = typer.Typer(
 )
 
 
-# Verb registration. Order matches plan §4.
+# Verb registration.
 agent_app.command(
     name="create", help="Install agent (Claude Code, Codex, and Pi are CLI-only)."
 )(_create.create)
@@ -99,32 +97,21 @@ agent_app.command(
 agent_app.command(
     name="logs", help="Stream agent logs (not CLI-only agents)."
 )(_logs.logs)
-agent_app.command(name="chat", help="Chat with a chat-enabled agent.")(_chat.chat)
 agent_app.command(
-    name="open", help="Open native UI (not available for CLI-only agents)."
+    name="open", help="Open native UI (OpenClaw / Hermes / ZeroClaw only)."
 )(_open.open)
-agent_app.command(name="port-forward", help="Forward a local port to the agent.")(
-    _port_forward.port_forward
-)
 agent_app.command(
-    name="exec",
-    context_settings=_exec.EXEC_CONTEXT_SETTINGS,
-)(_exec.exec_cmd)
+    name="port-forward",
+    help="Forward a local port to the agent (OpenClaw / Hermes / ZeroClaw only).",
+)(_port_forward.port_forward)
 agent_app.command(
     name="shell",
     context_settings=_shell.SHELL_CONTEXT_SETTINGS,
 )(_shell.shell)
 
 
-# Sub-groups (Pattern A per-agent + agent-scoped sub-resources, plus
-# the read-only types catalog).
+# Sub-groups.
 agent_app.add_typer(_provider.provider_app, name="provider")
 agent_app.add_typer(_channel.channel_app, name="channel")
 agent_app.add_typer(_integration.integration_app, name="integration")
-agent_app.add_typer(_secret.secret_app, name="secret")
-agent_app.add_typer(_memory.memory_app, name="memory")
 agent_app.add_typer(_registry.registry_app, name="registry")
-agent_app.command(
-    name="audit",
-    help="Show audit trail entries scoped to one agent.",
-)(_audit.audit)

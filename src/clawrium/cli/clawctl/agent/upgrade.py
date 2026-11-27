@@ -64,10 +64,10 @@ _RENDERERS = {
 # operations (AGENTS.md §"Gateway Token Lifecycle (zeroclaw)"). The
 # upgrade path force-reinstalls the binary, restarts the unit, and the
 # daemon mints a fresh bearer — `hosts.json.gateway.auth` must be
-# rewritten atomically or remote `clawctl agent chat` sessions will get
-# a clean 401. ATX B2 (issue #592): drive the rotation by calling
-# `lifecycle.restart_agent` after the install playbook returns; that
-# helper already emits the `gateway_token_rotated` event.
+# rewritten atomically or any lingering remote client (e.g. GUI-opened
+# web UI, port-forward) will hit a clean 401. Drive the rotation by
+# calling `lifecycle.restart_agent` after the install playbook returns;
+# that helper already emits the `gateway_token_rotated` event.
 _PAIRING_AGENT_TYPES = {"zeroclaw"}
 
 

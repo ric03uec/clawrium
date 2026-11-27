@@ -31,8 +31,7 @@ def port_forward(
     _host, agent_type, _record = safe_resolve_agent(name)
     if agent_type == "pi":
         emit_error(
-            "Pi has no native listener to port-forward",
-            hint="Use 'clawctl agent exec <name> -- <pi args>' instead.",
+            "Pi has no native listener to port-forward; SSH to the host directly.",
         )
     local_port, remote_port = _parse_spec(spec)
 
