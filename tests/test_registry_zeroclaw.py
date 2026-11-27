@@ -326,51 +326,11 @@ def test_zeroclaw_manifest_declares_memory_feature():
     assert workspace.get("memory_path") == "~/.zeroclaw/workspace"
 
 
-def test_zeroclaw_memory_playbooks_exist():
-    """All four memory_*.yaml playbooks must ship in the zeroclaw registry."""
-    from importlib.resources import files
-
-    zeroclaw_pkg = files("clawrium.platform.registry.zeroclaw")
-    for name in ("memory_read", "memory_write", "memory_delete", "memory_info"):
-        assert (zeroclaw_pkg / "playbooks" / f"{name}.yaml").is_file(), (
-            f"Missing zeroclaw playbook: {name}.yaml"
-        )
-
-
-def test_zeroclaw_memory_info_lists_six_personality_files():
-    """memory_info must enumerate all 6 personality files (no BOOTSTRAP.md)."""
-    from importlib.resources import files
-    import yaml
-
-    zeroclaw_pkg = files("clawrium.platform.registry.zeroclaw")
-    data = yaml.safe_load((zeroclaw_pkg / "playbooks" / "memory_info.yaml").read_text())
-    top = set(data[0]["vars"]["memory_top_level_files"])
-    assert top == {
-        "SOUL.md",
-        "IDENTITY.md",
-        "USER.md",
-        "AGENTS.md",
-        "TOOLS.md",
-        "MEMORY.md",
-    }
-    # BOOTSTRAP.md must NOT be listed — runtime owns its lifecycle.
-    assert "BOOTSTRAP.md" not in top
-
-
-def test_zeroclaw_memory_playbooks_target_workspace_path():
-    """Each memory_*.yaml must point at ~/.zeroclaw/workspace (not legacy paths)."""
-    from importlib.resources import files
-
-    zeroclaw_pkg = files("clawrium.platform.registry.zeroclaw")
-    for name in ("memory_read", "memory_write", "memory_delete", "memory_info"):
-        content = (zeroclaw_pkg / "playbooks" / f"{name}.yaml").read_text()
-        assert "/home/{{ agent_name }}/.zeroclaw/workspace" in content, (
-            f"{name}.yaml must use ~/.zeroclaw/workspace"
-        )
-        # Legacy ~/workspace path must not leak in (mirror of remove.yaml test).
-        assert "/home/{{ agent_name }}/workspace" not in content, (
-            f"{name}.yaml references legacy ~/workspace path"
-        )
+# #1071 phase 5 removed every `memory_*.yaml` playbook along with the
+# agent-memory subsystem. `test_zeroclaw_memory_playbooks_exist`,
+# `test_zeroclaw_memory_info_lists_six_personality_files`, and
+# `test_zeroclaw_memory_playbooks_target_workspace_path` are gone with
+# the playbooks they probed.
 
 
 def test_zeroclaw_workspace_templates_exist():
@@ -692,28 +652,7 @@ def test_pair_playbook_resolved_code_ternary_picks_correct_source():
     )
 
 
-def test_memory_delete_no_log_on_delete_task_across_all_claws():
-    """ATX iter 5 W3: every claw's memory_delete playbook must mark the
-    file-removal task no_log: true so an Ansible run at -vvv does not
-    echo agent_name + per-file path back into runner artifacts. Pin the
-    invariant structurally across all 3 memory-capable claws."""
-    from importlib.resources import files
-    import yaml
-
-    for claw_type in ("zeroclaw", "openclaw", "hermes"):
-        pkg = files(f"clawrium.platform.registry.{claw_type}")
-        data = yaml.safe_load((pkg / "playbooks" / "memory_delete.yaml").read_text())
-        tasks = data[0]["tasks"]
-        delete_tasks = [
-            t
-            for t in tasks
-            if isinstance(t.get("ansible.builtin.file"), dict)
-            and t["ansible.builtin.file"].get("state") == "absent"
-        ]
-        assert delete_tasks, f"{claw_type}/memory_delete.yaml: no delete task found"
-        for task in delete_tasks:
-            assert task.get("no_log") is True, (
-                f"{claw_type}/memory_delete.yaml task '{task.get('name')}' "
-                f"must have no_log: true so secret-bearing paths are not "
-                f"echoed in ansible-runner artifacts."
-            )
+# #1071 phase 5 removed `memory_delete.yaml` across every claw along
+# with the agent-memory subsystem. The cross-claw no_log invariant
+# (`test_memory_delete_no_log_on_delete_task_across_all_claws`) is
+# gone with the playbooks it probed.
