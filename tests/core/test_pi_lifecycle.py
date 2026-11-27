@@ -78,7 +78,6 @@ def test_canonical_pi_sync_writes_only_account_private_environment(monkeypatch):
         agent_name="pi-demo",
         host={"hostname": "wolf-i", "os_family": "linux"},
         claw_record={"providers": ["router"]},
-        workspace_only=False,
         dry_run=False,
         on_event=None,
     )
@@ -135,7 +134,6 @@ def test_bedrock_to_codex_sync_clears_aws_state_before_codex_activation(monkeypa
         agent_name="pi-demo",
         host={"hostname": "wolf-i", "os_family": "linux"},
         claw_record={"providers": ["codex"]},
-        workspace_only=False,
         dry_run=False,
         on_event=lambda phase, message: events.append((phase, message)),
     )
@@ -177,7 +175,6 @@ def test_bedrock_to_codex_cache_cleanup_failure_prevents_activation(monkeypatch)
             agent_name="pi-demo",
             host={"hostname": "wolf-i", "os_family": "linux"},
             claw_record={"providers": ["codex"]},
-            workspace_only=False,
             dry_run=False,
             on_event=None,
         )
@@ -212,7 +209,6 @@ def test_canonical_pi_sync_stops_before_activation_when_aws_removal_fails(monkey
             agent_name="pi-demo",
             host={"hostname": "wolf-i", "os_family": "linux"},
             claw_record={"providers": ["router"]},
-            workspace_only=False,
             dry_run=False,
             on_event=None,
         )
@@ -249,7 +245,6 @@ def test_canonical_pi_sync_refuses_remote_ownership_validation_failure(monkeypat
             agent_name="pi-demo",
             host={"hostname": "wolf-i", "os_family": "linux"},
             claw_record={"providers": ["router"]},
-            workspace_only=False,
             dry_run=False,
             on_event=None,
         )
@@ -404,7 +399,6 @@ def test_canonical_pi_sync_provisions_only_agent_scoped_sso_configuration(
         agent_name="pi-demo",
         host={"hostname": "wolf-i", "os_family": host_os_family},
         claw_record={"providers": ["bedrock"]},
-        workspace_only=False,
         dry_run=False,
         on_event=None,
     )
@@ -489,7 +483,6 @@ def test_canonical_pi_sync_propagates_bedrock_sso_readiness_failure(monkeypatch)
             agent_name="pi-demo",
             host={"hostname": "wolf-i", "os_family": "linux"},
             claw_record={"providers": ["bedrock"]},
-            workspace_only=False,
             dry_run=False,
             on_event=None,
         )
@@ -761,7 +754,6 @@ def test_canonical_pi_sync_rejects_missing_provider_before_remote_io(monkeypatch
             agent_name="pi-demo",
             host={"hostname": "wolf-i", "os_family": "linux"},
             claw_record={"providers": []},
-            workspace_only=False,
             dry_run=False,
             on_event=None,
         )

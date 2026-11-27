@@ -94,7 +94,7 @@ def test_pi_configure_attaches_openrouter_then_canonical_syncs(fleet_dir, monkey
     )
     assert result.exit_code == 0, result.output
     assert calls == [
-        ("pi-test", {"restart": False, "verify": False, "push_workspace": False})
+        ("pi-test", {"restart": False, "verify": False})
     ]
 
 

@@ -65,13 +65,14 @@ def test_sync_no_restart_skips_restart(fleet_dir) -> None:
 
 
 def test_sync_workspace_flag_is_removed_hard_error(fleet_dir) -> None:
-    """Issue #760 W6 iter-2: `--workspace` is removed (BREAKING)."""
-    result = runner.invoke(
-        app, ["agent", "sync", "wise-hypatia", "--workspace"]
-    )
-    assert result.exit_code == 2
-    assert "--workspace-only" in result.output
-    assert "--no-restart" in result.output
+    """`--workspace` and `--workspace-only` are both hard errors
+    after #1071 phase 3b removed the workspace-overlay subsystem."""
+    for flag in ("--workspace", "--workspace-only"):
+        result = runner.invoke(
+            app, ["agent", "sync", "wise-hypatia", flag]
+        )
+        assert result.exit_code == 2, f"{flag} should hard-error"
+        assert "workspace-overlay sync path was removed" in result.output
 
 
 # ---------------------------------------------------------------------------

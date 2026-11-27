@@ -3168,14 +3168,6 @@ class TestOpenclawInstallPlugins:
         # Phase 3 (#945): nemoclaw onboard now dispatches for openclaw;
         # stub so this test's spy only sees plugin-install → restart.
         monkeypatch.setattr(lc, "_openclaw_nemoclaw_onboard", lambda *_a, **_kw: None)
-        # workspace_sync push: stub at import site
-        monkeypatch.setattr(
-            "clawrium.core.workspace_sync.push_workspace_phase",
-            lambda **_kw: MagicMock(
-                success=True, files_pushed=(), files_excluded=(), error=None
-            ),
-        )
-
         sync_agent_canonical("wolf-i", verify=False)
         assert order == ["install_plugins", "restart_unit"]
 
@@ -3598,35 +3590,6 @@ class TestSyncValidatePhaseProbe:
         assert "zeroclaw-alpha.service" in msg
         assert "/home/alpha/.zeroclaw" in msg
 
-    def test_probe_failure_blocks_workspace_only_sync(self, monkeypatch):
-        """A `--workspace-only` sync must also short-circuit before the
-        overlay push and before the zeroclaw bearer rotation."""
-        events, _ = _stub_sync_environment(monkeypatch, agent_type="zeroclaw")
-        monkeypatch.setattr(
-            lc,
-            "probe_host_install",
-            lambda *_a, **_kw: self._make_probe(unit=False, home=True),
-        )
-        # Sentinels: neither overlay push nor zeroclaw repair may run.
-        from clawrium.core import workspace_sync, lifecycle
-
-        def _sentinel_push(**_kw):
-            raise AssertionError("overlay push must not run when probe fails")
-
-        def _sentinel_repair(*_a, **_kw):
-            raise AssertionError("zeroclaw repair must not run when probe fails")
-
-        monkeypatch.setattr(workspace_sync, "push_workspace_phase", _sentinel_push)
-        monkeypatch.setattr(lifecycle, "_zeroclaw_repair_after_start", _sentinel_repair)
-        with pytest.raises(lc.AgentInstallMissingError):
-            sync_agent_canonical(
-                "alpha",
-                restart=False,
-                verify=False,
-                workspace_only=True,
-                on_event=lambda s, m: events.append((s, m)),
-            )
-
     def test_probe_pass_proceeds_normally(self, monkeypatch):
         """When the probe reports both artifacts present, sync must
         continue through render/diff/write/restart as it did before
@@ -4015,30 +3978,12 @@ class TestSyncRefusesIncompleteInstall:
         # ansible-runner. Tests that DO target onboard behavior stub
         # it themselves.
         monkeypatch.setattr(lc, "_openclaw_nemoclaw_onboard", lambda *_a, **_kw: None)
-        # ATX review W8: stub `push_workspace_phase` so the clean-record
-        # path reaches a deterministic return value instead of bubbling
-        # an unrelated workspace-sync failure that could mask the
-        # negative-guard assertion.
-        from clawrium.core import workspace_sync as _ws
-
-        def _ok_phase(**_kw):
-            return _ws.WorkspacePhaseResult(
-                success=True,
-                files_pushed=(),
-                files_excluded=(),
-            )
-
-        monkeypatch.setattr(
-            "clawrium.core.workspace_sync.push_workspace_phase",
-            _ok_phase,
-        )
-        # ATX iter-2 W2: also stub the post-write state-transition
-        # so the result reaches `success=True` deterministically.
+        # ATX iter-2 W2: stub the post-write state-transition so the
+        # result reaches `success=True` deterministically.
         # `sync_agent_canonical` calls `transition_state(...,
         # OnboardingState.READY)` near the end; without a stub it
         # raises `AgentNotFoundError` against the empty fake
-        # hosts.json and sets `success=False` (the "registration ...
-        # Inspect hosts.json" error string).
+        # hosts.json and sets `success=False`.
         monkeypatch.setattr(
             "clawrium.core.onboarding.transition_state",
             lambda *_a, **_kw: True,
@@ -4105,18 +4050,6 @@ class TestSyncRefusesIncompleteInstall:
         self._setup(monkeypatch, {})
         result = sync_agent_canonical("oc", restart=False, verify=False)
         assert result.success is True
-
-    def test_workspace_only_also_refused(self, monkeypatch):
-        """`--workspace-only` is just another sync entry point and is
-        bound by the same precondition. Writing operator overlay onto a
-        half-installed daemon makes recovery harder, not easier."""
-        self._setup(
-            monkeypatch,
-            {"status": "failed", "installed_at": None},
-        )
-        with pytest.raises(CanonicalSyncError, match=r"incomplete installation"):
-            sync_agent_canonical("oc", restart=False, verify=False, workspace_only=True)
-
 
 # ---------------------------------------------------------------------------
 # #834: Hermes Slack MCP install at sync time.
@@ -4431,13 +4364,6 @@ class TestHermesSlackInstallRunsBeforeRestart:
         monkeypatch.setattr(lc, "_diff_removes_secrets", lambda _d: set())
         monkeypatch.setattr(lc, "_atomic_write", lambda *_a, **_kw: None)
         monkeypatch.setattr(lc, "_verify_health", lambda **_: None)
-        monkeypatch.setattr(
-            "clawrium.core.workspace_sync.push_workspace_phase",
-            lambda **_kw: MagicMock(
-                success=True, files_pushed=(), files_excluded=(), error=None
-            ),
-        )
-
     def test_b1_install_runs_before_restart_via_sync(self, monkeypatch):
         """B1 (ATX iter-4): the install helper MUST run before
         `_restart_unit` inside `sync_agent_canonical`. Direct-call
@@ -4810,13 +4736,6 @@ class TestOpenclawSlackInstallRunsBeforeRestart:
         # openclaw; stub so the slack-install-before-restart invariant
         # isn't obscured by an onboard SSH probe.
         monkeypatch.setattr(lc, "_openclaw_nemoclaw_onboard", lambda *_a, **_kw: None)
-        monkeypatch.setattr(
-            "clawrium.core.workspace_sync.push_workspace_phase",
-            lambda **_kw: MagicMock(
-                success=True, files_pushed=(), files_excluded=(), error=None
-            ),
-        )
-
     def test_install_runs_before_restart_via_sync(self, monkeypatch):
         """The install helper MUST run before `_restart_unit` inside
         `sync_agent_canonical`. Order-sensitivity: a wiring regression
@@ -5132,12 +5051,6 @@ class TestZeroclawSlackInstallRunsBeforeRestart:
         monkeypatch.setattr(lc, "_diff_removes_secrets", lambda _d: set())
         monkeypatch.setattr(lc, "_atomic_write", lambda *_a, **_kw: None)
         monkeypatch.setattr(lc, "_verify_health", lambda **_: None)
-        monkeypatch.setattr(
-            "clawrium.core.workspace_sync.push_workspace_phase",
-            lambda **_kw: MagicMock(
-                success=True, files_pushed=(), files_excluded=(), error=None
-            ),
-        )
         # Stub the bearer-rotation import so the sync path terminates
         # cleanly on success without needing a real playbook run.
         monkeypatch.setattr(
@@ -5445,12 +5358,6 @@ class TestOpenclawNemoclawOnboardOrdering:
         # real onboard function.
         monkeypatch.setattr(lc, "_openclaw_install_slack_mcp", lambda *_a, **_kw: None)
         monkeypatch.setattr(lc, "_verify_health", lambda **_: None)
-        monkeypatch.setattr(
-            "clawrium.core.workspace_sync.push_workspace_phase",
-            lambda **_kw: MagicMock(
-                success=True, files_pushed=(), files_excluded=(), error=None
-            ),
-        )
         return host_record
 
     def test_onboard_runs_before_write_and_restart(self, monkeypatch):

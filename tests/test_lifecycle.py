@@ -3299,47 +3299,6 @@ class TestSyncAgent:
         assert "Syncing" in sync_events[0][1]
         assert "complete" in sync_events[-1][1].lower()
 
-    def test_workspace_only_skips_restart(self):
-        """workspace_only=True skips restart step."""
-        host = {
-            "hostname": "192.168.1.100",
-            "key_id": "test",
-            "agent_name": "xclm",
-            "port": 22,
-            "agents": {
-                "opc-work": {
-                    "type": "openclaw",
-                    "onboarding": {"state": "ready"},
-                    "config": {
-                        "gateway": {"port": 40000},
-                        "provider": {
-                            "name": "test",
-                            "type": "ollama",
-                            "endpoint": "http://localhost:11434",
-                            "default_model": "llama3",
-                        },
-                    },
-                }
-            },
-        }
-
-        with patch("clawrium.core.lifecycle.get_host", return_value=host):
-            with patch(
-                "clawrium.core.lifecycle.configure_agent",
-                return_value=(True, None),
-            ) as mock_configure:
-                with patch("clawrium.core.lifecycle.restart_agent") as mock_restart:
-                    result = sync_agent(
-                        "192.168.1.100", "openclaw", workspace_only=True
-                    )
-
-        assert result["success"] is True
-        assert result["operation"] == "sync"
-        # Configure should be called
-        mock_configure.assert_called_once()
-        # Restart should NOT be called
-        mock_restart.assert_not_called()
-
     def test_sync_registry_incoherence_surfaces_success_false(self):
         """B-NEW-2 (ATX #555 polish round 4): when post-configure
         `transition_state` raises `OnboardingNotFoundError` (registry

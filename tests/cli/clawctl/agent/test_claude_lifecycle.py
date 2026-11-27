@@ -164,15 +164,11 @@ def test_claude_sync_and_configure_render_global_settings_without_daemon(
     assert sync_kwargs.keys() == {
         "restart",
         "verify",
-        "push_workspace",
-        "workspace_only",
         "dry_run",
         "on_event",
     }
     assert sync_kwargs["restart"] is False
     assert sync_kwargs["verify"] is False
-    assert sync_kwargs["push_workspace"] is False
-    assert sync_kwargs["workspace_only"] is False
     assert sync_kwargs["dry_run"] is False
     assert callable(sync_kwargs["on_event"])
     assert len(configure_calls) == 1
@@ -195,15 +191,14 @@ def test_claude_sync_and_configure_render_global_settings_without_daemon(
 
 
 @pytest.mark.parametrize(
-    ("flag", "workspace_only", "dry_run"),
+    ("flag", "dry_run"),
     [
-        ("--workspace-only", True, False),
-        ("--dry-run", False, True),
-        ("--diff", False, True),
+        ("--dry-run", True),
+        ("--diff", True),
     ],
 )
 def test_claude_sync_nonstandard_modes_never_request_daemon_restart(
-    fleet_dir, monkeypatch, flag: str, workspace_only: bool, dry_run: bool
+    fleet_dir, monkeypatch, flag: str, dry_run: bool
 ) -> None:
     _add_claude_agent(fleet_dir)
     calls: list[dict] = []
@@ -226,11 +221,9 @@ def test_claude_sync_nonstandard_modes_never_request_daemon_restart(
 
     assert result.exit_code == 0
     assert len(calls) == 1
-    assert calls[0]["workspace_only"] is workspace_only
     assert calls[0]["dry_run"] is dry_run
     assert calls[0]["restart"] is False
     assert calls[0]["verify"] is False
-    assert calls[0]["push_workspace"] is False
 
 
 @pytest.mark.parametrize(
@@ -273,7 +266,6 @@ def test_claude_dry_run_and_diff_errors_do_not_report_success(
     assert calls[0]["dry_run"] is True
     assert calls[0]["restart"] is False
     assert calls[0]["verify"] is False
-    assert calls[0]["push_workspace"] is False
 
 
 @pytest.mark.parametrize("failure", ["returned error", "raised error"])

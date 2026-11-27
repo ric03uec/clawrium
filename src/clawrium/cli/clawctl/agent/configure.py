@@ -481,7 +481,7 @@ def configure(
                     raise
                 try:
                     result = sync_agent_canonical(
-                        name, restart=False, verify=False, push_workspace=False
+                        name, restart=False, verify=False
                     )
                 except CanonicalSyncError as exc:
                     result = None
