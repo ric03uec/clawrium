@@ -1,24 +1,5 @@
 const API_BASE = "/api";
 
-const UNSAFE_FORMATTING_RE = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u061c\u200b-\u200f\u2028-\u202e\u2060\u2066-\u2069\ufeff]/g;
-
-function sanitizeChatContent(msg: string): string {
-  return msg.replace(UNSAFE_FORMATTING_RE, " ");
-}
-
-/**
- * Remove terminal-control characters, common absolute server paths, and
- * credential-shaped values before an SSE error reaches the browser.
- */
-function sanitizeChatError(msg: string): string {
-  return sanitizeChatContent(msg)
-    .replace(/\b(bearer|basic|digest)\s+([^\s,;]+)/gi, "$1 ***")
-    .replace(/\b([A-Za-z0-9_]*(?:token|auth|password|key|bearer|secret|apikey|authorization)[A-Za-z0-9_]*)\s*[:=]\s*([^\s,;]+)/gi, "$1=***")
-    .replace(/\/(?:home\/[^\s/]+|Users\/[^\s/]+|tmp|root|etc|var|opt|srv|usr)(?:\/[^\s]*)?/g, "[path]")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
 async function request<T>(
   path: string,
   options?: RequestInit
@@ -199,74 +180,8 @@ export const api = {
     URL.revokeObjectURL(url);
   },
 
-  // Agent Memory
-  getMemoryFiles: (key: string) => request<MemoryInfo>(`/agents/${key}/memory`),
-  getMemoryFile: (key: string, filename: string) =>
-    request<MemoryFileContent>(`/agents/${key}/memory/${filename}`),
-  updateMemoryFile: (key: string, filename: string, content: string) =>
-    request<{ success: boolean }>(`/agents/${key}/memory/${filename}`, {
-      method: "PUT",
-      body: JSON.stringify({ content }),
-    }),
-
-  // Agent Chat
-  getChatInfo: (key: string) => request<ChatInfo>(`/agents/${key}/chat/info`),
-  sendChatMessage: async (
-    key: string,
-    message: string,
-    opts?: { session?: string; signal?: AbortSignal },
-  ): Promise<string> => {
-    const session = opts?.session ?? "main";
-    const res = await fetch(`${API_BASE}/agents/${key}/chat`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message, session }),
-      signal: opts?.signal,
-    });
-    if (!res.ok) throw new Error(`Chat error: ${res.status}`);
-
-    const reader = res.body?.getReader();
-    if (!reader) throw new Error("No response body");
-
-    const decoder = new TextDecoder();
-    let fullText = "";
-    let buf = "";
-
-    const processLine = (line: string) => {
-      if (!line.startsWith("data: ") || line === "data: [DONE]") return;
-      try {
-        const data = JSON.parse(line.slice(6));
-        if (data.type === "content" && typeof data.text === "string") {
-          // Assistant content may legitimately contain paths, so only strip
-          // formatting controls here; path/credential redaction is for errors.
-          fullText = sanitizeChatContent(data.text);
-        }
-        if (data.type === "error") {
-          const message = typeof data.message === "string" ? data.message : "Chat failed";
-          throw new Error(sanitizeChatError(message));
-        }
-      } catch (e) {
-        if (e instanceof SyntaxError) return;
-        throw e;
-      }
-    };
-
-    try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buf += decoder.decode(value, { stream: true });
-        const parts = buf.split(/\r?\n/);
-        buf = parts.pop() ?? ""; // keep trailing partial in buf
-        parts.forEach(processLine);
-      }
-      buf += decoder.decode();
-      if (buf) processLine(buf.replace(/\r$/, ""));
-      return fullText;
-    } finally {
-      await reader.cancel().catch(() => undefined);
-    }
-  },
+  // #1071 phase 6 removed the agent chat / memory / exec API helpers.
+  // Operators SSH to the host for interactive sessions.
 
   // Agent Logs
   getAgentLogs: (key: string, lines = 100) =>
@@ -294,9 +209,6 @@ import type {
   AgentUsage,
   Settings,
   VersionInfo,
-  MemoryInfo,
-  MemoryFileContent,
-  ChatInfo,
   LogsResponse,
   Integration,
   IntegrationDetail,

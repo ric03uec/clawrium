@@ -3,8 +3,5 @@ export { AgentMetrics } from "./agent-metrics";
 export { TabNav } from "./tab-nav";
 export type { TabId } from "./tab-nav";
 export { OverviewTab } from "./overview-tab";
-export { ChatTab } from "./chat-tab";
-export { ExecTab } from "./exec-tab";
 export { ConfigTab } from "./config-tab";
-export { MemoryTab } from "./memory-tab";
 export { LogsTab } from "./logs-tab";

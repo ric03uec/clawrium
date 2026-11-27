@@ -349,37 +349,9 @@ export interface VersionInfo {
   arch: string;
 }
 
-// Memory types
-export interface MemoryInfo {
-  supported: boolean;
-  workspace_path: string;
-  files: MemoryFile[];
-  error?: string;
-}
-
-export interface MemoryFile {
-  name: string;
-  exists: boolean;
-  size_bytes: number;
-  relative_path: string;
-}
-
-export interface MemoryFileContent {
-  filename: string;
-  content: string;
-}
-
-// Chat types
-export interface ChatInfo {
-  supported: boolean;
-  type: string | null;
-}
-
-export interface ChatMessage {
-  role: "user" | "assistant";
-  content: string;
-  timestamp: number;
-}
+// #1071 phase 6: `MemoryInfo`, `MemoryFile`, `MemoryFileContent`,
+// `ChatInfo`, and `ChatMessage` types removed with the chat / memory
+// subsystems.
 
 // Logs types
 export interface LogEntry {
