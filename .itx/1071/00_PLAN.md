@@ -8,15 +8,39 @@ End-to-end deletion milestone that follows the #1072 skills-removal pattern. One
 
 ## Scope summary
 
+**Scope correction notes** (2026-11-27 iteration):
+- NemoClaw is openclaw's upstream runtime sandbox substrate, not a
+  peer-level agent surface. Only the **operator-facing** doctor-probe
+  surface is removed. Phase 4 renames `core/nemoclaw.py` →
+  `core/openclaw_sandbox.py` and strips the doctor-probe-only
+  constants, keeping the provider mapping, sandbox name validation,
+  and CLI builders that openclaw install + lifecycle depend on. The
+  `install_nemoclaw*.yaml`, `nemoclaw_onboard.yaml`,
+  `nemoclaw_status.yaml`, the `runtime.nemoclaw` block in the
+  openclaw manifest, and `_openclaw_nemoclaw_onboard` in
+  `lifecycle_canonical.py` all stay — removing them would break
+  openclaw at runtime.
+- `clawctl delete -f` stays; only `apply` + `diff` are removed from
+  the declarative-fleet surface.
+
 | Area | Delete | Edit |
 |---|---|---|
-| CLI | `cli/clawctl/agent/{chat,memory,exec,audit,secret}.py`, `cli/clawctl/{apply,diff,audit}.py`, `cli/clawctl/doctor/nemoclaw.py` | `cli/clawctl/agent/__init__.py`, `cli/clawctl/__init__.py`, `cli/clawctl/agent/{open,port_forward,configure}.py` (gate + drop stages), `cli/clawctl/doctor/__init__.py` |
-| Core | `core/chat*.py` (all), `core/memory.py`, `core/agent_exec.py`, `core/workspace_sync.py`, `core/nemoclaw.py` | `core/lifecycle.py`, `core/lifecycle_canonical.py`, `core/install.py`, `core/secrets.py` (keep provider/integration paths), `core/web_ui.py`, `core/web_ui_tunnel.py`, `core/registry.py`, `core/manifest/{schema,parser,differ,state}.py` |
-| GUI | Chat/Exec/Memory tab components, sidebar Scheduled Jobs + Agent Builder stubs | `gui/routes/agents.py` (drop chat/exec/memory handlers; add chat-moved help screen), `gui/routes/__init__.py`, Next.js shell under `gui/` (tab nav, sidebar, page routes) |
-| Registry | per-agent `playbooks/{workspace,workspace_macos,exec,exec_macos,memory_*}.yaml`, hermes `filter_plugins/`, openclaw `install_nemoclaw*.yaml` + `nemoclaw_*.yaml`, `playbooks/filter_plugins/` under zeroclaw/hermes | per-agent `manifest.yaml` (drop `features.workspace_overlay`; openclaw drops nemoclaw role from manifest) |
+| CLI | `cli/clawctl/agent/{chat,memory,exec,audit,secret}.py`, `cli/clawctl/{apply,diff,audit}.py`, `cli/clawctl/doctor/nemoclaw.py`, `cli/clawctl/doctor/__init__.py` | `cli/clawctl/agent/__init__.py`, `cli/clawctl/__init__.py`, `cli/clawctl/agent/{open,port_forward,configure}.py` (gate + drop stages) |
+| Core | `core/chat*.py` (all per-agent), `core/memory.py`, `core/agent_exec.py`, `core/workspace_sync.py`, `core/nemoclaw.py` (contents move to `core/openclaw_sandbox.py` minus doctor-probe constants) | `core/chat.py` (trim to OpenClaw gateway WebSocket client only), `core/lifecycle.py`, `core/lifecycle_canonical.py`, `core/install.py`, `core/secrets.py` (keep provider/integration instance-scoped paths; drop global-namespace helpers), `core/web_ui.py`, `core/web_ui_tunnel.py`, `core/registry.py`, `core/manifest/{schema,parser,differ,state}.py` |
+| GUI | Chat/Exec/Memory tab components, sidebar Scheduled Jobs + Agent Builder stubs | `gui/routes/agents.py` (drop chat/exec/memory handlers; keep logs + openclaw cred resolver), `gui/routes/__init__.py`, Next.js shell under `gui/` (tab nav, sidebar, page routes) |
+| Registry | per-agent `playbooks/{workspace,workspace_macos,exec,exec_macos,memory_*}.yaml`, hermes `filter_plugins/` | per-agent `manifest.yaml` (drop `features.workspace_overlay`) |
 | Docs | `docs/agent-support/memory.md` | `README.md`, `docs/agent-onboarding.md`, `docs/index.md`, `docs/agent-support/channels/cli.md`, per-agent docs, `CHANGELOG.md` |
-| Tests | all `test_chat_*`, `test_core_memory`, `test_agent_exec`, `test_workspace_sync`, nemoclaw tests, exec-related manifest tests | `tests/cli/clawctl/agent/test_{open,port_forward}.py` (new gating assertions), registry/manifest tests |
+| Tests | all `test_chat_*`, `test_core_memory`, `test_agent_exec`, `test_workspace_sync`, exec-related manifest tests (tests of the `NemoclawCommand` builder + pin lockstep stay, just rewired to `core.openclaw_sandbox`) | `tests/cli/clawctl/agent/test_{open,port_forward}.py` (new gating assertions), registry/manifest tests |
 | Pyproject | — | `pyproject.toml` (drop wheel force-includes for removed trees) |
+
+**Openclaw NemoClaw infrastructure explicitly kept** (ATX round-4 W1):
+- `src/clawrium/platform/registry/openclaw/playbooks/install_nemoclaw.yaml`
+- `src/clawrium/platform/registry/openclaw/playbooks/install_nemoclaw_macos.yaml`
+- `src/clawrium/platform/registry/openclaw/playbooks/nemoclaw_onboard.yaml`
+- `src/clawrium/platform/registry/openclaw/playbooks/nemoclaw_status.yaml`
+- `runtime.nemoclaw` block in `src/clawrium/platform/registry/openclaw/manifest.yaml`
+- `_openclaw_nemoclaw_onboard` in `src/clawrium/core/lifecycle_canonical.py`
+- Every `_openclaw_nemoclaw_*` playbook-driver helper
 
 ## Execution phases (same PR)
 
