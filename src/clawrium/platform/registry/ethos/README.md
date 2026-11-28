@@ -12,12 +12,9 @@ ethos/
 │   ├── configure.yaml           # Phase 2: render .env + config.yaml + enable+start unit
 │   ├── start.yaml               # Start (and re-render unit for upgrade safety)
 │   ├── stop.yaml                # Stop + disable unit; preserves ~/.ethos/
-│   ├── remove.yaml              # Full teardown: unit, ~/.ethos/, npm pkg, agent user
-│   ├── exec.yaml                # Passthrough: run ethos CLI as agent user
-│   ├── memory_info.yaml         # Stat MEMORY.md / USER.md / SOUL.md
-│   ├── memory_read.yaml         # Read a memory file
-│   ├── memory_write.yaml        # Overwrite a memory file
-│   └── memory_delete.yaml       # Delete a memory file
+│   └── remove.yaml              # Full teardown: unit, ~/.ethos/, npm pkg, agent user
+# #1071 phase 5 removed `exec.yaml` + `memory_{info,read,write,delete}.yaml`
+# — memory files are host-managed; SSH to the agent for ad-hoc CLI work.
 └── templates/
     ├── ethos.env.j2             # ~/.ethos/.env (provider key + gateway key + channels)
     ├── ethos-config.yaml.j2     # ~/.ethos/config.yaml (provider, model, personality)
