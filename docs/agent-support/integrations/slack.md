@@ -88,12 +88,13 @@ The attach step gates by agent-type: only agent types whose renderer supports th
 clawctl agent sync my-hermes
 ```
 
-`sync` renders the on-host config (`~/.hermes/config.yaml` on hermes, `~/.openclaw/openclaw.json` on openclaw, `~/.zeroclaw/config.toml` on zeroclaw), installs the `slack-mcp-server` binary at the pinned version + SHA256 to `/home/<agent-name>/.local/bin/slack-mcp-server` (Linux) / `/Users/<agent-name>/.local/bin/slack-mcp-server` (macOS), and restarts the daemon. On zeroclaw the sync also rotates the gateway bearer as part of the standard sync path — remote `clawctl agent chat` sessions will need to reconnect.
+`sync` renders the on-host config (`~/.hermes/config.yaml` on hermes, `~/.openclaw/openclaw.json` on openclaw, `~/.zeroclaw/config.toml` on zeroclaw), installs the `slack-mcp-server` binary at the pinned version + SHA256 to `/home/<agent-name>/.local/bin/slack-mcp-server` (Linux) / `/Users/<agent-name>/.local/bin/slack-mcp-server` (macOS), and restarts the daemon. On zeroclaw the sync also rotates the gateway bearer as part of the standard sync path — any lingering client holding the old gateway bearer will need to reconnect.
 
 ### 5. Verify
 
 ```bash
-clawctl agent chat my-hermes
+# `clawctl agent chat` was removed in #1071 — SSH to the agent host
+# and invoke hermes against the local API at http://localhost:8642/v1
 > list all the slack channels I have access to
 > summarise the last 20 messages in #eng-general
 ```
@@ -319,9 +320,9 @@ The upstream `korotovsky/slack-mcp-server` project does not publish an armv7 ass
 </details>
 
 <details>
-<summary><strong>Zeroclaw: <code>clawctl agent chat</code> starts returning 401 right after sync</strong></summary>
+<summary><strong>Zeroclaw: GUI / port-forward clients start returning 401 right after sync</strong></summary>
 
-`clawctl agent sync` on zeroclaw rotates the gateway bearer as part of the standard sync path (issue #437). Remote `clawctl agent chat` sessions (running on a different machine than the one that ran the sync) get a clean 401 on their next request and must reconnect. Local `clawctl agent chat` reconnects transparently. This is unrelated to the Slack integration itself — same behavior applies to every zeroclaw sync.
+`clawctl agent sync` on zeroclaw rotates the gateway bearer as part of the standard sync path (issue #437). Any lingering client holding the old gateway bearer (GUI web UI, port-forward, third-party SDK) gets a clean 401 on its next request and must reconnect. This is unrelated to the Slack integration itself — same behavior applies to every zeroclaw sync.
 
 </details>
 

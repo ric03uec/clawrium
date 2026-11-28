@@ -317,8 +317,7 @@ def test_legacy_sync_routes_codex_to_canonical_activation(monkeypatch):
     assert result["success"] is True
     assert calls == [{
         "args": ("codex-agent",), "agent_key": "codex-agent", "restart": False,
-        "verify": False, "push_workspace": False, "workspace_only": False,
-        "on_event": None,
+        "verify": False, "on_event": None,
     }]
 
 
@@ -428,7 +427,7 @@ def test_canonical_sync_routes_codex_to_refresh_safe_activation(
 
     monkeypatch.setattr(lifecycle, "_configure_codex_credentials", activate)
     result = lifecycle_canonical.sync_agent_canonical(
-        "codex-agent", restart=False, verify=False, push_workspace=False
+        "codex-agent", restart=False, verify=False
     )
     assert result.success is True
     assert result.files_written == (".codex/auth.json",)
@@ -438,10 +437,11 @@ def test_canonical_sync_routes_codex_to_refresh_safe_activation(
     }]
 
 
-@pytest.mark.parametrize("flag", ["workspace_only", "dry_run"])
-def test_canonical_sync_codex_safe_modes_skip_private_activation(
-    isolated_config: Path, monkeypatch, flag: str
+def test_canonical_sync_codex_dry_run_skips_private_activation(
+    isolated_config: Path, monkeypatch
 ):
+    """`--dry-run` is the only remaining codex sync safe mode after
+    #1071 phase 3b removed `--workspace-only`."""
     _seed(isolated_config)
     host = {"hostname": "codex-host", "key_id": "codex-key"}
     record = {"type": "codex", "agent_name": "codex-agent", "config": {}}
@@ -454,8 +454,7 @@ def test_canonical_sync_codex_safe_modes_skip_private_activation(
         lambda **_kwargs: pytest.fail("private activation must not run"),
     )
     result = lifecycle_canonical.sync_agent_canonical(
-        "codex-agent", restart=False, verify=False, push_workspace=False,
-        **{flag: True},
+        "codex-agent", restart=False, verify=False, dry_run=True,
     )
     assert result.success is True
     assert result.files_written == ()

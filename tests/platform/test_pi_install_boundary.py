@@ -5,7 +5,6 @@ from pathlib import Path
 import subprocess
 
 import yaml
-from clawrium.core.agent_exec import SUPPORTED_CLAW_TYPES
 from clawrium.core.agent_lifecycle import has_daemon_lifecycle
 from clawrium.core.registry import list_claws, load_manifest
 
@@ -33,9 +32,7 @@ def task(tasks, name):
 def test_pi_registry_is_daemonless_and_pinned():
     m = load_manifest("pi")
     assert "pi" in list_claws() and not has_daemon_lifecycle("pi")
-    assert "pi" in SUPPORTED_CLAW_TYPES and {p["version"] for p in m["platforms"]} == {
-        PIN
-    }
+    assert {p["version"] for p in m["platforms"]} == {PIN}
 
 
 def test_pi_install_contract_is_isolated_and_idempotent_on_both_os():
@@ -234,7 +231,9 @@ def test_macos_intent_recovers_or_removes_interrupted_dscl_account() -> None:
     assert "pi_account_home" in checks and "pi_account_comment" in checks
 
 
-def test_pi_remove_and_exec_are_scoped_to_dedicated_account_on_both_os():
+def test_pi_remove_is_scoped_to_dedicated_account_on_both_os():
+    # #1071 phase 5 removed the `exec.yaml` + `exec_macos.yaml` arm
+    # of this contract. Remove-side scoping is still enforced.
     for name, home in (
         ("remove.yaml", "/home/{{ agent_name }}"),
         ("remove_macos.yaml", "/Users/{{ agent_name }}"),
@@ -250,31 +249,3 @@ def test_pi_remove_and_exec_are_scoped_to_dedicated_account_on_both_os():
         # Managed deletion is constrained to the agent home; project-level .pi is absent.
         rendered = yaml.safe_dump(tasks)
         assert "state: absent" in rendered and ".pi" not in rendered
-    for name, home in (
-        ("exec.yaml", "/home/{{ agent_name }}"),
-        ("exec_macos.yaml", "/Users/{{ agent_name }}"),
-    ):
-        p = playbook(name)
-        if name.endswith("_macos.yaml"):
-            assert task(p["tasks"], "Refuse non-Darwin dispatcher target")["when"] == (
-                'ansible_os_family is defined and ansible_os_family != "Darwin"'
-            )
-        assert task(p["tasks"], "Validate Pi exec argv and timeout")[
-            "ansible.builtin.fail"
-        ]
-        assert task(p["tasks"], "Reject untrusted Pi execution target")[
-            "ansible.builtin.assert"
-        ]
-        binding = task(p["tasks"], "Verify Pi execution ownership binding")[
-            "ansible.builtin.assert"
-        ]
-        assert "transaction_id" in str(binding) and "home" in str(binding)
-        exec_task = task(p["tasks"], "Run encrypted Pi native command")
-        t = exec_task["ansible.builtin.command"]
-        assert p["vars"]["pi_binary"] == "{{ pi_home }}/.local/pi/bin/pi"
-        assert "pi_exec_capture_bootstrap" in t["argv"]
-        assert "pi_exec_recipient_certificate" in t["argv"]
-        assert "pi_exec_timeout_wrapper" in t["argv"]
-        assert "pi_exec_timeout | string" in t["argv"]
-        assert exec_task["become_user"] == "{{ agent_name }}"
-        assert exec_task["no_log"] is True

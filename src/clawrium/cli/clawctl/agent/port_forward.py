@@ -21,6 +21,7 @@ import typer
 
 from clawrium.cli.clawctl.agent._shared import safe_resolve_agent
 from clawrium.cli.output import emit_error, stream_action
+from clawrium.core.web_ui import DAEMONLESS_AGENT_TYPES
 
 
 def port_forward(
@@ -29,10 +30,15 @@ def port_forward(
 ) -> None:
     """Forward a local port to the agent host."""
     _host, agent_type, _record = safe_resolve_agent(name)
-    if agent_type == "pi":
+    # #1071: Claude Code, Codex, and Pi are daemonless install-only
+    # agents — nothing is listening on the remote to forward. Refuse
+    # before the tunnel manager spins up.
+    if agent_type in DAEMONLESS_AGENT_TYPES:
         emit_error(
-            "Pi has no native listener to port-forward",
-            hint="Use 'clawctl agent exec <name> -- <pi args>' instead.",
+            f"{agent_type} is a daemonless install-only agent and has no "
+            "listener to port-forward",
+            hint="SSH to the agent host directly",
+            exit_code=2,
         )
     local_port, remote_port = _parse_spec(spec)
 

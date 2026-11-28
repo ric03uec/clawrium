@@ -472,10 +472,10 @@ class CanonicalSyncResult:
     files_unchanged: tuple[str, ...]
     diffs: tuple[FileDiff, ...]
     error: str | None = None
-    # Issue #760: per-sync workspace overlay phase counters. Always
-    # populated (empty tuples when the agent type has no
-    # `features.workspace_overlay` block, or in failure paths that
-    # short-circuit before the phase runs).
+    # Issue #1071 phase 3b: the workspace overlay phase is gone. These
+    # fields stay on the dataclass as always-empty tuples so legacy
+    # callers (tests, downstream wrappers) that still reference them
+    # keep working; the next clean-up pass can drop them entirely.
     workspace_files_pushed: tuple[str, ...] = ()
     workspace_files_excluded: tuple[str, ...] = ()
 
@@ -1272,7 +1272,6 @@ def _sync_pi_openrouter(
     agent_name: str,
     host: dict,
     claw_record: dict,
-    workspace_only: bool,
     dry_run: bool,
     on_event: Callable[[str, str], None] | None,
 ) -> CanonicalSyncResult:
@@ -1332,8 +1331,6 @@ def _sync_pi_openrouter(
             "Pi Codex credential recovery is pending; run `clawctl agent provider "
             "login <provider> --agent <name>` to complete native OAuth before syncing"
         )
-    if workspace_only:
-        return CanonicalSyncResult(True, agent_name, hostname, (), (), ())
     if dry_run:
         # Validate access without showing secret-bearing file contents.
         return CanonicalSyncResult(
@@ -1414,7 +1411,6 @@ def _sync_claude_settings(
     agent_name: str,
     host: dict,
     claw_record: dict,
-    workspace_only: bool,
     dry_run: bool,
     on_event: Callable[[str, str], None] | None,
 ) -> CanonicalSyncResult:
@@ -1443,21 +1439,6 @@ def _sync_claude_settings(
         rendered = render_claude_native_files(settings)
     except AgentConfigError as exc:
         raise CanonicalSyncError(f"Claude settings render failed: {exc}") from exc
-
-    if workspace_only:
-        if on_event is not None:
-            on_event(
-                "sync",
-                "Claude has no workspace overlay; workspace-only sync skipped settings",
-            )
-        return CanonicalSyncResult(
-            success=True,
-            agent=agent_name,
-            host=hostname,
-            files_written=(),
-            files_unchanged=(),
-            diffs=(),
-        )
 
     # Resolve exactly once before diff_files opens SSH. This makes dry-run
     # reject a bad credential without remote I/O and prevents a concurrent
@@ -2869,10 +2850,29 @@ def _openclaw_nemoclaw_onboard(
     if not isinstance(agent_record, dict):
         # Unit tests and a few defensive call sites pass a minimized host
         # record alongside the already-resolved claw_record. Production
-        # hosts.json records contain the agent under host["agents"].
+        # hosts.json records contain the agent under host["agents"]; a
+        # real openclaw sync that reaches this path with no agent record
+        # would be a bug the installer closes before sync runs. Log at
+        # WARNING so an unexpected miss on a production host surfaces
+        # (ATX #1071 round-5 W3/W7).
+        logger.warning(
+            "_openclaw_nemoclaw_onboard: agent record missing for %r on "
+            "host %r — skipping onboard. If this was NOT called from a "
+            "minimized-host-record test, inspect `hosts.json`: a real "
+            "openclaw sync should never reach this branch.",
+            agent_name,
+            hostname,
+        )
         return
     config = agent_record.get("config") or {}
     if not isinstance(config, dict):
+        logger.warning(
+            "_openclaw_nemoclaw_onboard: agent %r on %r has non-dict "
+            "`config` field; skipping onboard. Inspect `hosts.json` — "
+            "the record is likely corrupt.",
+            agent_name,
+            hostname,
+        )
         return
     runtime = config.get("runtime")
     runtime_norm = str(runtime or "").strip().lower()
@@ -2942,8 +2942,6 @@ def sync_agent_canonical(
     force: bool = False,
     restart: bool = True,
     verify: bool = True,
-    push_workspace: bool = True,
-    workspace_only: bool = False,
     dry_run: bool = False,
     on_event: Callable[[str, str], None] | None = None,
 ) -> CanonicalSyncResult:
@@ -3032,16 +3030,10 @@ def sync_agent_canonical(
                         agent_name=agent_name,
                         host=fresh_host,
                         claw_record=fresh_record,
-                        workspace_only=workspace_only,
                         dry_run=dry_run,
                         on_event=on_event,
                     )
             if agent_type == "codex":
-                if workspace_only:
-                    return CanonicalSyncResult(
-                        success=True, agent=agent_name, host=hostname,
-                        files_written=(), files_unchanged=(), diffs=(),
-                    )
                 if dry_run:
                     # Never inspect or expose the private native auth document
                     # in a canonical diff.
@@ -3067,7 +3059,6 @@ def sync_agent_canonical(
                     agent_name=agent_name,
                     host=host,
                     claw_record=_claw_record,
-                    workspace_only=workspace_only,
                     dry_run=dry_run,
                     on_event=on_event,
                 )
@@ -3201,13 +3192,8 @@ def sync_agent_canonical(
             f"or `clawctl agent doctor {agent_name}` for diagnosis."
         )
 
-    # Issue #760 §1.4 `--workspace-only` short-circuit. Skip canonical
-    # render / diff / write / restart / verify entirely; push the
-    # operator overlay and (for zeroclaw, in later phases) rotate the
-    # bearer. State transition is intentionally NOT executed
-    # (W5 iter-3): workspace-only preserves the current lifecycle
-    # position so an operator may overlay onto a STOPPED agent without
-    # silently flipping it to READY.
+    # Per-agent SSH identity provisioning runs before any host write so
+    # the identity exists for downstream render / restart calls.
     if not dry_run:
         try:
             from clawrium.core.agent_ssh_keys import ensure_agent_ssh_identity
@@ -3217,121 +3203,6 @@ def sync_agent_canonical(
             raise CanonicalSyncError(
                 f"agent SSH identity provisioning failed: {exc}"
             ) from exc
-
-    if workspace_only:
-        from clawrium.core.workspace_sync import push_workspace_phase
-
-        def _ws_event(stage: str, payload: dict) -> None:
-            if on_event is None:
-                return
-            import json as _json
-
-            on_event(stage, _json.dumps(payload))
-
-        ws_result = push_workspace_phase(
-            host=host,
-            agent_type=inputs.agent_type,
-            agent_name=agent_name,
-            on_event=_ws_event,
-            dry_run=dry_run,
-        )
-        if not ws_result.success:
-            # ATX iter-2 B1-NEW: raise rather than return
-            # `CanonicalSyncResult(success=False)`. The CLI only catches
-            # raised exceptions — returning a falsy result falls through
-            # to `synced (drift=0)` with exit 0, violating the AGENTS.md
-            # short-circuit contract. Symmetric with the in-loop path
-            # below.
-            raise CanonicalSyncError(
-                f"workspace overlay push failed for {agent_name!r}: {ws_result.error}"
-            )
-
-        # Issue #760 Phase 2 (#768) — bearer rotation invariant.
-        # AGENTS.md "Gateway Token Lifecycle (zeroclaw)" is explicit:
-        # `configure` / `sync` / `restart` MUST mint a fresh bearer and
-        # overwrite `hosts.json.gateway.auth` on every call. There is no
-        # idempotent-skip path; an out-of-sync `auth` field is the bug
-        # we are guarding against (#437). `--workspace-only` is just
-        # another sync entry point and is bound by the same contract.
-        #
-        # Dry-run gate (W6 iter-3): when the CLI passes `dry_run=True`
-        # we MUST NOT mint a bearer or emit `gateway_token_rotated` —
-        # the operator asked for an inspection, not a rotation. The CLI
-        # short-circuits before reaching this branch today (an early
-        # return at sync.py:396), but the gate here is defense-in-depth
-        # against any future programmatic caller that passes `dry_run`
-        # alongside `workspace_only`.
-        if inputs.agent_type == "zeroclaw" and not dry_run:
-            from clawrium.core.lifecycle import _zeroclaw_repair_after_start
-
-            emit(
-                "repair",
-                f"re-pairing zeroclaw gateway for {agent_name} (workspace-only sync)",
-            )
-            # iter-1 lifecycle-core S5: pass a distinct `reason` so
-            # post-mortem analysis can grep `gateway_token_rotated`
-            # events by entry point (workspace-only-sync vs default
-            # sync vs restart).
-            repair_ok, repair_err = _zeroclaw_repair_after_start(
-                hostname,
-                agent_name=agent_name,
-                on_event=on_event,
-                reason="workspace-only-sync",
-            )
-            if not repair_ok:
-                # Workspace push already landed on host; the daemon
-                # state is intact and the only fallout is that
-                # `hosts.json.gateway.auth` may now lag behind whatever
-                # bearer the daemon will enforce on the next request.
-                # That's the W11 stale-bearer case — surface it as a
-                # structured event before raising so the operator has a
-                # diagnostic instead of a silent 401 storm on the next
-                # `clawctl agent chat`.
-                if on_event is not None:
-                    import json as _json
-
-                    on_event(
-                        "gateway_auth_stale",
-                        _json.dumps(
-                            {
-                                "agent_key": agent_name,
-                                "reason": "workspace-only re-pair failed",
-                                "detail": repair_err or "",
-                            }
-                        ),
-                    )
-                # iter-1 lifecycle-core W2: tightened remediation — a
-                # deterministic pair failure (port-bind issue, dead
-                # daemon) will repeat on a plain sync. `restart` first
-                # is more likely to recover; `doctor` is the fallback
-                # diagnostic.
-                raise CanonicalSyncError(
-                    f"workspace-only sync wrote overlay for {agent_name!r} "
-                    f"but the gateway re-pair failed: {repair_err}. "
-                    f"`clawctl agent chat` will return 401 until the "
-                    f"bearer rotates. Run `clawctl agent restart "
-                    f"{agent_name}` to recover; if that fails, "
-                    f"`clawctl agent doctor {agent_name}` for "
-                    f"diagnosis."
-                )
-
-        emit(
-            "sync",
-            f"workspace-only sync of {agent_name}: "
-            f"{len(ws_result.files_pushed)} pushed, "
-            f"{len(ws_result.files_excluded)} excluded",
-        )
-        return CanonicalSyncResult(
-            success=True,
-            agent=agent_name,
-            host=hostname,
-            files_written=(),
-            files_unchanged=(),
-            diffs=(),
-            error=None,
-            workspace_files_pushed=ws_result.files_pushed,
-            workspace_files_excluded=ws_result.files_excluded,
-        )
 
     emit("render", f"rendering canonical config for {inputs.agent_type}")
     # #835 (ATX iter-1 W1 → iter-2 W1 tightened): thread os_family into
@@ -3349,8 +3220,8 @@ def sync_agent_canonical(
     # #910: preserve zeroclaw `[onboard_state].completed_sections` across
     # re-render. The template used to hardcode `= []`, so every sync
     # wiped the daemon's live onboarding-completion state and forced it
-    # back into pre-onboard mode — `clawctl agent chat` then failed with
-    # a `Quickstart` protocol error on the next request. Read the
+    # back into pre-onboard mode — the next GUI / integration request
+    # then failed with a `Quickstart` protocol error. Read the
     # on-host config here (outside the renderer, which by contract stays
     # pure — see render.py docstring line ~12) and thread the field
     # into the render inputs so the re-render preserves whatever
@@ -3615,40 +3486,13 @@ def sync_agent_canonical(
             )
             files_written.append(d.path)
 
-        # Issue #760 §1.4 phase 3: push operator workspace overlay.
-        # Runs between the canonical write loop and restart so the
-        # daemon picks up both canonical config drift AND operator
-        # overlay drift in a single restart. Failure here MUST
-        # short-circuit before restart (W2 iter-1, I8 frozen-enum
-        # payload check) — restarting on a half-applied overlay is the
-        # regression class iter-2 protected.
+        # Issue #1071 phase 3b: the workspace overlay push used to live
+        # between the canonical write loop and restart. Removing it
+        # means the daemon restart now picks up only the canonical
+        # rendered config. Legacy tuple fields on CanonicalSyncResult
+        # stay empty for backward compat.
         workspace_files_pushed_t: tuple[str, ...] = ()
         workspace_files_excluded_t: tuple[str, ...] = ()
-        if push_workspace:
-            from clawrium.core.workspace_sync import push_workspace_phase
-
-            def _ws_event(stage: str, payload: dict) -> None:
-                if on_event is None:
-                    return
-                import json as _json
-
-                on_event(stage, _json.dumps(payload))
-
-            ws_result = push_workspace_phase(
-                host=host,
-                agent_type=inputs.agent_type,
-                agent_name=agent_name,
-                on_event=_ws_event,
-                dry_run=dry_run,
-            )
-            workspace_files_pushed_t = ws_result.files_pushed
-            workspace_files_excluded_t = ws_result.files_excluded
-            if not ws_result.success:
-                raise CanonicalSyncError(
-                    f"workspace overlay push failed for {agent_name!r}: "
-                    f"{ws_result.error}. Skipping restart to avoid "
-                    f"flapping the unit on a half-applied overlay."
-                )
 
         # Restart policy:
         #
@@ -3752,7 +3596,7 @@ def sync_agent_canonical(
             # bearer the daemon enforces on the next request — surface
             # the divergence as a structured NDJSON event before
             # raising so operators get a starting point instead of
-            # chasing silent 401s on the next `clawctl agent chat`.
+            # chasing silent 401s on the next GUI / port-forward hit.
             # (iter-1 lifecycle-core W1: corrected from the misleading
             # "restart + verify succeeded above" wording.)
             if on_event is not None:
@@ -3780,7 +3624,8 @@ def sync_agent_canonical(
                 preamble = f"sync of {agent_name!r} (restart skipped)"
             raise CanonicalSyncError(
                 f"{preamble} but the gateway re-pair failed: "
-                f"{repair_err}. `clawctl agent chat` will return 401 "
+                f"{repair_err}. Any client using the on-disk bearer "
+                f"(GUI web UI, port-forward, SDK) will get a 401 "
                 f"until the bearer rotates. Run `clawctl agent restart "
                 f"{agent_name}` to recover; if that fails, "
                 f"`clawctl agent doctor {agent_name}` for diagnosis."

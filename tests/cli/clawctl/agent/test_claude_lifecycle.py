@@ -44,34 +44,22 @@ def test_claude_is_visible_in_get_and_describe(fleet_dir) -> None:
     assert "claude" in detail.output.lower()
 
 
-def test_claude_open_remains_manifest_capability_unavailable(fleet_dir) -> None:
+def test_claude_open_rejected_as_daemonless(fleet_dir) -> None:
+    """#1071: Claude Code is daemonless — `agent open` refuses before resolver."""
     _add_claude_agent(fleet_dir)
 
     result = runner.invoke(app, ["agent", "open", "claude-code", "--print-url"])
 
     assert result.exit_code != 0
-    assert "no web ui" in result.output.lower()
+    assert "daemonless install-only agent" in result.output
+    assert "SSH to the agent host" in result.output
 
 
-def test_claude_help_and_exec_use_the_native_dedicated_binary(
-    fleet_dir, monkeypatch
-) -> None:
+def test_claude_help_lists_expected_lifecycle_verbs(fleet_dir) -> None:
     _add_claude_agent(fleet_dir)
-    calls: list[dict] = []
-
-    def _native_exec(**kwargs):
-        calls.append(kwargs)
-        return "2.1.100\n", "", 0
-
-    monkeypatch.setattr("clawrium.cli.clawctl.agent.exec.run_agent_exec", _native_exec)
-
     help_result = runner.invoke(app, ["agent", "--help"])
     create_help_result = runner.invoke(app, ["agent", "create", "--help"])
     shell_help_result = runner.invoke(app, ["agent", "shell", "--help"])
-    exec_help_result = runner.invoke(app, ["agent", "exec", "--help"])
-    exec_result = runner.invoke(
-        app, ["agent", "exec", "claude-code", "--", "--version"]
-    )
 
     assert help_result.exit_code == 0
     normalized_help = " ".join(help_result.output.split())
@@ -81,34 +69,23 @@ def test_claude_help_and_exec_use_the_native_dedicated_binary(
         "stop Stop daemon agent (not CLI-only agents).",
         "restart Restart daemon agent (not CLI-only agents).",
         "logs Stream agent logs (not CLI-only agents).",
-        "chat Chat with a chat-enabled agent.",
-        "open Open native UI (not available for CLI-only agents).",
+        "open Open native UI (OpenClaw / Hermes / ZeroClaw only).",
     ):
         assert text in normalized_help
+    # `chat` and `exec` were removed in #1071 — operators SSH to the host
+    # for one-off commands; `shell` still wraps the SSH session.
+    assert "chat " not in normalized_help
+    assert " exec " not in normalized_help
     assert create_help_result.exit_code == 0
     assert shell_help_result.exit_code == 0
-    assert exec_help_result.exit_code == 0
     assert (
         "Agent type (e.g., openclaw, zeroclaw, hermes, claude, codex, pi; Claude, Codex, and Pi are install-only)."
         in " ".join(create_help_result.output.split())
     )
-    assert "Execute a native CLI command on the agent host." in " ".join(
-        exec_help_result.output.split()
-    )
     assert (
-        "For daemonless Claude Code agents, structured native arguments use"
+        "For daemonless Claude Code agents, this shell path is the single"
         in " ".join(shell_help_result.output.split())
     )
-    assert exec_result.exit_code == 0, exec_result.output
-    assert exec_result.output == "2.1.100\n"
-    assert calls == [
-        {
-            "hostname": "10.0.0.1",
-            "agent_name": "claude-code",
-            "claw_type": "claude",
-            "cmd_argv": ["--version"],
-        }
-    ]
 
 
 @pytest.mark.parametrize("verb", ["start", "stop", "restart", "logs"])
@@ -187,15 +164,11 @@ def test_claude_sync_and_configure_render_global_settings_without_daemon(
     assert sync_kwargs.keys() == {
         "restart",
         "verify",
-        "push_workspace",
-        "workspace_only",
         "dry_run",
         "on_event",
     }
     assert sync_kwargs["restart"] is False
     assert sync_kwargs["verify"] is False
-    assert sync_kwargs["push_workspace"] is False
-    assert sync_kwargs["workspace_only"] is False
     assert sync_kwargs["dry_run"] is False
     assert callable(sync_kwargs["on_event"])
     assert len(configure_calls) == 1
@@ -218,15 +191,14 @@ def test_claude_sync_and_configure_render_global_settings_without_daemon(
 
 
 @pytest.mark.parametrize(
-    ("flag", "workspace_only", "dry_run"),
+    ("flag", "dry_run"),
     [
-        ("--workspace-only", True, False),
-        ("--dry-run", False, True),
-        ("--diff", False, True),
+        ("--dry-run", True),
+        ("--diff", True),
     ],
 )
 def test_claude_sync_nonstandard_modes_never_request_daemon_restart(
-    fleet_dir, monkeypatch, flag: str, workspace_only: bool, dry_run: bool
+    fleet_dir, monkeypatch, flag: str, dry_run: bool
 ) -> None:
     _add_claude_agent(fleet_dir)
     calls: list[dict] = []
@@ -249,11 +221,9 @@ def test_claude_sync_nonstandard_modes_never_request_daemon_restart(
 
     assert result.exit_code == 0
     assert len(calls) == 1
-    assert calls[0]["workspace_only"] is workspace_only
     assert calls[0]["dry_run"] is dry_run
     assert calls[0]["restart"] is False
     assert calls[0]["verify"] is False
-    assert calls[0]["push_workspace"] is False
 
 
 @pytest.mark.parametrize(
@@ -296,7 +266,6 @@ def test_claude_dry_run_and_diff_errors_do_not_report_success(
     assert calls[0]["dry_run"] is True
     assert calls[0]["restart"] is False
     assert calls[0]["verify"] is False
-    assert calls[0]["push_workspace"] is False
 
 
 @pytest.mark.parametrize("failure", ["returned error", "raised error"])

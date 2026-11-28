@@ -66,7 +66,7 @@ When a host is removed with `clawctl host delete`, both the host entry in `hosts
 
 ## Design Decisions
 
-- [aichat investigation](research/aichat.md) — why `clawctl agent chat` will be a pure-Python REPL on `httpx` instead of shelling out to [aichat](https://github.com/sigoden/aichat) (in progress — see [#322](https://github.com/ric03uec/clawrium/issues/322)).
+- [aichat investigation](research/aichat.md) — historical note (pre-#1071) on why a Clawrium-managed chat REPL was evaluated against [aichat](https://github.com/sigoden/aichat). The `clawctl agent chat` CLI was removed in v26.11.0; operators SSH to the agent host for interactive sessions.
 
 ## FAQ
 

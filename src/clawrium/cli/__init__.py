@@ -15,9 +15,7 @@ import typer
 
 from clawrium import format_version
 from clawrium.cli.clawctl.agent import agent_app
-from clawrium.cli.clawctl.audit import audit_app
 from clawrium.cli.clawctl.channel import channel_app
-from clawrium.cli.clawctl.doctor import doctor_app
 from clawrium.cli.clawctl.host import host_app
 from clawrium.cli.clawctl.integration import integration_app
 from clawrium.cli.clawctl.provider import provider_app
@@ -89,14 +87,9 @@ app.add_typer(agent_app, name="agent")
 app.add_typer(provider_app, name="provider")
 app.add_typer(channel_app, name="channel")
 app.add_typer(integration_app, name="integration")
-app.add_typer(audit_app, name="audit")
-app.add_typer(doctor_app, name="doctor")
-
-# Declarative fleet management verbs: apply / diff / delete -f
-from clawrium.cli.clawctl.apply import apply as _apply_cmd  # noqa: E402
-from clawrium.cli.clawctl.diff import diff as _diff_cmd  # noqa: E402
+# Declarative fleet management: `clawctl delete -f` remains; `apply` + `diff`
+# were removed in #1071 alongside the agent chat/memory/exec/audit/secret
+# subsystems.
 from clawrium.cli.clawctl.delete_file import delete_file as _delete_file_cmd  # noqa: E402
 
-app.command(name="apply", help="Apply a fleet manifest (declarative reconciliation).")(_apply_cmd)
-app.command(name="diff", help="Preview changes a fleet manifest would make.")(_diff_cmd)
 app.command(name="delete", help="Delete resources declared in a fleet manifest.")(_delete_file_cmd)

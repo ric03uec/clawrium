@@ -128,7 +128,7 @@ Create IDENTITY.md? This defines your agent's role and context.
 
 **Requirements (varies by agent type):**
 - **OpenClaw**: Select from CLI, WhatsApp, Slack, Discord, web
-- **ZeroClaw**: CLI only (single confirm step; reachable via `clawctl agent chat` over the daemon's WebSocket gateway)
+- **ZeroClaw**: CLI only (single confirm step; SSH to the agent host to invoke the native CLI — the daemon's WebSocket gateway is still available for integrations)
 
 **Example:**
 ```bash

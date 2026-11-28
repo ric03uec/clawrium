@@ -87,7 +87,8 @@ For **ZeroClaw**, the playbook renders the same credentials into the `[integrati
 ### 5. Verify
 
 ```bash
-clawctl agent chat my-hermes
+# `clawctl agent chat` was removed in #1071 — SSH to the agent host
+# and invoke hermes against the local API at http://localhost:8642/v1
 > list my open jira tickets
 > search confluence for "onboarding docs"
 ```

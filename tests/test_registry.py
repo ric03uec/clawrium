@@ -1103,20 +1103,9 @@ def test_manifest_accepts_workspace_and_features_fields(monkeypatch):
     assert parsed.get("features", {}).get("memory") is True
 
 
-def test_zeroclaw_manifest_declares_workspace_and_memory():
-    """Issue #358 (Subtask C) wires workspace + memory into zeroclaw.
-
-    The manifest now declares:
-      * workspace.memory_path → ~/.zeroclaw/workspace (mirrors openclaw)
-      * features.memory: true → memory CLI routes to zeroclaw's playbooks
-      * features.chat.type == "zeroclaw" (carried over from #357)
-    """
-    manifest = load_manifest("zeroclaw")
-    workspace = manifest.get("workspace", {})
-    assert workspace.get("memory_path") == "~/.zeroclaw/workspace"
-    features = manifest.get("features", {})
-    assert features.get("memory") is True
-    assert features.get("chat", {}).get("type") == "zeroclaw"
+# #1071 phase 5 removed `features.memory` + `workspace.memory_path`
+# from this manifest. Test `test_zeroclaw_manifest_declares_workspace_and_memory` was removed with the fields
+# it probed.
 
 
 def test_manifest_rejects_invalid_workspace_memory_path(monkeypatch):
@@ -1495,13 +1484,9 @@ def test_zeroclaw_manifest_declares_web_ui():
     assert "default_port" not in web_ui
 
 
-def test_openclaw_manifest_now_declares_memory_workspace():
-    """Phase 1 backfill: openclaw manifest carries the memory metadata for Phase 3."""
-    manifest = load_manifest("openclaw")
-    assert manifest.get("workspace", {}).get("memory_path") == (
-        "~/.openclaw/workspace/memory"
-    )
-    assert manifest.get("features", {}).get("memory") is True
+# #1071 phase 5 removed `features.memory` + `workspace.memory_path`
+# from this manifest. Test `test_openclaw_manifest_now_declares_memory_workspace` was removed with the fields
+# it probed.
 
 
 def test_onboarding_backward_compatibility(monkeypatch):

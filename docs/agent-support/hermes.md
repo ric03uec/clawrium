@@ -4,6 +4,8 @@ Hermes is the [Nous Research self-improving AI agent](https://github.com/NousRes
 
 **Status:** 🚧 In Development
 
+> **Changed in v26.11.0 (#1071).** `clawctl agent chat`, `agent exec`, `agent memory`, `agent audit`, and `agent secret` were removed. Operators SSH to the agent host for interactive sessions; `clawctl agent shell <name> -- <cmd>` wraps a one-shot command. Examples below that reference the removed verbs are historical — read them against the current CLI with that substitution in mind.
+
 **Best for:** Local-first agents that need an OpenAI-compatible HTTP endpoint, file-based memory, and self-managed identity. Particularly useful with self-hosted inference (Ollama, vLLM, llama.cpp) since the api_server platform turns any of those into a unified OpenAI-style backend.
 
 **Pinned version:** `v2026.5.7` (manifest entry, both Ubuntu 22.04 and 24.04 x86_64). The installer SHA256 is pinned in `src/clawrium/platform/registry/hermes/manifest.yaml`; every version bump requires re-pinning.
@@ -49,7 +51,7 @@ Hermes supports three channels managed by clawctl: a loopback OpenAI-compatible 
 | **Local OpenAI-compatible HTTP API** (`POST /v1/chat/completions`, `GET /v1/models`, `GET /health`) | ✅ | Bound to loopback on the agent host. See [Use the local API](#3-use-the-local-openai-compatible-api). |
 | **[Discord](channels/discord.md)** | ✅ | clawctl-managed via `clawctl channel registry create` + `clawctl agent channel attach`. Token in `secrets.json` (B3 invariant); non-sensitive config in `channels.json`. See [Discord channel page → Setup (Hermes)](channels/discord.md#setup-hermes). |
 | **[Slack](channels/slack.md)** | ✅ | Socket Mode (no public endpoint). clawctl-managed via `clawctl channel registry create` + `clawctl agent channel attach`. Both tokens in `secrets.json`; non-sensitive config in `channels.json`. See [Slack channel page → Setup (Hermes)](channels/slack.md#setup-hermes). |
-| **`clawctl agent chat <hermes-name>`** | ✅ | Supported via the OpenAI-compatible HTTP backend (`HermesOpenAIBackend`). Connects to `http://<host>:8642/v1` using the bearer token from `secrets.json`. |
+| **Interactive session** | ✅ | SSH to the agent host; invoke hermes directly as the agent account, or hit the local API at `http://<host>:8642/v1` with the `HERMES_API_SERVER_KEY` bearer from `secrets.json`. The pre-#1071 `clawctl agent chat` CLI was removed. |
 | **Telegram / WhatsApp / Signal** | 📋 | Deferred |
 | **Email / Matrix / Mattermost / Teams / Google Chat** | 📋 | Deferred |
 
@@ -61,13 +63,13 @@ Hermes supports three channels managed by clawctl: a loopback OpenAI-compatible 
 |---------|:------:|-------|
 | **Local API server** | ✅ | `API_SERVER_ENABLED=1` + `API_SERVER_KEY` in `~/.hermes/.env`, bound to `127.0.0.1:8642` |
 | **Multi-provider** | ✅ | Up to **10 attachments per agent**: 1 `primary` slot + 9 upstream auxiliary slots (`vision`, `web_extract`, `compression`, `session_search`, `skills_hub`, `approval`, `mcp`, `title_generation`, `curator`). One provider per slot. See [Multi-provider attachments](#multi-provider-attachments). |
-| **Memory (Markdown backend)** | ✅ | Two-file model: `MEMORY.md` (≤ 2200 chars), `USER.md` (≤ 1375 chars). See [memory.md](memory.md). |
+| **Memory (Markdown backend)** | ✅ | Two-file model: `MEMORY.md` (≤ 2200 chars), `USER.md` (≤ 1375 chars). Operator-owned on the agent host after #1071. |
 | **Pluggable memory backends** (Holographic / Honcho / Hindsight / Mem0 / Byterover / OpenViking) | 📋 | Deferred. clawctl's `memory` CLI sees only the default markdown backend in this iteration. |
 | **Secrets management** | ✅ | `HERMES_API_SERVER_KEY` persisted in `~/.config/clawrium/secrets.json` (NOT `hosts.json`) under the canonical instance key `<key_id>:hermes:<agent-name>` (single-colon, 3 components). `key_id` is the immutable host identifier set when the host was first registered via `clawctl host create`. It does not change when the host's `hostname` is updated (issue #448). `secrets.json` is chmod 0600 on creation. Per-agent secrets are isolated by instance key. |
 | **Auto-restart** | ✅ | Systemd unit `hermes-<agent_name>.service` with `Restart=on-failure`; systemd is the supervisor (no separate process). |
 | **Log streaming** | ✅ | `journalctl -u hermes-<agent_name>.service` on the agent host |
 | **Onboarding wizard** | ✅ | 4 stages: `providers` (required) → `identity` (auto-skipped) → `channels` (cli, discord, slack) → `validate` |
-| **Identity files (`SOUL.md` / `AGENTS.md`)** | ✅ | Hermes-managed inside `~/.hermes/`. The identity onboarding stage auto-skips (by design — hermes owns these). `SOUL.md` is reachable via `clawctl agent memory read/write/info` (routed to `~/.hermes/SOUL.md`). |
+| **Identity files (`SOUL.md` / `AGENTS.md`)** | ✅ | Hermes-managed inside `~/.hermes/`. The identity onboarding stage auto-skips (by design — hermes owns these). Edit `SOUL.md` / `AGENTS.md` directly on the agent host — `clawctl agent memory` was removed in #1071. |
 | **MCP server registration** | ✅ | Supported for `atlassian` and `slack-user` / `slack-cookie` integrations — hermes launches each as a stdio subprocess and exposes their tools. See [Atlassian integration](integrations/atlassian.md) and [Slack integration](integrations/slack.md). |
 | **`~/.hermes/state.db` (session/transcript history)** | 📋 | Out of scope for memory CLI |
 | **OAuth / webhook secrets** | 📋 | Deferred |
@@ -283,10 +285,9 @@ clawctl agent delete <agent-name>    # stop, remove unit, rm ~/.hermes/, userdel
 ## Important caveats
 
 - **Discord and Slack are the clawctl-managed messaging gateways today.** Telegram, WhatsApp, Signal, email, Matrix, Mattermost, Teams, Google Chat are tracked as separate follow-ups. See [Discord channel page → Hermes Configuration](channels/discord.md#hermes-configuration) and [Slack channel page → Hermes Configuration](channels/slack.md#hermes-configuration).
-- **Identity is hermes-managed by design.** Hermes owns `SOUL.md` and `AGENTS.md` inside `~/.hermes/`; the onboarding `identity` stage auto-skips. `SOUL.md` is editable via `clawctl agent memory write <name> SOUL.md`, which routes to `~/.hermes/SOUL.md` (other memories live under `~/.hermes/memories/`).
+- **Identity is hermes-managed by design.** Hermes owns `SOUL.md` and `AGENTS.md` inside `~/.hermes/`; the onboarding `identity` stage auto-skips. Edit these files directly on the agent host — `clawctl agent memory` was removed in #1071.
 - **Bearer token lives in `secrets.json`, not `hosts.json`.** As of PR #318, the canonical store for `HERMES_API_SERVER_KEY` is `~/.config/clawrium/secrets.json` keyed by `<key_id>:hermes:<agent-name>` (single-colon, 3 components). Provider keys use a different schema (`provider:<provider-name>`) in the same file.
-- **Memory has hard size limits.** `MEMORY.md` ≤ 2200 chars, `USER.md` ≤ 1375 chars. Other filenames in `~/.hermes/memories/` are rejected by `clawctl agent memory edit`. See [memory.md](memory.md).
-- **Concurrent writes are visible-atomic.** Hermes' `memory_write.yaml` uses a stage-then-rename pattern (`rename(2)` within the same filesystem) so the running hermes daemon never observes a partial file. The pattern is visible-atomic, not crash-durable (no explicit `fsync`).
+- **Memory has hard size limits on hermes' side.** `MEMORY.md` ≤ 2200 chars, `USER.md` ≤ 1375 chars (enforced by hermes itself). Other filenames in `~/.hermes/memories/` are rejected by hermes.
 
 ---
 
@@ -339,9 +340,9 @@ Hermes ships a two-file Markdown memory backend at `~/.hermes/memories/`:
 | `MEMORY.md` | 2200 chars | Agent notes / scratchpad |
 | `USER.md` | 1375 chars | User profile |
 
-Both are managed by `clawctl agent memory get --agent|edit|delete <hermes-name>`. The dispatcher is driven by the agent's manifest (`workspace.memory_path` + `features.memory: true`), so the CLI surface is identical to openclaw. (Note: `read` and `write` are not separate CLI subcommands in this iteration — use `edit`.)
-
-Full details: [memory.md](memory.md).
+Both live under `~/.hermes/memories/` on the agent host and are
+operator-managed there — `clawctl agent memory` was removed in #1071.
+SSH to the agent account to edit them.
 
 ---
 
@@ -459,7 +460,7 @@ printf 'SLACK_MCP_XOXP_TOKEN=xoxp-...' | \
 clawctl agent integration attach <hermes-name> --integration slack
 ```
 
-Then `clawctl agent chat <hermes-name>` — the model gains `channels_list`, `conversations_history`, `conversations_add_message`, `conversations_search_messages`, and `conversations_replies` under the `slack_*` tool prefix.
+Then invoke hermes against its local API at `http://localhost:8642/v1` — the model gains `channels_list`, `conversations_history`, `conversations_add_message`, `conversations_search_messages`, and `conversations_replies` under the `slack_*` tool prefix.
 
 ---
 
@@ -477,7 +478,7 @@ The following are explicitly out of scope for issue #68 and tracked as separate 
 
 ## Next Steps
 
-- [Memory model](memory.md) — manifest-driven memory CLI across agent types
+
 - [OpenClaw Support Matrix](openclaw.md) — full-featured alternative with multi-channel support
 - [Agent Onboarding](../agent-onboarding.md) — detailed onboarding wizard guide
 - [Host Preparation](../host-preparation.md) — installing provider credentials and host prereqs

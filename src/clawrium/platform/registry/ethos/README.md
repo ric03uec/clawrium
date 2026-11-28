@@ -12,12 +12,9 @@ ethos/
 │   ├── configure.yaml           # Phase 2: render .env + config.yaml + enable+start unit
 │   ├── start.yaml               # Start (and re-render unit for upgrade safety)
 │   ├── stop.yaml                # Stop + disable unit; preserves ~/.ethos/
-│   ├── remove.yaml              # Full teardown: unit, ~/.ethos/, npm pkg, agent user
-│   ├── exec.yaml                # Passthrough: run ethos CLI as agent user
-│   ├── memory_info.yaml         # Stat MEMORY.md / USER.md / SOUL.md
-│   ├── memory_read.yaml         # Read a memory file
-│   ├── memory_write.yaml        # Overwrite a memory file
-│   └── memory_delete.yaml       # Delete a memory file
+│   └── remove.yaml              # Full teardown: unit, ~/.ethos/, npm pkg, agent user
+# #1071 phase 5 removed `exec.yaml` + `memory_{info,read,write,delete}.yaml`
+# — memory files are host-managed; SSH to the agent for ad-hoc CLI work.
 └── templates/
     ├── ethos.env.j2             # ~/.ethos/.env (provider key + gateway key + channels)
     ├── ethos-config.yaml.j2     # ~/.ethos/config.yaml (provider, model, personality)
@@ -71,7 +68,7 @@ Three distinct credentials flow through the ethos stack:
 | Token | Name | Where stored | Purpose |
 |---|---|---|---|
 | `ETHOS_GATEWAY_API_KEY` | 64-char hex | `hosts.json` config + secrets store | Internal gateway auth (bearer for `/rpc/*`) |
-| `ETHOS_CHAT_TOKEN` | `sk-ethos-<64hex>` | secrets store | `clawctl agent chat` — OpenAI `/v1/` API bearer |
+| `ETHOS_CHAT_TOKEN` | `sk-ethos-<64hex>` | secrets store | SPA / integration bearer for the OpenAI `/v1/` API |
 | `web-token` | raw hex file | `~/.ethos/web-token` on remote host | Dashboard login (`/auth/exchange?t=TOKEN`) |
 
 `ETHOS_GATEWAY_API_KEY` is generated once at install and written to `.env` by configure. It does not rotate.
@@ -88,7 +85,7 @@ Three distinct credentials flow through the ethos stack:
 | 3001 | `127.0.0.1` | — | ACP WebSocket (internal agent communication bus) |
 | per-instance (43000–44999) | `127.0.0.1` | `config.gateway.internal_port` | Internal ethos gateway (`ETHOS_GATEWAY_PORT`) |
 
-`config.gateway.port = 3000` is persisted at install time. The `features.web_ui.port_field: gateway.port` resolver reads this field so both `clawctl agent open` and `clawctl agent chat` tunnel to port 3000.
+`config.gateway.port = 3000` is persisted at install time. The `features.web_ui.port_field: gateway.port` resolver reads this field so both `clawctl agent open` tunnels to port 3000.
 
 `config.gateway.internal_port` (43000–44999) is per-instance and rendered as `ETHOS_GATEWAY_PORT` in `.env`. Clawrium does not connect to this port directly.
 
@@ -105,7 +102,7 @@ Ethos memory is stored as markdown files under the default personality directory
 └── USER.md      # User profile (written by ethos at runtime)
 ```
 
-`clawctl agent memory show/edit/delete` dispatches to `memory_*.yaml` playbooks against this path.
+Memory playbook dispatch was removed in #1071 phase 5. Memory files live on the host under this path and are operator-managed from there.
 
 ## Service user model
 
@@ -143,5 +140,5 @@ The Linux user created at install (`agent_name`) is the service user. `ETHOS_STA
 | **linger (remove)** | not needed | `loginctl disable-linger` on remove | not needed | not needed |
 | **Min RAM** | 2 GB | 2 GB | 512 MB (Pi 2) / 1 GB (Pi 4+) | 2 GB |
 | **ARM support** | no | no | yes (armv7l, aarch64) | no |
-| **Declarative apply** | yes (`clawctl apply -f fleet.yaml`) | yes | yes | yes |
+| **Declarative apply** | _removed in #1071 phase 1 (`clawctl delete -f` stays)_ | yes | yes | yes |
 | **Health check** | SSH → `curl 127.0.0.1:3000/healthz` | systemd `ActiveState` | systemd `ActiveState` | systemd `ActiveState` |

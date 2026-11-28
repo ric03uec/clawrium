@@ -12,10 +12,7 @@ import {
   TabNav,
   TabId,
   OverviewTab,
-  ChatTab,
-  ExecTab,
   ConfigTab,
-  MemoryTab,
   LogsTab,
 } from "@/components/agent-detail";
 
@@ -142,16 +139,7 @@ function AgentDetailView({
               health={health.data}
             />
           )}
-          {activeTab === "chat" && (
-            <ChatTab
-              key={agent.agent_key}
-              agentKey={agentKey}
-              agentName={agent.agent_name}
-            />
-          )}
-          {activeTab === "exec" && <ExecTab agentKey={agentKey} />}
           {activeTab === "configuration" && <ConfigTab agent={agent} />}
-          {activeTab === "memory" && <MemoryTab agentKey={agentKey} />}
           {activeTab === "logs" && <LogsTab agentKey={agentKey} />}
         </div>
       </div>

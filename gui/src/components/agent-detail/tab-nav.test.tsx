@@ -16,8 +16,16 @@ describe("TabNav", () => {
       "aria-controls",
       "agent-detail-page-tabs-panel-overview",
     );
-    expect(screen.getByRole("tab", { name: "Chat" })).toHaveAttribute("aria-selected", "false");
+    expect(screen.getByRole("tab", { name: "Configuration" })).toHaveAttribute("aria-selected", "false");
     fireEvent.click(screen.getByRole("tab", { name: "Logs" }));
     expect(onChange).toHaveBeenCalledWith("logs");
+  });
+
+  it("does not render Chat / Exec / Memory tabs after #1071", () => {
+    const onChange = vi.fn();
+    render(<TabNav active="overview" onChange={onChange} />);
+    expect(screen.queryByRole("tab", { name: "Chat" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: "Exec" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: "Memory" })).not.toBeInTheDocument();
   });
 });

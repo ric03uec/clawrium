@@ -1,4 +1,14 @@
-"""Secret storage operations for Clawrium."""
+"""Secret storage operations for Clawrium.
+
+Instance-scoped storage only. The pre-#1071 `get_secret` /
+`set_secret` / `remove_secret` / `list_secrets` global-namespace
+helpers (keyed under `"__global__"`) backed the deprecated
+`clawctl agent secret` CLI and the legacy `cli/secret.py` hybrid
+module — both removed in #1071 phase 1. All remaining consumers
+(provider attachments, integration credentials, openclaw gateway
+bearer migration) key by host-scoped instance key through the
+`*_instance_secret*` primitives below.
+"""
 
 import fcntl
 import json
@@ -637,140 +647,3 @@ def list_instances_with_secrets() -> list[str]:
 # Deprecated global functions (Phase 05) - kept for reference, will be removed in Phase 06 Plan 02
 
 
-def get_secret(key: str) -> SecretEntry | None:
-    """DEPRECATED: Use get_instance_secrets instead.
-
-    Get a secret entry by key from global namespace (legacy support).
-    This function is kept for backward compatibility with existing CLI.
-    Will be removed in Phase 06 Plan 02.
-
-    Args:
-        key: Secret key to retrieve.
-
-    Returns:
-        SecretEntry if found, None otherwise.
-    """
-    secrets = load_secrets()
-    global_key = "__global__"
-    if global_key not in secrets:
-        return None
-    return secrets[global_key].get(key)
-
-
-def set_secret(
-    key: str, value: str, description: str = "", *, strict: bool = False
-) -> bool:
-    """DEPRECATED: Use set_instance_secret instead.
-
-    Set or update a global secret (legacy support for CLI).
-    This function is kept for backward compatibility with existing CLI.
-    Will be removed in Phase 06 Plan 02.
-
-    Args:
-        key: Secret key.
-        value: Secret value.
-        description: Optional description.
-        strict: Ignored (deprecated parameter).
-
-    Returns:
-        True if new secret created, False if existing secret updated.
-
-    Raises:
-        InvalidSecretKeyError: If key is not valid.
-    """
-    validate_secret_key(key)
-
-    with _secrets_lock():
-        secrets = load_secrets()
-        now = datetime.now(timezone.utc).isoformat()
-
-        # Legacy support: use special "__global__" instance key for backward compatibility
-        global_key = "__global__"
-        if global_key not in secrets:
-            secrets[global_key] = {}
-
-        if key in secrets[global_key]:
-            # Update existing - preserve created_at and description if not provided
-            existing = secrets[global_key][key]
-            secrets[global_key][key] = SecretEntry(
-                key=key,
-                value=value,
-                created_at=existing["created_at"],
-                updated_at=now,
-                description=description
-                if description
-                else existing.get("description", ""),
-            )
-            created = False
-        else:
-            # Create new
-            secrets[global_key][key] = SecretEntry(
-                key=key,
-                value=value,
-                created_at=now,
-                updated_at=now,
-                description=description,
-            )
-            created = True
-
-        # Save without re-acquiring lock (we already hold it)
-        config_dir = init_config_dir()
-        _save_secrets_atomic(secrets, config_dir)
-
-        return created
-
-
-def remove_secret(key: str) -> bool:
-    """DEPRECATED: Use remove_instance_secret instead.
-
-    Remove a global secret (legacy support for CLI).
-    This function is kept for backward compatibility with existing CLI.
-    Will be removed in Phase 06 Plan 02.
-
-    Args:
-        key: Secret key to remove.
-
-    Returns:
-        True if secret was found and removed, False otherwise.
-
-    Raises:
-        InvalidSecretKeyError: If key is not valid.
-    """
-    validate_secret_key(key)
-
-    with _secrets_lock():
-        secrets = load_secrets()
-
-        # Legacy support: use special "__global__" instance key
-        global_key = "__global__"
-        if global_key not in secrets or key not in secrets[global_key]:
-            return False
-
-        del secrets[global_key][key]
-
-        # Clean up empty global dict
-        if not secrets[global_key]:
-            del secrets[global_key]
-
-        # Save without re-acquiring lock (we already hold it)
-        config_dir = init_config_dir()
-        _save_secrets_atomic(secrets, config_dir)
-
-        return True
-
-
-def list_secrets() -> list[str]:
-    """DEPRECATED: Use list_instances_with_secrets instead.
-
-    Get list of global secret keys (legacy support for CLI).
-    This function is kept for backward compatibility with existing CLI.
-    Will be removed in Phase 06 Plan 02.
-
-    Returns:
-        Sorted list of global secret keys.
-    """
-    secrets = load_secrets()
-    global_key = "__global__"
-    if global_key not in secrets:
-        return []
-    return sorted(secrets[global_key].keys())

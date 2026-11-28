@@ -35,10 +35,9 @@ def test_ethos_manifest_platforms():
         assert "nodejs" in deps
 
 
-def test_ethos_manifest_memory():
-    manifest = load_manifest("ethos")
-    assert manifest.get("features", {}).get("memory") is True
-    assert "memory_path" in manifest.get("workspace", {})
+# #1071 phase 5 removed `features.memory` + `workspace.memory_path`
+# from this manifest. Test `test_ethos_manifest_memory` was removed with the fields
+# it probed.
 
 
 def test_ethos_manifest_onboarding_identity_required():
@@ -77,7 +76,12 @@ def test_ethos_manifest_web_ui_bind_loopback():
 
 
 def test_ethos_playbooks_exist():
-    """All required playbooks must ship in the ethos registry."""
+    """All required playbooks must ship in the ethos registry.
+
+    #1071 phase 5 removed the `exec`, `memory_read`, `memory_write`,
+    `memory_info`, and `memory_delete` playbooks along with the
+    agent-exec and agent-memory subsystems.
+    """
     from importlib.resources import files
 
     ethos_pkg = files("clawrium.platform.registry.ethos")
@@ -87,11 +91,6 @@ def test_ethos_playbooks_exist():
         "start",
         "stop",
         "remove",
-        "exec",
-        "memory_read",
-        "memory_write",
-        "memory_info",
-        "memory_delete",
     ):
         assert (ethos_pkg / "playbooks" / f"{name}.yaml").is_file(), (
             f"Missing ethos playbook: {name}.yaml"
@@ -146,38 +145,10 @@ def test_ethos_install_playbook_shape():
     )
 
 
-def test_ethos_memory_delete_no_log():
-    """memory_delete.yaml must mark the file-removal task no_log: true."""
-    from importlib.resources import files
-    import yaml
-
-    ethos_pkg = files("clawrium.platform.registry.ethos")
-    data = yaml.safe_load((ethos_pkg / "playbooks" / "memory_delete.yaml").read_text())
-    tasks = data[0]["tasks"]
-    delete_tasks = [
-        t
-        for t in tasks
-        if isinstance(t.get("ansible.builtin.file"), dict)
-        and t["ansible.builtin.file"].get("state") == "absent"
-    ]
-    assert delete_tasks, "memory_delete.yaml: no delete task found"
-    for task in delete_tasks:
-        assert task.get("no_log") is True, (
-            f"ethos/memory_delete.yaml task '{task.get('name')}' "
-            f"must have no_log: true"
-        )
-
-
-def test_ethos_memory_playbooks_target_default_personality():
-    """Each memory_*.yaml must point at ~/.ethos/personalities/default/."""
-    from importlib.resources import files
-
-    ethos_pkg = files("clawrium.platform.registry.ethos")
-    for name in ("memory_read", "memory_write", "memory_delete", "memory_info"):
-        content = (ethos_pkg / "playbooks" / f"{name}.yaml").read_text()
-        assert "/.ethos/personalities/default" in content, (
-            f"{name}.yaml must use ~/.ethos/personalities/default/"
-        )
+# #1071 phase 5 removed every `memory_*.yaml` playbook along with the
+# agent-memory subsystem. `test_ethos_memory_delete_no_log` and
+# `test_ethos_memory_playbooks_target_default_personality` are gone
+# with the playbooks they probed.
 
 
 def test_ethos_env_template_has_gateway_key():

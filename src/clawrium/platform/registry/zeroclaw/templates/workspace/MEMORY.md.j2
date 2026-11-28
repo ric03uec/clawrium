@@ -1,8 +1,9 @@
 # MEMORY
 
-Long-term notes the agent should preserve across sessions. Edit freely;
-`clawctl agent memory edit {{ agent_name | default('<name>') }} MEMORY.md` opens
-this file in $EDITOR.
+Long-term notes the agent should preserve across sessions. Edit the
+file directly on the agent host — `clawctl agent memory` was removed
+in #1071 phase 1; this file is operator-owned under
+`~/.zeroclaw/workspace/MEMORY.md` on the agent host.
 
 ## Notes
 

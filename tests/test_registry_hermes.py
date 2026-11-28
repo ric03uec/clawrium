@@ -47,15 +47,9 @@ def test_hermes_manifest_has_installer_checksum():
         )
 
 
-def test_hermes_manifest_declares_memory_workspace():
-    """Phase 3 prerequisite: workspace.memory_path and features.memory must be set."""
-    manifest = load_manifest("hermes")
-
-    workspace = manifest.get("workspace", {})
-    assert workspace.get("memory_path") == "~/.hermes/memories"
-
-    features = manifest.get("features", {})
-    assert features.get("memory") is True
+# #1071 phase 5 removed `features.memory` + `workspace.memory_path`
+# from this manifest. Test `test_hermes_manifest_declares_memory_workspace` was removed with the fields
+# it probed.
 
 
 def test_hermes_get_claw_info():

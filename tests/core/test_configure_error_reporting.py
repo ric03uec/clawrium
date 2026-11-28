@@ -14,7 +14,6 @@ Two layers:
 
 from __future__ import annotations
 
-from pathlib import Path
 from unittest.mock import MagicMock
 
 from clawrium.core.lifecycle import _summarize_ansible_configure_failure
@@ -314,88 +313,8 @@ def test_stdout_read_exception_falls_through_silently():
     assert "rc=2" in error
 
 
-# ---------------------------------------------------------------------------
-# Filter plugin parity: toq vs _toml_escape
-# ---------------------------------------------------------------------------
-
-
-def test_filter_plugin_toq_matches_python_toml_escape():
-    """Whatever the canonical Python render's `_toml_escape` produces
-    for a given input, the Ansible-side filter plugin must produce
-    byte-for-byte the same string. If the two ever drift, sync and
-    configure will write different config.toml bytes — exactly the
-    dual-render hazard #583 closed."""
-    import importlib.util
-
-    repo_root = Path(__file__).resolve().parents[2]
-    plugin_path = (
-        repo_root
-        / "src"
-        / "clawrium"
-        / "platform"
-        / "registry"
-        / "zeroclaw"
-        / "playbooks"
-        / "filter_plugins"
-        / "clawrium_filters.py"
-    )
-    assert plugin_path.exists(), (
-        f"filter plugin missing at {plugin_path} — #583 fix not landed"
-    )
-    spec = importlib.util.spec_from_file_location(
-        "_test_clawrium_filters", plugin_path
-    )
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-
-    from clawrium.core.render import _toml_escape
-
-    cases = [
-        "",
-        "plain",
-        '"',
-        "\\",
-        "\n",
-        "\r",
-        "\t",
-        "\x00leading-nul",
-        'mix of "quotes" and \\backslashes\nplus\nnewlines',
-        # 64-char hex stand-in for a HERMES_API_SERVER_KEY; intentionally
-        # NOT in any provider's prefix format so secret-scanning ignores it.
-        "deadbeef" * 8,
-    ]
-    for case in cases:
-        assert module.toq(case) == _toml_escape(case), (
-            f"toq filter drifted from _toml_escape for {case!r}: "
-            f"plugin={module.toq(case)!r} python={_toml_escape(case)!r}"
-        )
-
-
-def test_filter_plugin_exposes_FilterModule_for_ansible():
-    """Ansible discovers filter plugins by looking up `FilterModule()`
-    with a `.filters()` method that returns a name→callable dict.
-    Without this shape Ansible silently ignores the file."""
-    import importlib.util
-
-    repo_root = Path(__file__).resolve().parents[2]
-    plugin_path = (
-        repo_root
-        / "src"
-        / "clawrium"
-        / "platform"
-        / "registry"
-        / "zeroclaw"
-        / "playbooks"
-        / "filter_plugins"
-        / "clawrium_filters.py"
-    )
-    spec = importlib.util.spec_from_file_location(
-        "_test_clawrium_filters_b", plugin_path
-    )
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-
-    assert hasattr(module, "FilterModule")
-    filters = module.FilterModule().filters()
-    assert "toq" in filters
-    assert callable(filters["toq"])
+# #1071 phase 5 removed the per-agent `filter_plugins/` directories
+# along with the workspace-overlay subsystem that was their only
+# consumer. The `toq` ↔ `_toml_escape` parity test and the
+# `FilterModule` discovery test lived here; both are gone with the
+# plugins they covered.

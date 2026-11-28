@@ -60,17 +60,11 @@ def test_install_version_gate_reaches_fail_for_nonimmutable_version_on_both_os()
         assert not _when(gate, {"pi_version": "0.73.1"})
 
 
-def test_remove_unmanaged_gates_and_exec_ownership_assertions_are_real_playbook_tasks():
+def test_remove_unmanaged_gates_are_real_playbook_tasks():
+    # #1071 phase 5 removed the exec.yaml / exec_macos.yaml arm of
+    # this contract along with the agent-exec subsystem. Remove-side
+    # unmanaged-account gates are still required.
     linux_remove = _task("remove.yaml", "Refuse unmanaged Pi removal")
     assert _when(linux_remove, {"pi_account": {"rc": 0}, "pi_marker_stat": {"stat": {"exists": False}}, "pi_intent_stat": {"stat": {"exists": False}}})
     darwin_remove = _task("remove_macos.yaml", "Refuse unmanaged Pi removal")
     assert _when(darwin_remove, {"pi_existing_uid": {"stdout": ""}, "pi_marker_stat": {"stat": {"exists": False}}, "pi_intent_stat": {"stat": {"exists": False}}})
-    for playbook in ("exec.yaml", "exec_macos.yaml"):
-        reject = _task(playbook, "Reject untrusted Pi execution target")
-        verify = _task(playbook, "Verify Pi execution ownership binding")
-        # These are asserts (not a permissive shell check): ownership must
-        # fail before the finite command task can execute.
-        assert "ansible.builtin.assert" in reject
-        assert "ansible.builtin.assert" in verify
-        assert "pi_marker_stat.stat.exists | bool" in str(reject)
-        assert "transaction_id" in str(verify)

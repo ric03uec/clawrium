@@ -800,7 +800,6 @@ def sync_agent(
     hostname: str,
     claw_name: str,
     agent_name: str | None = None,
-    workspace_only: bool = False,
     on_event: Callable[[str, str], None] | None = None,
 ) -> LifecycleResult:
     """Match `lifecycle.sync_agent` signature.
@@ -822,7 +821,6 @@ def sync_agent(
             hostname=hostname,
             claw_name=claw_name,
             agent_name=agent_name,
-            workspace_only=workspace_only,
             on_event=on_event,
         )
 
@@ -836,7 +834,6 @@ def sync_agent(
         hostname=hostname,
         claw_name=claw_name,
         agent_name=agent_name,
-        workspace_only=workspace_only,
         on_event=on_event,
         playbook_path_override=macos_playbook,
         defer_state_transition=True,

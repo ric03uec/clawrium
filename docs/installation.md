@@ -224,12 +224,13 @@ macOS user (`/Users/<agent_name>/`), and runs the upstream installer:
   created with its model, region, and complete `--sso-*` profile metadata, or a
   single `openai-codex` provider with one model from Pi's pinned 0.73.1 catalog.
   Then sync: `clawctl agent provider attach <provider> --agent <name>`;
-  `clawctl agent sync <name>`; `clawctl agent chat <name>`. For Bedrock, Clawrium
-  writes only an isolated AWS profile/configuration to the Pi account; run
-  `aws sso login --profile <profile>` as that account before chat. It never
-  copies a controller `~/.aws`, an SSO token cache, or static AWS keys. Pi
-  consumes the assigned access on demand and never requests a grant. `agent exec`
-  receives the same isolated environment. For `openai-codex`, create the provider
+  `clawctl agent sync <name>`. For Bedrock, Clawrium writes only an isolated
+  AWS profile/configuration to the Pi account; run `aws sso login
+  --profile <profile>` as that account before use. It never copies a
+  controller `~/.aws`, an SSO token cache, or static AWS keys. Pi consumes
+  the assigned access on demand and never requests a grant. SSH to the Pi
+  host to run the native CLI; `clawctl agent shell <name> -- <cmd>` wraps
+  one-shot commands. For `openai-codex`, create the provider
   without an API key, attach and sync it, then run
   `clawctl agent provider login <provider> --agent <name>` from an interactive
   terminal. That command opens Pi under only the dedicated agent account; complete
@@ -253,7 +254,7 @@ macOS user (`/Users/<agent_name>/`), and runs the upstream installer:
   consumes `AWS_PROFILE` and `AWS_REGION` through its AWS SDK credential chain;
   on-demand Pi chat and exec do not discover or invoke an `aws` binary.
 
-Configure, start, chat — same commands as Linux for daemon-backed Hermes and
+Configure + start — same commands as Linux for daemon-backed Hermes and
 OpenClaw agents:
 
 ```bash
@@ -264,7 +265,8 @@ OpenClaw agents:
 clawctl agent provider attach <provider> --agent <name> [--role primary]
 clawctl agent configure <name> --stage providers --provider <provider>
 clawctl agent start <name>
-clawctl agent chat <name>
+# For an interactive session, SSH to the agent host; `clawctl agent shell
+# <name> -- <cmd>` wraps a one-shot command.
 ```
 
 For the full hermes multi-provider model (1 primary + up to 9 auxiliary

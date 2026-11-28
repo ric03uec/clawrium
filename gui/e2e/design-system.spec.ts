@@ -334,10 +334,12 @@ test("Agents DataTable renders fixtures and exposes keyboard-operable agent link
   await expect(overviewTab).toHaveAttribute("tabindex", "0");
   const overviewPanelId = await overviewTab.getAttribute("aria-controls");
   await expect(page.locator(`#${overviewPanelId}`)).toHaveAttribute("aria-labelledby", await overviewTab.getAttribute("id") ?? "");
+  // #1071 phase 6: Chat / Exec / Memory tabs removed — the first tab
+  // to the right of Overview is now Configuration.
   await overviewTab.focus();
   await page.keyboard.press("ArrowRight");
-  await expect(page.getByRole("tab", { name: "Chat" })).toBeFocused();
-  await expect(page.getByRole("tab", { name: "Chat" })).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("tab", { name: "Configuration" })).toBeFocused();
+  await expect(page.getByRole("tab", { name: "Configuration" })).toHaveAttribute("aria-selected", "true");
 
   await page.goto("/agents");
   await expect(table.getByRole("row", { name: /Alpha/ })).toBeVisible();

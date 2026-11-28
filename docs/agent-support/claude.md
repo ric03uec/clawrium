@@ -4,6 +4,8 @@ Clawrium supports `claude` as an **isolated, per-agent Claude Code environment**
 
 **Pinned version:** `2.1.100`
 
+> **Changed in v26.11.0 (#1071).** `clawctl agent chat`, `agent exec`, `agent memory`, `agent audit`, and `agent secret` were removed. Operators SSH to the agent host for interactive sessions; `clawctl agent shell <name> -- <cmd>` wraps a one-shot command. Examples below that reference the removed verbs are historical — read them against the current CLI with that substitution in mind.
+
 **Supported targets:** Ubuntu 22.04 or 24.04 on x86_64; macOS 14+ on Apple Silicon.
 
 ## No-daemon install contract

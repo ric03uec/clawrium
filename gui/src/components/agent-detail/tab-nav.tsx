@@ -2,12 +2,11 @@
 
 import { TabBar } from "@/design-system";
 
+// #1071 phase 6: Chat / Exec / Memory tabs removed with their backing
+// subsystems. Operators SSH to the host for interactive sessions.
 const TABS = [
   { id: "overview", label: "Overview" },
-  { id: "chat", label: "Chat" },
-  { id: "exec", label: "Exec" },
   { id: "configuration", label: "Configuration" },
-  { id: "memory", label: "Memory" },
   { id: "logs", label: "Logs" },
 ] as const;
 

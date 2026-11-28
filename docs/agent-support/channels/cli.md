@@ -1,108 +1,53 @@
 # CLI
 
-**Status:** ✅ Supported (All Agents)
+**Status:** ✅ Supported (All Agents, SSH-based as of v26.11.0)
 
-The CLI channel provides terminal-based interaction with your agent.
+> **Changed in v26.11.0 (#1071).** `clawctl agent chat` was removed.
+> Operators now SSH to the agent host and invoke the agent's native
+> CLI directly. `clawctl agent shell <name> -- <cmd>` wraps a
+> one-shot command for scripted use.
 
-## Features
-
-- **Interactive chat:** Real-time conversation in terminal
-- **Command history:** Navigate previous messages
-- **Piping support:** Pipe input/output to other commands
-- **Scripting:** Automate via shell scripts
-- **No dependencies:** Works over SSH, no browser needed
-
-## Setup
-
-CLI is automatically configured for all agents. No additional setup required.
+CLI interaction with a Clawrium-managed agent lives on the agent host.
+Clawrium prepares the per-agent account, installs the agent binary at
+a pinned version, wires provider credentials + channels + integrations
+into the agent's canonical config, and brings up the daemon (for
+daemon-backed agents). The actual interactive session happens over SSH.
 
 ## Usage
 
-### Interactive Chat
-
 ```bash
-# Start chatting
-clawctl agent chat <agent-name>
+# One-shot command through Clawrium's shell wrapper — handy for
+# scripted runs, scheduled jobs, or CI.
+clawctl agent shell my-agent -- 'ls -la ~/'
+clawctl agent shell my-agent -- 'cat ~/.hermes/config.yaml'
+clawctl agent shell my-agent --timeout 600 -- 'make test'
 
-# Example
-clawctl agent chat my-assistant
+# Longer interactive sessions: SSH directly to the agent host as the
+# agent's unix user. The host alias is the `--host` value you used at
+# `clawctl host create` time.
+ssh xclm@<host-alias>
+sudo -u <agent-name> -i   # switch to the agent account
+# ... then invoke the native CLI (openclaw / hermes / codex / claude
+# / pi / ethos / zeroclaw) as that account.
 ```
 
-### One-off Queries
+## Agent-type notes
 
-```bash
-# Single query (if supported by agent)
-echo "What's the weather?" | clawctl agent chat my-assistant --stdin
-```
+- **OpenClaw / Hermes / ZeroClaw** — daemon-backed. The daemon is
+  what channels (Discord, Slack, Web) talk to. The CLI is for
+  operators reading daemon logs, tailing conversations, or invoking
+  the native agent CLI alongside the daemon.
+- **Claude Code / Codex / Pi** — daemonless, install-only. The CLI
+  IS the primary interface; there's no daemon to attach channels to.
+  SSH to the host and invoke the native binary as the agent account.
 
-### Scripting
+## Removed commands
 
-```bash
-#!/bin/bash
-# automated-task.sh
+| Pre-v26.11.0 verb | Replacement |
+|---|---|
+| `clawctl agent chat <name>` | SSH to the host; invoke the native CLI. `clawctl agent shell <name> -- <cmd>` for one-shot runs. |
+| `clawctl agent exec <name> -- <args...>` | `clawctl agent shell <name> -- <cmd>` (one-shot) or SSH directly. |
+| `clawctl agent memory ...` | Operator memory lives on the host; manage with the agent's native tooling. |
 
-RESPONSE=$(echo "Analyze this log file" | clawctl agent chat log-analyzer --stdin)
-echo "$RESPONSE"
-```
-
-## Key Bindings
-
-During chat:
-
-| Key | Action |
-|-----|--------|
-| `↑` / `↓` | Navigate history |
-| `Ctrl+C` | Exit chat |
-| `Ctrl+L` | Clear screen |
-| `Tab` | Auto-complete (if supported) |
-
-## Configuration
-
-CLI channel has minimal configuration:
-
-```json
-{
-  "cli": {
-    "enabled": true,
-    "history_size": 100
-  }
-}
-```
-
-## Limitations
-
-- Single user only
-- No rich media (images render as links)
-- Requires terminal/SSH access
-- No persistent history across sessions
-
-## Best Practices
-
-1. **SSH key-based access:** For remote hosts, use SSH keys
-2. **Screen/tmux:** Use terminal multiplexers for long sessions
-3. **Logging:** Pipe output to files for record keeping
-4. **Aliases:** Create shell aliases for frequently used agents
-
-```bash
-# Add to ~/.bashrc or ~/.zshrc
-alias ask='clawctl agent chat my-assistant'
-```
-
-## Troubleshooting
-
-**"Connection refused"**
-- Ensure agent is running: `clawctl agent get`
-- Start agent if needed: `clawctl agent start <name>`
-
-**"Agent not responding"**
-- Check agent logs: `clawctl agent logs <name>`
-- Verify provider connectivity: `clawctl provider status <provider>`
-
-**"Slow responses"**
-- Normal for complex queries
-- Check network latency to host
-- Consider local Ollama provider for faster responses
-
----
-
-[Back to Channels](index.md)
+See [CHANGELOG.md](../../../CHANGELOG.md) for the full removal set
+and rationale.

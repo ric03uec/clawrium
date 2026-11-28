@@ -71,27 +71,10 @@ def test_codex_install_runbooks_use_a_private_pinned_npm_prefix() -> None:
         ]["group"] == group
 
 
-def test_codex_exec_runbooks_run_only_the_private_binary_with_safe_transport() -> None:
-    for name, home in (
-        ("exec.yaml", "/home/{{ agent_name }}"),
-        ("exec_macos.yaml", "/Users/{{ agent_name }}"),
-    ):
-        playbook = _playbook(name)
-        variables = playbook["vars"]
-        serialized = yaml.safe_dump(playbook)
-        run_task = _task(
-            playbook, "Run finite Codex CLI exec command as dedicated agent user"
-        )
-        command = run_task["ansible.builtin.command"]
-
-        assert variables["codex_home"] == home
-        assert variables["codex_binary"] == "{{ codex_home }}/.local/codex/bin/codex"
-        assert "CODEX_HOME" in variables["codex_exec_capture_bootstrap"]
-        assert ".codex/auth.json" in serialized
-        assert "CODEX_EXEC_RESULT=" in serialized
-        assert "cmd_argv" in command["argv"]
-        assert run_task["become_user"] == "{{ agent_name }}"
-        assert run_task["no_log"] is True
+# #1071 phase 5 removed `codex/playbooks/exec.yaml` + `exec_macos.yaml`
+# along with the agent-exec subsystem. The corresponding boundary test
+# (`test_codex_exec_runbooks_run_only_the_private_binary_with_safe_transport`)
+# is gone with the runbooks.
 
 
 def test_codex_remove_runbooks_only_remove_dedicated_resources() -> None:

@@ -74,11 +74,10 @@ def shell(
     prompt is opened: the supplied command must terminate. Commands
     that prompt for input will hang; terminal-only UIs will not render.
 
-    For daemonless Claude Code agents, structured native arguments use
-    `clawctl agent exec <name> -- <args...>`. This shell path remains for a
-    terminating shell expression. It requires an explicit command after `--`,
-    activates the managed per-agent credential hook before that command, and
-    does not start an interactive Claude Code session.
+    For daemonless Claude Code agents, this shell path is the single
+    interactive entry: it requires an explicit command after `--`,
+    activates the managed per-agent credential hook before that
+    command, and does not start an interactive Claude Code session.
 
     Examples:
 
@@ -104,8 +103,7 @@ def shell(
     unix_name = claw_record.get("agent_name") or claw_record.get("name") or name
     if agent_type == "pi":
         emit_error(
-            "Pi shell access is unavailable in the install-only foundation",
-            hint="use `clawctl agent exec <name> -- <pi arguments>`; chat arrives in #1038",
+            "Pi shell access is unavailable; SSH to the host directly.",
             exit_code=2,
         )
 

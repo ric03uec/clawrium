@@ -20,15 +20,20 @@ numbered phase line so the user-visible sequence stays at 4 steps.
 Flags:
 - `--timeout 120` — 2-minute default; advisory (canonical pipeline
   does not honor a timeout parameter today).
-- `--workspace-only` — workspace overlay only, no canonical render/restart.
-- `--no-restart` — canonical render + workspace overlay, no restart.
-- `--workspace` — removed (issue #760); exits 2 with a hint.
+- `--no-restart` — canonical render only, no restart.
 - `--dry-run` — validate + show intent, no push.
 - `--diff` — (F8, parent #555) host-vs-rendered unified diff per file.
   Implies `--dry-run`. Reads on-host files via SSH so you can verify
   what `sync` is about to overwrite *before* it runs.
 - `--skip-validate` — bypass step 1.
 - `-o json` — NDJSON per phase instead of text lines.
+
+#1071 phase 3b removed the workspace-overlay sync path entirely:
+`--workspace-only` and the `--workspace` deprecated alias are gone.
+Operators who dropped files under
+`~/.config/clawrium/agents/<type>/<name>/workspace/` for the overlay
+will no longer see them pushed; manage per-agent files directly on
+the host.
 """
 
 from __future__ import annotations
@@ -212,23 +217,11 @@ def _emit_diff_error(message: str, *, resource: str, use_json: bool, streamer) -
 
 def sync(
     name: str = typer.Argument(..., help="Agent name."),
-    workspace_only: bool = typer.Option(
-        False,
-        "--workspace-only",
-        help=(
-            "Push workspace overlay only. "
-            "Skips canonical render, restart, verify. "
-            "Mutually exclusive with --diff and --no-restart. "
-            "Supported for zeroclaw — the gateway bearer is re-paired "
-            "after the overlay push so hosts.json.gateway.auth stays in "
-            "sync with the daemon."
-        ),
-    ),
     no_restart: bool = typer.Option(
         False,
         "--no-restart",
         help=(
-            "Canonical render + workspace overlay; skip restart and verify. "
+            "Canonical render only; skip restart and verify. "
             "Supported for zeroclaw — the gateway bearer is re-paired "
             "even when restart is skipped, since any externally-driven "
             "daemon restart invalidates the on-disk bearer."
@@ -239,8 +232,17 @@ def sync(
         "--workspace",
         hidden=True,
         help=(
-            "[REMOVED] Use --no-restart for canonical+overlay-no-restart, "
-            "or --workspace-only for overlay-only."
+            "[REMOVED] The workspace-overlay sync path is gone; manage "
+            "per-agent files directly on the host."
+        ),
+    ),
+    workspace_only_deprecated: bool = typer.Option(
+        False,
+        "--workspace-only",
+        hidden=True,
+        help=(
+            "[REMOVED] The workspace-overlay sync path is gone; manage "
+            "per-agent files directly on the host."
         ),
     ),
     dry_run: bool = typer.Option(
@@ -264,57 +266,22 @@ def sync(
         OutputFormat.table, "--output", "-o", help="Output format (table or json)."
     ),
 ) -> None:
-    """Flush local control-plane state and workspace overlay to the agent."""
-    # Issue #760 W6 iter-2 / W2 iter-3: `--workspace` is a HARD ERROR,
-    # not a deprecation alias. The flag prints both candidate
-    # replacements and exits 2 immediately. Routed through emit_error
-    # so JSON mode produces zero stdout bytes and one parseable error
-    # object on stderr (U32).
-    if workspace_deprecated:
+    """Flush local control-plane state to the agent."""
+    # #1071 phase 3b: both `--workspace` (removed in #760) and
+    # `--workspace-only` (removed now) are HARD ERRORS. The flags stay
+    # declared (hidden) so a script that passes them exits 2 with a
+    # clear message instead of Typer's generic "no such option" text,
+    # which fails more opaquely under JSON output.
+    if workspace_deprecated or workspace_only_deprecated:
         emit_error(
-            "the --workspace flag was removed. "
-            "Use --no-restart for canonical+overlay-no-restart, "
-            "or --workspace-only for overlay-only.",
+            "the workspace-overlay sync path was removed. "
+            "Manage per-agent files directly on the host.",
             exit_code=2,
         )
         return
 
-    # Issue #760 §1.3 mutex rejection: --workspace-only --diff is
-    # ambiguous (workspace-only pushes a fresh overlay; diff is
-    # rendered-vs-host for the canonical pipeline). Reject explicitly
-    # (I7).
-    if workspace_only and diff:
-        emit_error(
-            "--workspace-only and --diff are mutually exclusive. "
-            "Use --workspace-only --dry-run for a non-mutating overlay "
-            "preview.",
-            exit_code=2,
-        )
-        return
-
-    # ATX iter-1 B1: `--workspace-only` already implies skip-restart;
-    # passing `--no-restart` alongside is ambiguous (no-restart preserves
-    # the canonical render phase, workspace-only skips it). Reject
-    # explicitly rather than silently collapse to workspace-only.
-    if workspace_only and no_restart:
-        emit_error(
-            "--workspace-only and --no-restart are mutually exclusive. "
-            "--workspace-only already skips restart and verify; use it "
-            "alone for overlay-only behavior, or use --no-restart for "
-            "canonical+overlay-no-restart.",
-            exit_code=2,
-        )
-        return
-
-    # Phase 1 of #760 gated `--workspace-only` / `--no-restart` away
-    # from zeroclaw because the bearer-rotation invariant was not yet
-    # wired into either path. Phase 2 (#768) now invokes
-    # `_zeroclaw_repair_after_start` unconditionally in
-    # `lifecycle_canonical.sync_agent_canonical` for both flags, so the
-    # gate is dropped. The resolver call below is retained because
-    # downstream code (NDJSON emit, agent_key lookup) still relies on
-    # it, and ATX iter-3 W6 (hoisted above the old gate) keeps the
-    # single-lookup contract intact.
+    # The resolver below is retained because downstream code (NDJSON
+    # emit, agent_key lookup) still relies on it.
     host, _agent_type, claw_record = safe_resolve_agent(name)
     agent_key = resolve_agent_key(host, name)
     agent_type = claw_record.get("type", _agent_type)
@@ -332,8 +299,6 @@ def sync(
                     claw_record.get("agent_name") or agent_key,
                     restart=False,
                     verify=False,
-                    push_workspace=False,
-                    workspace_only=workspace_only,
                     dry_run=dry_run,
                 )
             except CanonicalSyncError as exc:
@@ -382,8 +347,6 @@ def sync(
                 **({"agent_key": agent_key} if agent_type == "codex" else {}),
                 restart=False,
                 verify=False,
-                push_workspace=False,
-                workspace_only=workspace_only,
                 dry_run=dry_run,
                 on_event=native_cli_event,
             )
@@ -457,12 +420,9 @@ def sync(
     for key, label in zip(phase_keys, _PHASES):
         if key == "validate" and skip_validate:
             continue
-        if key == "restart" and (no_restart or workspace_only):
+        if key == "restart" and no_restart:
             continue
-        if key in ("validate", "push") and workspace_only:
-            # `--workspace-only` short-circuits before canonical render.
-            continue
-        if key == "verify" and (no_restart or workspace_only):
+        if key == "verify" and no_restart:
             continue
         # ATX iter-1 W3: in dry-run mode every phase short-circuits
         # before the canonical pipeline runs (the early return at the
@@ -651,10 +611,8 @@ def sync(
             on_host_name,
             **({"agent_key": agent_key} if agent_type == "codex" else {}),
             force=False,
-            restart=not (no_restart or workspace_only),
-            verify=not (no_restart or workspace_only),
-            push_workspace=True,
-            workspace_only=workspace_only,
+            restart=not no_restart,
+            verify=not no_restart,
             dry_run=dry_run,
             on_event=canonical_event,
         )

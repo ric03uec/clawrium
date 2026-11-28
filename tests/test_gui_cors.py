@@ -140,15 +140,25 @@ def test_preflight_allowed_method():
 
 
 def test_put_method_cors_headers():
-    """PUT should return CORS headers for allowed origins."""
+    """PUT should return CORS headers for allowed origins.
+
+    The `/api/agents/<name>/memory/<file>` endpoint this test
+    originally exercised was removed with the memory subsystem in
+    #1071 phase 3a. The CORS middleware contract is handler-
+    agnostic, so we hit another PUT-accepting path (the OpenAPI
+    schema exposes PUT on provider records) and assert the same
+    middleware behaviour.
+    """
     client = TestClient(app, base_url="http://localhost:36000")
     response = client.put(
-        "/api/agents/foo/memory/test.txt",
-        content=b"test",
+        "/api/providers/does-not-exist",
+        content=b"{}",
         headers={"Origin": "http://localhost:3000"},
     )
-    # 404 is fine (no such agent), but CORS should pass through
-    assert response.status_code in (200, 404, 422)
+    # Status may be 404 / 405 / 422 depending on the handler shape —
+    # CORS middleware runs before dispatch, so the header is set on
+    # every response regardless.
+    assert response.status_code in (200, 404, 405, 422)
     assert response.headers.get("access-control-allow-origin") == "http://localhost:3000"
 
 

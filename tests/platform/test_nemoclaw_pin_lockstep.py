@@ -5,7 +5,7 @@ THREE places that must stay in lockstep and MUST be asserted by direct
 pairwise equality — not transitively — so renaming or skipping one
 assertion cannot silently unmask drift:
 
-  1. `clawrium.core.nemoclaw.NEMOCLAW_VERSION` (the Python constant).
+  1. `clawrium.core.openclaw_sandbox.NEMOCLAW_VERSION` (the Python constant).
   2. `manifest.yaml`'s `runtime.nemoclaw.version` field on openclaw.
   3. `install_nemoclaw.yaml`'s `vars.nemoclaw_version` (Linux) and
      `install_nemoclaw_macos.yaml`'s `vars.nemoclaw_version` (darwin
@@ -25,7 +25,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from clawrium.core.nemoclaw import NEMOCLAW_VERSION
+from clawrium.core.openclaw_sandbox import NEMOCLAW_VERSION
 
 _REGISTRY_ROOT = (
     Path(__file__).parent.parent.parent
@@ -132,10 +132,10 @@ def test_runbook_has_single_task0_dispatcher_guard(runbook: str) -> None:
 
 def test_linux_runbook_arch_map_matches_python_supported_arches() -> None:
     """Every arch the runbook claims to install for MUST have a matching
-    entry in `clawrium.core.nemoclaw.SUPPORTED_ARCHES`. Drift here
+    entry in `clawrium.core.openclaw_sandbox.SUPPORTED_ARCHES`. Drift here
     would let the runbook route to an arch the Python side rejects
     (or vice versa)."""
-    from clawrium.core.nemoclaw import SUPPORTED_ARCHES
+    from clawrium.core.openclaw_sandbox import SUPPORTED_ARCHES
 
     data = yaml.safe_load(
         (_REGISTRY_ROOT / "playbooks" / "install_nemoclaw.yaml").read_text()

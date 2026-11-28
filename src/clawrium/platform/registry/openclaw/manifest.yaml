@@ -8,7 +8,7 @@ agent:
 # NemoClaw sandbox. The `version` field here is the single manifest-
 # side entry in the 3-way version-pin lockstep contract:
 #
-#   `src/clawrium/core/nemoclaw.py:NEMOCLAW_VERSION`
+#   `src/clawrium/core/openclaw_sandbox.py:NEMOCLAW_VERSION`
 #     == `runtime.nemoclaw.version` (this field)
 #     == `install_nemoclaw.yaml` `vars.nemoclaw_version`
 #
@@ -36,12 +36,8 @@ plugins:
 # Workspace metadata consumed by cross-claw subsystems (memory CLI, etc.).
 # Path matches the location previously hard-coded in core/memory.py so the
 # memory dispatcher can read it without behavior change.
-workspace:
-  memory_path: "~/.openclaw/workspace/memory"
-
 # Capability flags advertised by this manifest.
 features:
-  memory: true
   # Chat dispatch resolves to the WebSocket gateway client for openclaw.
   chat:
     type: websocket
@@ -68,16 +64,6 @@ features:
     enabled: true
     bind: wildcard
     port_field: gateway.port
-  # Operator-owned overlay slot. Files dropped under
-  # ~/.config/clawrium/agents/openclaw/<name>/workspace/ are mirrored to
-  # `destination_root` on the agent host on every `clawctl agent sync`.
-  # Openclaw separates config (~/.openclaw/) from workspace
-  # (~/.openclaw/workspace/) per upstream — overlay writes only into the
-  # workspace zone, never into ~/.openclaw/ proper, so excludes can be
-  # empty.
-  workspace_overlay:
-    destination_root: "~/.openclaw/workspace"
-    excludes: []
 
 # Secrets configuration
 # Note: Provider-specific API keys (OPENAI_API_KEY, ANTHROPIC_API_KEY, etc.)

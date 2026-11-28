@@ -23,7 +23,7 @@ OPENCLAW_DEFAULT_MODEL={{ default_model_id | shq }}
 {# Provider bearer emission — restored after Phase 4's premature strip
    left every sandboxed openclaw unable to reach any LLM. The long-term
    design still routes provider bearers through a NemoClaw gateway
-   registry (see core/nemoclaw.py:gateway_register_provider); until that
+   registry (see core/openclaw_sandbox.py:gateway_register_provider); until that
    §7.5 wire-up lands, openclaw needs its provider key in-process the
    same way bare openclaw always did. This block emits one canonical
    env var per known provider type. Unmapped types are intentionally

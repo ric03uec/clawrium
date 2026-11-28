@@ -544,7 +544,6 @@ def test_openrouter_sync_revokes_aws_caches_before_replacing_bedrock(monkeypatch
         agent_name="pi-demo",
         host={"hostname": "host", "os_family": "linux"},
         claw_record={"providers": ["openrouter"]},
-        workspace_only=False,
         dry_run=False,
         on_event=None,
     )
@@ -597,7 +596,6 @@ def test_real_partial_cache_failure_stops_sync_and_revoke_before_managed_mutatio
                     agent_name=agent_name,
                     host={"hostname": "host", "os_family": os_family},
                     claw_record={"providers": ["openrouter"]},
-                    workspace_only=False,
                     dry_run=False,
                     on_event=None,
                 )
@@ -673,7 +671,6 @@ def test_openrouter_removes_old_aws_files_before_new_activation(
             agent_name="pi-demo",
             host={"hostname": "host", "os_family": "linux"},
             claw_record={"providers": ["openrouter"]},
-            workspace_only=False,
             dry_run=False,
             on_event=None,
         )
@@ -698,7 +695,6 @@ def test_openrouter_dry_run_does_not_contact_or_clear_remote_cache(monkeypatch):
         agent_name="pi-demo",
         host={"hostname": "host", "os_family": "linux"},
         claw_record={"providers": ["openrouter"]},
-        workspace_only=False,
         dry_run=True,
         on_event=None,
     )

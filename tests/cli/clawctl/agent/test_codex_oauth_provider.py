@@ -130,8 +130,6 @@ def test_codex_sync_dispatches_to_refresh_safe_canonical_path(fleet_dir, monkeyp
     assert kwargs["agent_key"] == "fleet-codex"
     assert kwargs["restart"] is False
     assert kwargs["verify"] is False
-    assert kwargs["push_workspace"] is False
-    assert kwargs["workspace_only"] is False
     assert kwargs["dry_run"] is False
     assert callable(kwargs["on_event"])
 

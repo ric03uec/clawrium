@@ -6,14 +6,8 @@ agent:
 # Path α (chosen for #358): the workspace dir holds the 7 personality MD
 # files surfaced as "memory" through `clawctl agent memory show|edit|delete`.
 # See .itx/358/01_EXECUTION.md for the (α vs β) rationale.
-workspace:
-  memory_path: "~/.zeroclaw/workspace"
-
 # Capability flags advertised by this manifest.
 features:
-  # Memory CLI dispatches to zeroclaw/playbooks/memory_*.yaml against the
-  # workspace path above.
-  memory: true
   # Chat dispatch routes to `core/chat_zeroclaw.py` (WebSocket client speaking
   # ZeroClaw's tagged-JSON envelope). Distinct from openclaw's `websocket`
   # value because the frame schemas differ (different `type` values, different
@@ -34,17 +28,6 @@ features:
     enabled: true
     bind: wildcard
     port_field: gateway.port
-  # Operator-owned overlay slot. Files dropped under
-  # ~/.config/clawrium/agents/zeroclaw/<name>/workspace/ are mirrored to
-  # `destination_root` on the agent host on every `clawctl agent sync`.
-  # Zeroclaw's workspace dir is the same path that holds the canonical
-  # memory tree (see `workspace.memory_path` above), so the overlay
-  # writes alongside operator-edited memory files. Excludes are empty:
-  # zeroclaw does not render config or auth artifacts under the
-  # workspace root, so no path must be reserved.
-  workspace_overlay:
-    destination_root: "~/.zeroclaw/workspace"
-    excludes: []
 
 # Secrets for this agent. Provider URL and model are now sourced from the
 # providers system (selected during the onboarding `providers` stage and
