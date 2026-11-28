@@ -4,12 +4,8 @@ agent:
 
 # Workspace metadata consumed by cross-claw subsystems (memory CLI, etc.).
 # Phase 3 will read this to dispatch memory operations to ~/.hermes/memories/.
-workspace:
-  memory_path: "~/.hermes/memories"
-
 # Capability flags advertised by this manifest.
 features:
-  memory: true
   # Chat dispatch resolves to the OpenAI-compatible HTTP backend for hermes.
   chat:
     type: openai

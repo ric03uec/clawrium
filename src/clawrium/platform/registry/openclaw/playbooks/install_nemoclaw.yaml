@@ -23,7 +23,7 @@
 # install.sh bootstrap's SHA256 (`nemoclaw_install_sh_sha256`) and
 # verify it at fetch time via `get_url`'s `checksum:` param. A version
 # bump requires re-hashing install.sh at the new tag and updating
-# `INSTALL_SH_SHA256` in `src/clawrium/core/nemoclaw.py` + the var
+# `INSTALL_SH_SHA256` in `src/clawrium/core/openclaw_sandbox.py` + the var
 # below in lockstep. The equality is asserted by
 # `tests/platform/test_nemoclaw_pin_lockstep.py`.
 #
@@ -50,7 +50,7 @@
     # support (e.g. armv7l), so operators get a clear error before the
     # network fetch + clone rather than a cryptic mid-install failure.
     # `tests/platform/test_nemoclaw_pin_lockstep.py` asserts these keys
-    # equal `SUPPORTED_ARCHES` in `src/clawrium/core/nemoclaw.py`.
+    # equal `SUPPORTED_ARCHES` in `src/clawrium/core/openclaw_sandbox.py`.
     nemoclaw_arch_map:
       x86_64: linux-amd64
       aarch64: linux-arm64

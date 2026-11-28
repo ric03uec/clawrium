@@ -22,7 +22,7 @@ cut. The `itx-release` skill archives this section into a new
   | `clawctl agent exec <name> -- <args...>` | `clawctl agent shell <name> -- <cmd>` (one-shot), or SSH directly for longer sessions. |
   | `clawctl agent memory ...` | No replacement. Operator memory lives on the agent host; manage it with the agent's native tooling. |
   | `clawctl agent audit <name>`, `clawctl audit {log,tail,stats,path,session}` | No replacement. The operator audit trail capability is removed from `clawctl`. Prior logs under `~/.config/clawrium/changelog/` are untouched and can be read manually. |
-  | `clawctl agent secret {create,list,delete,import}` | Provider and integration credentials live on the provider / integration records: use `clawctl provider` and `clawctl integration`. There is no agent-scoped secret CLI. |
+  | `clawctl agent secret {create,get,describe,delete,import}` | Provider and integration credentials live on the provider / integration records: use `clawctl provider` and `clawctl integration`. There is no agent-scoped secret CLI. The orphan `clawrium.cli.agent` module (which exposed an older `set/list/remove/import` surface and was superseded by `cli/clawctl/agent/secret.py` in #706/#707) is also deleted. |
   | `clawctl apply -f <file>`, `clawctl diff -f <file>` | No replacement for declarative fleet apply / diff. `clawctl delete -f <file>` stays for declarative teardown; the imperative path is the individual lifecycle verbs (`clawctl agent {create,configure,sync,start,stop,restart,delete}`). |
   | `clawctl doctor nemoclaw` | Removed — NemoClaw is reclassified as infrastructure, not an agent runtime. No replacement. |
 

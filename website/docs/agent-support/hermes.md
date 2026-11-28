@@ -4,6 +4,8 @@ Hermes is the [Nous Research self-improving AI agent](https://github.com/NousRes
 
 **Status:** 🚧 In Development
 
+> **Changed in v26.11.0 (#1071).** `clawctl agent chat`, `agent exec`, `agent memory`, `agent audit`, and `agent secret` were removed. Operators SSH to the agent host for interactive sessions; `clawctl agent shell <name> -- <cmd>` wraps a one-shot command. Examples below that reference the removed verbs are historical — read them against the current CLI with that substitution in mind.
+
 **Best for:** Local-first agents that need an OpenAI-compatible HTTP endpoint, file-based memory, and self-managed identity. Particularly useful with self-hosted inference (Ollama, vLLM, llama.cpp) since the api_server platform turns any of those into a unified OpenAI-style backend.
 
 **Pinned version:** `v2026.5.7` (manifest entry, both Ubuntu 22.04 and 24.04 x86_64). The installer SHA256 is pinned in `src/clawrium/platform/registry/hermes/manifest.yaml`; every version bump requires re-pinning.

@@ -2,11 +2,7 @@ agent:
   type: ethos
   description: "TypeScript AI agent framework — personality is architecture"
 
-workspace:
-  memory_path: "~/.ethos/personalities"
-
 features:
-  memory: true
   # Chat dispatch resolves to the OpenAI-compatible HTTP backend for ethos.
   chat:
     type: openai

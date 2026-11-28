@@ -2850,10 +2850,29 @@ def _openclaw_nemoclaw_onboard(
     if not isinstance(agent_record, dict):
         # Unit tests and a few defensive call sites pass a minimized host
         # record alongside the already-resolved claw_record. Production
-        # hosts.json records contain the agent under host["agents"].
+        # hosts.json records contain the agent under host["agents"]; a
+        # real openclaw sync that reaches this path with no agent record
+        # would be a bug the installer closes before sync runs. Log at
+        # WARNING so an unexpected miss on a production host surfaces
+        # (ATX #1071 round-5 W3/W7).
+        logger.warning(
+            "_openclaw_nemoclaw_onboard: agent record missing for %r on "
+            "host %r — skipping onboard. If this was NOT called from a "
+            "minimized-host-record test, inspect `hosts.json`: a real "
+            "openclaw sync should never reach this branch.",
+            agent_name,
+            hostname,
+        )
         return
     config = agent_record.get("config") or {}
     if not isinstance(config, dict):
+        logger.warning(
+            "_openclaw_nemoclaw_onboard: agent %r on %r has non-dict "
+            "`config` field; skipping onboard. Inspect `hosts.json` — "
+            "the record is likely corrupt.",
+            agent_name,
+            hostname,
+        )
         return
     runtime = config.get("runtime")
     runtime_norm = str(runtime or "").strip().lower()
@@ -3201,8 +3220,8 @@ def sync_agent_canonical(
     # #910: preserve zeroclaw `[onboard_state].completed_sections` across
     # re-render. The template used to hardcode `= []`, so every sync
     # wiped the daemon's live onboarding-completion state and forced it
-    # back into pre-onboard mode — `clawctl agent chat` then failed with
-    # a `Quickstart` protocol error on the next request. Read the
+    # back into pre-onboard mode — the next GUI / integration request
+    # then failed with a `Quickstart` protocol error. Read the
     # on-host config here (outside the renderer, which by contract stays
     # pure — see render.py docstring line ~12) and thread the field
     # into the render inputs so the re-render preserves whatever
@@ -3577,7 +3596,7 @@ def sync_agent_canonical(
             # bearer the daemon enforces on the next request — surface
             # the divergence as a structured NDJSON event before
             # raising so operators get a starting point instead of
-            # chasing silent 401s on the next `clawctl agent chat`.
+            # chasing silent 401s on the next GUI / port-forward hit.
             # (iter-1 lifecycle-core W1: corrected from the misleading
             # "restart + verify succeeded above" wording.)
             if on_event is not None:
@@ -3605,7 +3624,8 @@ def sync_agent_canonical(
                 preamble = f"sync of {agent_name!r} (restart skipped)"
             raise CanonicalSyncError(
                 f"{preamble} but the gateway re-pair failed: "
-                f"{repair_err}. `clawctl agent chat` will return 401 "
+                f"{repair_err}. Any client using the on-disk bearer "
+                f"(GUI web UI, port-forward, SDK) will get a 401 "
                 f"until the bearer rotates. Run `clawctl agent restart "
                 f"{agent_name}` to recover; if that fails, "
                 f"`clawctl agent doctor {agent_name}` for diagnosis."

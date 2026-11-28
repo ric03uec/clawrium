@@ -317,20 +317,9 @@ def test_install_was_skipped_handles_zeroclaw_fact():
 # ----- Issue #358: workspace + memory CLI wiring -----------------------------
 
 
-def test_zeroclaw_manifest_declares_memory_feature():
-    """features.memory must be true so cli/memory.py routes to zeroclaw playbooks."""
-    manifest = load_manifest("zeroclaw")
-    features = manifest.get("features", {})
-    assert features.get("memory") is True
-    workspace = manifest.get("workspace", {})
-    assert workspace.get("memory_path") == "~/.zeroclaw/workspace"
-
-
-# #1071 phase 5 removed every `memory_*.yaml` playbook along with the
-# agent-memory subsystem. `test_zeroclaw_memory_playbooks_exist`,
-# `test_zeroclaw_memory_info_lists_six_personality_files`, and
-# `test_zeroclaw_memory_playbooks_target_workspace_path` are gone with
-# the playbooks they probed.
+# #1071 phase 5 removed `features.memory` + `workspace.memory_path`
+# from this manifest. Test `test_zeroclaw_manifest_declares_memory_feature` was removed with the fields
+# it probed.
 
 
 def test_zeroclaw_workspace_templates_exist():

@@ -1,4 +1,4 @@
-"""Tests for the Phase 2 NemoClaw CLI wrapper API (`core/nemoclaw.py`).
+"""Tests for the Phase 2 NemoClaw CLI wrapper API (`core/openclaw_sandbox.py`).
 
 Closes ATX iter-1 B4 — the wrapper is the injection-prevention seam
 that Phase 3 will delegate every openclaw lifecycle verb through, so

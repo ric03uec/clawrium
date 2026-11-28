@@ -35,10 +35,9 @@ def test_ethos_manifest_platforms():
         assert "nodejs" in deps
 
 
-def test_ethos_manifest_memory():
-    manifest = load_manifest("ethos")
-    assert manifest.get("features", {}).get("memory") is True
-    assert "memory_path" in manifest.get("workspace", {})
+# #1071 phase 5 removed `features.memory` + `workspace.memory_path`
+# from this manifest. Test `test_ethos_manifest_memory` was removed with the fields
+# it probed.
 
 
 def test_ethos_manifest_onboarding_identity_required():

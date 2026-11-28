@@ -8,7 +8,7 @@ agent:
 # NemoClaw sandbox. The `version` field here is the single manifest-
 # side entry in the 3-way version-pin lockstep contract:
 #
-#   `src/clawrium/core/nemoclaw.py:NEMOCLAW_VERSION`
+#   `src/clawrium/core/openclaw_sandbox.py:NEMOCLAW_VERSION`
 #     == `runtime.nemoclaw.version` (this field)
 #     == `install_nemoclaw.yaml` `vars.nemoclaw_version`
 #
@@ -36,12 +36,8 @@ plugins:
 # Workspace metadata consumed by cross-claw subsystems (memory CLI, etc.).
 # Path matches the location previously hard-coded in core/memory.py so the
 # memory dispatcher can read it without behavior change.
-workspace:
-  memory_path: "~/.openclaw/workspace/memory"
-
 # Capability flags advertised by this manifest.
 features:
-  memory: true
   # Chat dispatch resolves to the WebSocket gateway client for openclaw.
   chat:
     type: websocket
