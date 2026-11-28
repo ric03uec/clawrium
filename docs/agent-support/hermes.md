@@ -63,7 +63,7 @@ Hermes supports three channels managed by clawctl: a loopback OpenAI-compatible 
 |---------|:------:|-------|
 | **Local API server** | ✅ | `API_SERVER_ENABLED=1` + `API_SERVER_KEY` in `~/.hermes/.env`, bound to `127.0.0.1:8642` |
 | **Multi-provider** | ✅ | Up to **10 attachments per agent**: 1 `primary` slot + 9 upstream auxiliary slots (`vision`, `web_extract`, `compression`, `session_search`, `skills_hub`, `approval`, `mcp`, `title_generation`, `curator`). One provider per slot. See [Multi-provider attachments](#multi-provider-attachments). |
-| **Memory (Markdown backend)** | ✅ | Two-file model: `MEMORY.md` (≤ 2200 chars), `USER.md` (≤ 1375 chars). See [memory.md](memory.md). |
+| **Memory (Markdown backend)** | ✅ | Two-file model: `MEMORY.md` (≤ 2200 chars), `USER.md` (≤ 1375 chars). Operator-owned on the agent host after #1071. |
 | **Pluggable memory backends** (Holographic / Honcho / Hindsight / Mem0 / Byterover / OpenViking) | 📋 | Deferred. clawctl's `memory` CLI sees only the default markdown backend in this iteration. |
 | **Secrets management** | ✅ | `HERMES_API_SERVER_KEY` persisted in `~/.config/clawrium/secrets.json` (NOT `hosts.json`) under the canonical instance key `<key_id>:hermes:<agent-name>` (single-colon, 3 components). `key_id` is the immutable host identifier set when the host was first registered via `clawctl host create`. It does not change when the host's `hostname` is updated (issue #448). `secrets.json` is chmod 0600 on creation. Per-agent secrets are isolated by instance key. |
 | **Auto-restart** | ✅ | Systemd unit `hermes-<agent_name>.service` with `Restart=on-failure`; systemd is the supervisor (no separate process). |
@@ -478,7 +478,7 @@ The following are explicitly out of scope for issue #68 and tracked as separate 
 
 ## Next Steps
 
-- [Memory model](memory.md) — manifest-driven memory CLI across agent types
+
 - [OpenClaw Support Matrix](openclaw.md) — full-featured alternative with multi-channel support
 - [Agent Onboarding](../agent-onboarding.md) — detailed onboarding wizard guide
 - [Host Preparation](../host-preparation.md) — installing provider credentials and host prereqs

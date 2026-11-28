@@ -35,7 +35,6 @@ const sidebars: SidebarsConfig = {
         'agent-support/zeroclaw',
         'agent-support/claude',
         'agent-support/codex',
-        'agent-support/memory',
       ],
     },
     'web-dashboard',
